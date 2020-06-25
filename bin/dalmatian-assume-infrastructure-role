@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                       - help"
+  echo "  -i <infrastructure_name> - Infrastructure Name (required)"
+  echo "  -p <profile>             - AWS Profile         (default: AWS_PROFILE)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ];
+then
+ usage
+fi
+
+SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+AWS_PROFILE=${AWS_PROFILE:-default}
+
+while getopts "i:p:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    p)
+      AWS_PROFILE=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$INFRASTRUCTURE_NAME" ]; then
+  usage
+fi
+
+"$SCRIPT_PATH/dalmatian-refresh-config" -p "$AWS_PROFILE" > /dev/null 2>&1
+
+INFRASTTRUCTURE_ACCOUNT_ID=$(yq r "$SCRIPT_PATH/tmp/dalmatian-config/dalmatian.yml" "infrastructures.$INFRASTRUCTURE_NAME.account_id")
+
+CREDENTIALS=$(aws sts assume-role --role-arn arn:aws:iam::"$INFRASTTRUCTURE_ACCOUNT_ID":role/dalmatian-admin --role-session-name dalmatian-tools --profile "$AWS_PROFILE")
+
+ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r .Credentials.AccessKeyId)
+SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r .Credentials.SecretAccessKey)
+SESSION_TOKEN=$(echo "$CREDENTIALS" | jq -r .Credentials.SessionToken)
+
+echo "export AWS_ACCESS_KEY_ID=$ACCESS_KEY_ID"
+echo "export AWS_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY"
+echo "export AWS_SESSION_TOKEN=$SESSION_TOKEN"
