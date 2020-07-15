@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# Requires the `session-manager-plugin` to be installed:
+# https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
+  echo "                           'AWS_PROFILE' env or 'default')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ];
+then
+ usage
+ exit 0
+fi
+
+if ! command -v session-manager-plugin > /dev/null
+then
+  echo "This script requires the \`session-manager-plugin\` to be installed:"
+  echo "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
+  exit 1
+fi
+
+SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+AWS_PROFILE=${AWS_PROFILE:-default}
+
+while getopts "i:e:p:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    p)
+      AWS_PROFILE=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]; then
+  usage
+fi
+
+echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
+
+eval "$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")"
+
+echo "==> Finding ECS instance..."
+
+INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
+INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
+INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
+
+echo "==> Connecting to '$INSTANCE_NAME' (id: $INSTANCE_ID)..."
+
+aws ssm start-session --target "$INSTANCE_ID"
