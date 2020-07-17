@@ -1,0 +1,122 @@
+#!/usr/bin/env php
+<?php
+ini_set('memory_limit','4G');
+// Unescape to avoid dump-text issues
+function unescape_mysql($value) {
+	return str_replace(array("\\\\", "\\0", "\\n", "\\r", "\Z",  "\'", '\"'),
+					   array("\\",   "\0",  "\n",  "\r",  "\x1a", "'", '"'), 
+					   $value);
+}
+
+
+
+// Fix strange behaviour if you have escaped quotes in your replacement
+function unescape_quotes($value) {
+	return str_replace('\"', '"', $value);
+}	
+
+
+
+// Check command line arguments
+if (!(isset($argv) && isset($argv[1]))) {
+	
+	// Error
+	echo 'Error: no input file specified'."\n\n";
+
+// With arguments
+} else {
+	
+	$file = $argv[1];
+	if (!file_exists($file)) {
+	
+		// Error
+		echo 'Error: input file does not exists'."\n";
+		echo $file."\n\n";
+	
+	// File exists
+	} else {
+	
+		// Get file contents
+		if (!($fp = fopen($file, 'r'))) {
+			
+			// Error
+			echo 'Error: can`t open input file for read'."\n";
+			echo $file."\n\n";
+		
+		// File opened for read
+		} else {
+			
+			// Initializations
+			$do_preg_replace = false;
+		
+			// Copy data
+			if (!($data = fread($fp, filesize($file)))) {
+
+				// Error
+				echo 'Error: can`t read entire data from input file'."\n";
+				echo $file."\n\n";
+			
+			// Check data
+			} elseif (!(isset($data) && strlen($data) > 0)) {
+
+				// Warning
+				echo "Warning: the file is empty or can't read contents\n";
+				echo $file."\n\n";
+			
+			// Data ok
+			} else {
+
+				// Tag context
+				$do_preg_replace = true;
+
+				// Replace serialized string values
+				$data = preg_replace('!s:(\d+):([\\\\]?"[\\\\]?"|[\\\\]?"((.*?)[^\\\\])[\\\\]?");!e', "'s:'.strlen(unescape_mysql('$3')).':\"'.unescape_quotes('$3').'\";'", $data);
+			}
+
+			// Close file
+			fclose($fp);
+			
+			// Check data
+			if (!(isset($data) && strlen($data) > 0)) {
+				
+				// Check origin
+				if ($do_preg_replace) {
+
+					// Error
+					echo "Error: preg_replace returns nothing\n";
+					if (function_exists('preg_last_error')) echo "preg_last_error() = ".preg_last_error()."\n";
+					echo $file."\n\n";
+				}
+			
+			// Data Ok
+			} else {
+
+				// And finally write data
+				if (!($fp = fopen($file, 'w'))) {
+
+					// Error
+					echo "Error: can't open input file for writing\n";
+					echo $file."\n\n";
+					
+				// Open for write
+				} else {
+					
+					// Write file data
+					if (!fwrite($fp, $data)) {
+						
+						// Error
+						echo "Error: can't write input file\n";
+						echo $file."\n\n";
+					}
+					
+					// Close file
+					fclose($fp);
+				}
+			}
+		}
+	}
+}
+
+
+
+?>
