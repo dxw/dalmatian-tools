@@ -1,0 +1,29 @@
+#!/usr/bin/env php
+<?php
+ini_set('memory_limit','3G');
+if (!(isset($argv) && isset($argv[1]))) {
+        echo 'Error: no input file specified'."\n\n";
+        exit;
+}
+
+$filename = $argv[1];
+
+$f=file("replace.txt");
+$g=file($filename);
+$replace=$search=array();
+while(list($key,$value)=each($f)) {
+$al=array_map('trim', explode(" ",$value));
+$search[]=trim($al[0],'"');
+$replace[]=trim($al[1],'"');
+}
+
+$newg=str_replace($search,$replace,$g);
+$new_filename="/munged.sql";
+$h=fopen($new_filename,"w");
+while(list($key,$value)=each($newg))
+{
+fwrite($h,$value);
+}
+fclose($h);
+
+?>
