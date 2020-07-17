@@ -1,0 +1,141 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -d <database_name>     - database name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -o <output_file_path>  - output file path"
+  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
+  echo "                           'dalmatian-admin')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ];
+then
+ usage
+fi
+
+SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+AWS_PROFILE=dalmatian-admin
+
+while getopts "i:e:r:d:o:p:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    p)
+      AWS_PROFILE=$OPTARG
+      ;;
+    d)
+      DATABASE_NAME=$OPTARG
+      ;;
+    o)
+      OUTPUT_FILE_PATH=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$RDS_NAME"
+  || -z "$DATABASE_NAME"
+  || -z "$ENVIRONMENT"
+]]; then
+  usage
+fi
+
+if [ -n "$OUTPUT_FILE_PATH" ]
+then
+  OUTPUT_FILE_PATH="$(realpath "$OUTPUT_FILE_PATH")"
+else
+  OUTPUT_FILE_PATH="."
+fi
+
+# Remove dashes from the variables to create the RDS identifier, because dashes
+# aren't allowed in RDS identifiers. Dalmatian removes them on deployment, so we
+# need to remove them here to get the correct identifier.
+RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
+
+echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
+
+eval "$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")"
+
+echo "==> Retrieving RDS root password from Parameter Store..."
+
+RDS_ROOT_PASSWORD_PARAMETER=$(
+  aws ssm get-parameters \
+    --names "/$INFRASTRUCTURE_NAME/$RDS_IDENTIFIER-rds/password" \
+    --with-decryption
+)
+RDS_ROOT_PASSWORD=$(
+  echo "$RDS_ROOT_PASSWORD_PARAMETER" \
+    | jq -r .Parameters[0].Value
+)
+
+echo "==> Getting RDS info..."
+
+RDS_INFO=$(
+  aws rds describe-db-instances \
+    --db-instance-identifier "$RDS_IDENTIFIER"
+)
+RDS_ENGINE=$(echo "$RDS_INFO" | jq -r .DBInstances[0].Engine)
+RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBInstances[0].MasterUsername)
+RDS_VPC=$(echo "$RDS_INFO" | jq -r .DBInstances[0].DBSubnetGroup.VpcId)
+
+echo "Engine: $RDS_ENGINE"
+echo "Root username: $RDS_ROOT_USERNAME"
+echo "VPC ID: $RDS_VPC"
+
+echo "==> Finding ECS instance..."
+
+ECS_INSTANCES=$(
+  aws ec2 describe-instances \
+    --filters "Name=vpc-id,Values=$RDS_VPC"
+)
+ECS_INSTANCE_ID=$(
+  echo "$ECS_INSTANCES" \
+    | jq -r .Reservations[0].Instances[0].InstanceId
+)
+
+echo "ECS instance ID: $ECS_INSTANCE_ID"
+
+echo "Exporting $DATABASE_NAME db from $RDS_IDENTIFIER rds..."
+
+aws ssm start-session \
+  --target "$ECS_INSTANCE_ID" \
+  --document-name "$RDS_IDENTIFIER-rds-sql-dump" \
+  --parameters "RootPassword=$RDS_ROOT_PASSWORD,DatabaseName=$DATABASE_NAME"
+
+echo "==> Export complete"
+
+SQL_FILE_NAME="$DATABASE_NAME-$ENVIRONMENT-sql-export.sql"
+S3_BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
+
+echo "==> Starting download of $SQL_FILE_NAME from s3 bucket $S3_BUCKET_NAME..."
+
+aws s3 cp "s3://$S3_BUCKET_NAME/db_exports/$SQL_FILE_NAME" "$OUTPUT_FILE_PATH"
+
+echo "==> Deleting sql file from S3 ..."
+
+aws s3 rm "s3://$S3_BUCKET_NAME/db_exports/$SQL_FILE_NAME"
