@@ -1,0 +1,89 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service_name>      - service name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -P <paths>             - space separated list of paths (default '/*')"
+  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
+  echo "                           'AWS_PROFILE' env or 'dalmatian-admin')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ];
+then
+ usage
+ exit 0
+fi
+
+SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+AWS_PROFILE=${AWS_PROFILE:-dalmatian-admin}
+PATHS="/*"
+
+while getopts "i:e:s:P:p:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    P)
+      PATHS=$OPTARG
+      ;;
+    p)
+      AWS_PROFILE=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+  || -z "$SERVICE_NAME"
+]]; then
+  usage
+fi
+
+echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
+
+eval "$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")"
+
+echo "==> Finding CloudFront distribution..."
+
+DISTRIBUTIONS=$(aws cloudfront list-distributions)
+DISTRIBUTION=$(echo "$DISTRIBUTIONS" | jq -r --arg origin "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-default-origin" '.DistributionList.Items[] | select(.Origins.Items[].Id==$origin)')
+DISTRIBUTION_ID=$(echo "$DISTRIBUTION" | jq -r '.Id')
+DISTRIBUTION_ALIAS=$(echo "$DISTRIBUTION" | jq -r '.Aliases.Items[0]')
+DISTRIBUTION_DOMAIN=$(echo "$DISTRIBUTION" | jq -r '.DomainName')
+
+echo "==> Running invalidation on distribution $DISTRIBUTION_ID ( $DISTRIBUTION_ALIAS, $DISTRIBUTION_DOMAIN ) ..."
+
+DISTRIBUTION_INVALIDATION=$(aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "$PATHS")
+DISTRIBUTION_INVALIDATION_ID=$(echo "$DISTRIBUTION_INVALIDATION" | jq -r '.Invalidation.Id')
+
+DISTRIBUTION_INVALIDATION_CURRENT_STATUS=""
+while [ "$DISTRIBUTION_INVALIDATION_CURRENT_STATUS" != "Completed" ]
+do
+  DISTRIBUTION_INVALIDATION_CURRENT=$(aws cloudfront get-invalidation --distribution-id "$DISTRIBUTION_ID" --id "$DISTRIBUTION_INVALIDATION_ID")
+  DISTRIBUTION_INVALIDATION_CURRENT_STATUS=$(echo "$DISTRIBUTION_INVALIDATION_CURRENT" | jq -r ".Invalidation.Status")
+  echo "Invalidation $DISTRIBUTION_INVALIDATION_CURRENT_STATUS ..."
+  sleep 3
+done
