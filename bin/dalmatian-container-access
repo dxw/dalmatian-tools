@@ -14,7 +14,7 @@ usage() {
   echo "  -s <service_name>      - service name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'AWS_PROFILE' env or 'default')"
+  echo "                           'AWS_PROFILE' env or 'dalmatian-admin')"
   exit 1
 }
 
@@ -34,7 +34,7 @@ fi
 
 SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
-AWS_PROFILE=${AWS_PROFILE:-default}
+AWS_PROFILE=${AWS_PROFILE:-dalmatian-admin}
 
 while getopts "i:e:s:p:h" opt; do
   case $opt in
