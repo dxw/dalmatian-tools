@@ -43,11 +43,18 @@ if [ -z "$INFRASTRUCTURE_NAME" ]; then
   usage
 fi
 
-"$SCRIPT_PATH/dalmatian-refresh-config" -p "$AWS_PROFILE" > /dev/null 2>&1
+"$SCRIPT_PATH/dalmatian-refresh-config" -p "$AWS_PROFILE" > /dev/null
 
-INFRASTTRUCTURE_ACCOUNT_ID=$(yq r "$SCRIPT_PATH/tmp/dalmatian-config/dalmatian.yml" "infrastructures.$INFRASTRUCTURE_NAME.account_id")
+INFRASTRUCTURE_ACCOUNT_ID=$(yq r "$SCRIPT_PATH/tmp/dalmatian-config/dalmatian.yml" "infrastructures.$INFRASTRUCTURE_NAME.account_id")
 
-CREDENTIALS=$(aws sts assume-role --role-arn arn:aws:iam::"$INFRASTTRUCTURE_ACCOUNT_ID":role/dalmatian-admin --role-session-name dalmatian-tools --profile "$AWS_PROFILE")
+if [ -z "$INFRASTRUCTURE_ACCOUNT_ID" ]
+then
+  echo "==> Error: Infrastructure '$INFRASTRUCTURE_NAME' not found in dalmatian-config," 1>&2
+  echo "           or it does not contain an 'account_id'" 1>&2
+  exit 1
+fi
+
+CREDENTIALS=$(aws sts assume-role --role-arn arn:aws:iam::"$INFRASTRUCTURE_ACCOUNT_ID":role/dalmatian-admin --role-session-name dalmatian-tools --profile "$AWS_PROFILE")
 
 ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r .Credentials.AccessKeyId)
 SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r .Credentials.SecretAccessKey)
