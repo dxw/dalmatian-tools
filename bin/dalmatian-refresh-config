@@ -38,4 +38,14 @@ DALMATIAN_CONFIG_REPO=$(echo "$BUILD_PROJECTS" | jq -r '.projects[0].environment
 
 echo "==> Fetching Dalmatian config..."
 rm -rf "$SCRIPT_PATH/tmp/dalmatian-config"
-git clone "$DALMATIAN_CONFIG_REPO" "$SCRIPT_PATH/tmp/dalmatian-config"
+
+set +e
+CLONE_RESULT=$(git clone --quiet "$DALMATIAN_CONFIG_REPO" "$SCRIPT_PATH/tmp/dalmatian-config" 2>&1)
+set -e
+
+if [ -n "$CLONE_RESULT" ]
+then
+  echo "==> Error: Could not clone $DALMATIAN_CONFIG_REPO" 1>&2
+  echo "$CLONE_RESULT" 1>&2
+  exit 1
+fi
