@@ -12,6 +12,8 @@ usage() {
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -l                     - list available ec2 instance ids (optional)"
+  echo "  -I <instance_id>       - ec2 instance id (optional)"
   echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
   echo "                           'AWS_PROFILE' env or 'dalmatian-admin')"
   exit 1
@@ -35,13 +37,19 @@ SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 AWS_PROFILE=${AWS_PROFILE:-dalmatian-admin}
 
-while getopts "i:e:p:h" opt; do
+while getopts "i:e:I:p:lh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
       ;;
     e)
       ENVIRONMENT=$OPTARG
+      ;;
+    l)
+      LIST=1
+      ;;
+    I)
+      INSTANCE_ID=$OPTARG
       ;;
     p)
       AWS_PROFILE=$OPTARG
@@ -69,10 +77,31 @@ ASSUME_ROLE_AWS_CREDENTIALS=$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role
 eval "$ASSUME_ROLE_AWS_CREDENTIALS"
 
 echo "==> Finding ECS instance..."
-
 INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
-INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
-INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
+
+AVAILABLE_INSTANCES=$(echo "$INSTANCES" | jq -r '.Reservations[].Instances[] | (.InstanceId) + " | " + (.Tags[] | select(.Key == "Name") | .Value)')
+if [ -n "$LIST" ];
+then
+  echo "$AVAILABLE_INSTANCES"
+  exit 0
+fi
+
+if [ -z "$INSTANCE_ID" ];
+then
+  # If an instance ID isn't specified, just connect to the first one
+  INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
+  INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
+else
+  # If an instance ID is specified, ensure it exists by trying to get the name
+  INSTANCE_NAME=$(echo "$INSTANCES" | jq -r --arg i "$INSTANCE_ID" '.Reservations[].Instances[] | select(.InstanceId == $i) | .Tags[] | select(.Key == "Name") | .Value')
+  if [ -z "$INSTANCE_NAME" ];
+  then
+    echo "Error: Instance ID $INSTANCE_ID not found"
+    echo "Available isntances:"
+    echo "$AVAILABLE_INSTANCES"
+    exit 1
+  fi
+fi
 
 echo "==> Connecting to '$INSTANCE_NAME' (id: $INSTANCE_ID)..."
 
