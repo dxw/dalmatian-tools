@@ -8,7 +8,7 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -s <service> - service name "
+  echo "  -s <service>           - service name "
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
   echo "                           'dalmatian-admin')"
@@ -16,14 +16,10 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ];
+if [ $# -lt 1 ]
 then
  usage
 fi
-
-SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
-AWS_PROFILE=dalmatian-admin
 
 while getopts "i:e:s:p:h" opt; do
   case $opt in
@@ -37,6 +33,7 @@ while getopts "i:e:s:p:h" opt; do
       SERVICE_NAME=$OPTARG
       ;;
     p)
+      # shellcheck disable=SC2034
       AWS_PROFILE=$OPTARG
       ;;
     h)
@@ -52,23 +49,16 @@ if [[
   -z "$INFRASTRUCTURE_NAME"
   || -z "$SERVICE_NAME"
   || -z "$ENVIRONMENT"
-]]; then
+]]
+then
   usage
 fi
 
-
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
-
-ASSUME_ROLE_AWS_CREDENTIALS=$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")
-
-eval "$ASSUME_ROLE_AWS_CREDENTIALS"
-
 echo "==> Retrieving env vars for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT from Parameter Store..."
 
-
-  aws ssm get-parameters-by-path \
-    --path "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/" \
-    --recursive \
-    --with-decryption \
-    | jq -r '.Parameters[] | "\(.Name)=\(.Value)"' \
-    | sed -e "s#^/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/##"
+aws ssm get-parameters-by-path \
+  --path "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/" \
+  --recursive \
+  --with-decryption \
+  | jq -r '.Parameters[] | "\(.Name)=\(.Value)"' \
+  | sed -e "s#^/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/##"

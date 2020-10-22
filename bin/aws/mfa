@@ -21,7 +21,6 @@ then
  usage
 fi
 
-AWS_PROFILE=${AWS_PROFILE:-default}
 EXPORT_TO_STDOUT=0
 
 while getopts "m:p:eh" opt;

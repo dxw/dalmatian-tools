@@ -1,0 +1,124 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0")" 1>&2
+  echo "  SUBCOMMAND COMMAND     - dalmatian command to run"
+  echo "  SUBCOMMAND COMMAND -h  - show command help"
+  echo "    Or:"
+  echo "  -h                     - help"
+  echo "  -l                     - list comands"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ];
+then
+ usage
+fi
+
+APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
+
+if [ "${1:0:1}" == "-" ]
+then
+  while getopts "lh" opt; do
+    case $opt in
+      l)
+        LIST_COMMANDS=1
+        ;;
+      h)
+        usage
+        ;;
+      *)
+        usage
+        ;;
+    esac
+  done
+
+  if [ -n "$LIST_COMMANDS" ]
+  then
+    echo "Available commands:"
+    echo ""
+
+    DIRS=()
+    while IFS=  read -r -d $'\0'; do
+      DIRS+=("$REPLY")
+    done < <(find "$APP_ROOT/bin" -maxdepth 1 -type d -print0)
+
+    SUBCOMMANDS=()
+    for d in "${DIRS[@]}"
+    do
+      SUBCOMMANDS+=("$(basename "$d")")
+    done
+    IFS=$'\n' SUBCOMMANDS=($(sort <<<"${SUBCOMMANDS[*]}"))
+
+    for SUBCOMMAND in "${SUBCOMMANDS[@]}"
+    do
+      if [[ "$SUBCOMMAND" != "bin" && "$SUBCOMMAND" != "tmp" ]]
+      then
+        echo "  $SUBCOMMAND"
+        FILES=()
+        while IFS=  read -r -d $'\0'; do
+          FILES+=("$REPLY")
+        done < <(find "$APP_ROOT/bin/$SUBCOMMAND" -maxdepth 1 -type f -print0)
+
+        COMMANDS=()
+        for f in "${FILES[@]}"
+        do
+          COMMANDS+=("$(basename "$f")")
+        done
+        IFS=$'\n' COMMANDS=($(sort <<<"${COMMANDS[*]}"))
+
+        for COMMAND in "${COMMANDS[@]}"
+        do
+          echo "    $COMMAND"
+        done
+        echo ""
+      fi
+    done
+  fi
+  exit 0
+fi
+
+SUBCOMMAND="$1"
+COMMAND="$2"
+COMMAND_ARGS=( "${@:3}" )
+
+if [[ -z "$SUBCOMMAND" || -z "$COMMAND" ]]
+then
+  usage
+fi
+
+if [[ "$SUBCOMMAND" == "aws" && "$COMMAND" == "mfa" ]]
+then
+  AWS_PROFILE=${AWS_PROFILE:-dalmatian}
+else
+  AWS_PROFILE=${AWS_PROFILE:-dalmatian-admin}
+fi
+
+i=1
+for a in "${COMMAND_ARGS[@]}"
+do
+  if [ "$a" == "-i" ]
+  then
+    INFRASTRUCTURE_NAME="${COMMAND_ARGS[$i]}"
+  fi
+  if [ "$a" == "-p" ]
+  then
+    AWS_PROFILE="${COMMAND_ARGS[$i]}"
+  fi
+  i=$(( i + 1 ))
+done
+
+# Assume Role for infrastructure if set
+if [ -n "$INFRASTRUCTURE_NAME" ]
+then
+  # shellcheck source=bin/aws/assume-infrastructure-role
+  . "$APP_ROOT/bin/aws/assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE"
+fi
+
+# Run specified command with args
+"$APP_ROOT/bin/$SUBCOMMAND/$COMMAND" "${COMMAND_ARGS[@]}"

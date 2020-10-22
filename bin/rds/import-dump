@@ -21,15 +21,12 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ];
+if [ $# -lt 1 ]
 then
  usage
 fi
 
 SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
-AWS_PROFILE=dalmatian-admin
-
 REWRITE_FILE=""
 
 while getopts "i:e:r:d:f:R:p:h" opt; do
@@ -69,7 +66,8 @@ if [[
   || -z "$RDS_NAME"
   || -z "$DATABASE_NAME"
   || -z "$ENVIRONMENT"
-]]; then
+]]
+then
   usage
 fi
 
@@ -77,12 +75,6 @@ fi
 # aren't allowed in RDS identifiers. Dalmatian removes them on deployment, so we
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
-
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
-
-ASSUME_ROLE_AWS_CREDENTIALS=$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")
-
-eval "$ASSUME_ROLE_AWS_CREDENTIALS"
 
 echo "==> Retrieving RDS root password from Parameter Store..."
 
@@ -132,9 +124,9 @@ fi
 if [ -n "$REWRITE_FILE" ];
 then
   INPUT_FILE="$(realpath "$DB_DUMP_FILE")"
-  OUTPUT_PATH="$SCRIPT_PATH/tmp/sql-munged"
+  OUTPUT_PATH="$APP_ROOT/bin/tmp/sql-munged"
   REWRITE_FILE="$(realpath "$REWRITE_FILE")"
-  cd "$SCRIPT_PATH/../lib"
+  cd "$APP_ROOT/lib"
   "./php-sql-munge.sh" -i "$INPUT_FILE" -o "$OUTPUT_PATH" -r "$REWRITE_FILE"
   cd "$SCRIPT_PATH"
   DB_DUMP_FILE="$OUTPUT_PATH/$DB_DUMP_FILE"
@@ -167,9 +159,9 @@ esac
 
 echo "Uploading $DB_DUMP_FILE ..."
 
-"$SCRIPT_PATH/dalmatian-file-upload" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$DB_DUMP_FILE" -t "/tmp/$(basename "$DB_DUMP_FILE")" -p "$AWS_PROFILE"
+"$APP_ROOT/bin/ecs/file-upload" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$DB_DUMP_FILE" -t "/tmp/$(basename "$DB_DUMP_FILE")" -p "$AWS_PROFILE"
 
-echo "==> Uploading compleete!"
+echo "==> Uploading complete!"
 
 echo "==> Starting import of $RDS_ENGINE $DB_DUMP_FILE file into $RDS_IDENTIFIER..."
 

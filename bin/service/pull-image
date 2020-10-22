@@ -19,15 +19,11 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ];
+if [ $# -eq 0 ]
 then
  usage
  exit 0
 fi
-
-SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
-AWS_PROFILE=${AWS_PROFILE:-dalmatian-admin}
 
 while getopts "i:e:s:p:h" opt; do
   case $opt in
@@ -41,6 +37,7 @@ while getopts "i:e:s:p:h" opt; do
       SERVICE_NAME=$OPTARG
       ;;
     p)
+      # shellcheck disable=SC2034
       AWS_PROFILE=$OPTARG
       ;;
     h)
@@ -56,15 +53,10 @@ if [[
   -z "$INFRASTRUCTURE_NAME"
   || -z "$ENVIRONMENT"
   || -z "$SERVICE_NAME"
-]]; then
+]]
+then
   usage
 fi
-
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
-
-ASSUME_ROLE_AWS_CREDENTIALS=$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")
-
-eval "$ASSUME_ROLE_AWS_CREDENTIALS"
 
 echo "==> Finding Docker image..."
 

@@ -21,7 +21,7 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ];
+if [ $# -eq 0 ]
 then
  usage
  exit 0
@@ -34,10 +34,6 @@ then
   exit 1
 fi
 
-SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
-AWS_PROFILE=${AWS_PROFILE:-dalmatian-admin}
-
 RECURSIVE=0
 
 while getopts "i:e:p:s:t:rh" opt; do
@@ -49,6 +45,7 @@ while getopts "i:e:p:s:t:rh" opt; do
       ENVIRONMENT=$OPTARG
       ;;
     p)
+      # shellcheck disable=SC2034
       AWS_PROFILE=$OPTARG
       ;;
     s)
@@ -74,18 +71,13 @@ if [[
   || -z "$ENVIRONMENT"
   || -z "$SOURCE"
   || -z "$HOST_TARGET"
-]]; then
+]]
+then
   usage
 fi
 
 BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
 PREFIX_DIR="$(date +%s)"
-
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
-
-ASSUME_ROLE_AWS_CREDENTIALS=$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")
-
-eval "$ASSUME_ROLE_AWS_CREDENTIALS"
 
 echo "==> Copying to $BUCKET_NAME S3 bucket ..."
 

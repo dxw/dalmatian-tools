@@ -5,7 +5,7 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: dalmatian $(basename "$(dirname "${BASH_SOURCE[0]}")") $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
@@ -21,11 +21,7 @@ then
  usage
 fi
 
-SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
-AWS_PROFILE=dalmatian-admin
-
-while getopts "i:e:r:p:h" opt; do
+while getopts "i:e:r:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -35,9 +31,6 @@ while getopts "i:e:r:p:h" opt; do
       ;;
     r)
       RDS_NAME=$OPTARG
-      ;;
-    p)
-      AWS_PROFILE=$OPTARG
       ;;
     h)
       usage
@@ -60,12 +53,6 @@ fi
 # aren't allowed in RDS identifiers. Dalmatian removes them on deployment, so we
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
-
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
-
-ASSUME_ROLE_AWS_CREDENTIALS=$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")
-
-eval "$ASSUME_ROLE_AWS_CREDENTIALS"
 
 echo "==> Retrieving RDS root password from Parameter Store..."
 
