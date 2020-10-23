@@ -13,8 +13,6 @@ usage() {
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -s <service_name>      - service name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'AWS_PROFILE' env or 'dalmatian-admin')"
   exit 1
 }
 
@@ -25,7 +23,7 @@ then
  exit 0
 fi
 
-while getopts "i:e:s:p:h" opt; do
+while getopts "i:e:s:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -35,10 +33,6 @@ while getopts "i:e:s:p:h" opt; do
       ;;
     s)
       SERVICE_NAME=$OPTARG
-      ;;
-    p)
-      # shellcheck disable=SC2034
-      AWS_PROFILE=$OPTARG
       ;;
     h)
       usage

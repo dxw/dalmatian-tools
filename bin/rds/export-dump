@@ -12,8 +12,6 @@ usage() {
   echo "  -d <database_name>     - database name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -o <output_file_path>  - output file path"
-  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'dalmatian-admin')"
   exit 1
 }
 
@@ -23,7 +21,7 @@ then
  usage
 fi
 
-while getopts "i:e:r:d:o:p:h" opt; do
+while getopts "i:e:r:d:o:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -33,10 +31,6 @@ while getopts "i:e:r:d:o:p:h" opt; do
       ;;
     r)
       RDS_NAME=$OPTARG
-      ;;
-    p)
-      # shellcheck disable=SC2034
-      AWS_PROFILE=$OPTARG
       ;;
     d)
       DATABASE_NAME=$OPTARG

@@ -14,8 +14,6 @@ usage() {
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -l                     - list available ec2 instance ids (optional)"
   echo "  -I <instance_id>       - ec2 instance id (optional)"
-  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'AWS_PROFILE' env or 'dalmatian-admin')"
   exit 1
 }
 
@@ -33,7 +31,7 @@ then
   exit 1
 fi
 
-while getopts "i:e:I:p:lh" opt; do
+while getopts "i:e:I:lh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -46,10 +44,6 @@ while getopts "i:e:I:p:lh" opt; do
       ;;
     I)
       INSTANCE_ID=$OPTARG
-      ;;
-    p)
-      # shellcheck disable=SC2034
-      AWS_PROFILE=$OPTARG
       ;;
     h)
       usage

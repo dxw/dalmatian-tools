@@ -13,8 +13,6 @@ usage() {
   echo "  -d <db_name>           - name of database to create"
   echo "  -u <user_name>         - name of user to create"
   echo "  -P <user_password>     - password for user to be created"
-  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'dalmatian-admin')"
   exit 1
 }
 
@@ -24,7 +22,7 @@ then
  usage
 fi
 
-while getopts "i:e:r:p:d:u:P:h" opt; do
+while getopts "i:e:r:d:u:P:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -34,10 +32,6 @@ while getopts "i:e:r:p:d:u:P:h" opt; do
       ;;
     r)
       RDS_NAME=$OPTARG
-      ;;
-    p)
-      # shellcheck disable=SC2034
-      AWS_PROFILE=$OPTARG
       ;;
     d)
       DB_NAME=$OPTARG

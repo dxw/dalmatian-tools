@@ -13,8 +13,6 @@ usage() {
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -f <dump_file>         - DB dump file"
   echo "  -R <rewrite_file>      - Rewrite file"
-  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'dalmatian-admin')"
   echo "  -Y <Yes>               - Auto awnser Yes (Should only be used in scripts"
   echo "                           that ensure humans validate DB overwrites)"
   exit 1
@@ -39,9 +37,6 @@ while getopts "i:e:r:d:f:R:p:h" opt; do
       ;;
     r)
       RDS_NAME=$OPTARG
-      ;;
-    p)
-      AWS_PROFILE=$OPTARG
       ;;
     d)
       DATABASE_NAME=$OPTARG
@@ -159,7 +154,7 @@ esac
 
 echo "Uploading $DB_DUMP_FILE ..."
 
-"$APP_ROOT/bin/ecs/file-upload" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$DB_DUMP_FILE" -t "/tmp/$(basename "$DB_DUMP_FILE")" -p "$AWS_PROFILE"
+"$APP_ROOT/bin/ecs/file-upload" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$DB_DUMP_FILE" -t "/tmp/$(basename "$DB_DUMP_FILE")"
 
 echo "==> Uploading complete!"
 

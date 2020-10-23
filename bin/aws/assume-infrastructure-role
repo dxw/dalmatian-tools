@@ -8,7 +8,6 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                       - help"
   echo "  -i <infrastructure_name> - Infrastructure Name (required)"
-  echo "  -p <profile>             - AWS Profile         (default: AWS_PROFILE)"
   exit 1
 }
 
@@ -18,13 +17,10 @@ then
  usage
 fi
 
-while getopts "i:p:h" opt; do
+while getopts "i:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
-      ;;
-    p)
-      AWS_PROFILE=$OPTARG
       ;;
     h)
       usage
@@ -39,7 +35,7 @@ if [ -z "$INFRASTRUCTURE_NAME" ]; then
   usage
 fi
 
-"$APP_ROOT/bin/dalmatian-refresh-config" -p "$AWS_PROFILE" > /dev/null
+"$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
 
 echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
 
@@ -52,7 +48,7 @@ then
   exit 1
 fi
 
-CREDENTIALS=$(aws sts assume-role --role-arn arn:aws:iam::"$INFRASTRUCTURE_ACCOUNT_ID":role/dalmatian-admin --role-session-name dalmatian-tools --profile "$AWS_PROFILE")
+CREDENTIALS=$(aws sts assume-role --role-arn arn:aws:iam::"$INFRASTRUCTURE_ACCOUNT_ID":role/dalmatian-admin --role-session-name dalmatian-tools)
 
 ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r .Credentials.AccessKeyId)
 SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r .Credentials.SecretAccessKey)

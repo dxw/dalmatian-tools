@@ -10,8 +10,6 @@ usage() {
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'dalmatian-admin')"
   exit 1
 }
 
