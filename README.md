@@ -12,42 +12,103 @@ CLI tools to help with working with Dalmatian
    brew bundle install
    ```
 
-1. Symlink the scripts to somewhere on your path
+1. Add the dalmatian-tools `bin` directory to your `$PATH`
 
-   Our recommendation is to add the repository's `bin` directory to your path:
+   To add the ability to run the `dalmatian` command, you will need to add the
+   Dalmatian Tools `bin` directory to your `$PATH` variable
+
+   Find the full path of Dalmatian Tools by changing directory into this
+   repository, and run `pwd`. eg:
+
+   ```
+   $ cd ~/git-clones/dalmatian-tools
+   $ pwd
+   /Users/alex/git-clones/dalmatian-tools
+   ```
+
+   Add this path, plus '/bin' to the '$PATH' variable, by modifying
+   either the `~/.bashrc` or `~/.zshrc` file
 
    ```bash
    # ~/.bashrc or ~/.zshrc
-   export PATH="$PATH:/absolute/path/to/bin"
+   export PATH="$PATH:/<path-to-dalmatian-tools>/bin"
    ```
 
-1. Set up AWS credentials
+   The easiest way for this to take effect is to close and open your terminal application
 
-   Create a `~/.aws/config/ file which looks like
+   Or you can run `source ~/.bashrc` or `source ~/.zshrc` on all open terminals
 
-   ```
-   [default]
-   region = eu-west-2
-   [profile dalmatian-admin]
-   region=eu-west-2
-   cli_follow_urlparam=false
-   role_arn = arn:aws:iam::[REDACTED AWS ACCOUNT NUMBER]:role/dalmatian-admin
-   source_profile = mfa
-   ```
+1. Login to dalmatian
 
-   the AWS Account number is the core dalmatian AWS account.
+  Run the `dalmatian login` command
 
-   and create a `~/.aws/credentials` file that looks like
+  ```
+  $ dalmatian login
+  Note: You must have a Dalmatian Admin account to use Dalmatian Tools
 
-   ```
-   [default]
-   aws_access_key_id = [REDACTED AWS ACCESS KEY]
-   aws_secret_access_key = [REDACTED AWS SECRET ACCESS KEY]
-   ```
+  For added security, your credentials and MFA secret will be
+  encrypted with GPG
+
+  Email associated with GPG key: alex@example.com
+  AWS Access Key ID: XXXXXXXXXXXXXXXXXXXX
+  AWS Secret Access Key:
+  AWS MFA Secret:
+  ==> Checking credentials...
+    User ID: XXXXXXXXXXXXXXXXXXXXX
+    Account: XXXXXXXXXXXX
+    Arn:     arn:aws:iam::XXXXXXXXXXXX:user/dalmatian_admins/<user-name>
+  ==> Saving configuration settings in /Users/alex/.config/dalmatian/config.json ...
+  ==> Storing credentials in /Users/alex/.config/dalmatian/credentials.json.enc ...
+  ==> Attempting MFA...
+  ==> Storing MFA credentials in /Users/alex/.config/dalmatian/mfa_credentials.json
+  ==> Login success!
+  ```
 
 ## Usage
 
-This repository contains a number of scripts, all with the `dalmatian-` prefix.
-Run them with a `-h` flag to see their usage instructions.
+### Help
 
-- `dalmatian-mfa` to set up or renew multi-factor authentication for Dalmatian
+  `dalmatian -h`
+
+  ```
+  $ dalmatian -h
+  Usage: dalmatian
+    SUBCOMMAND COMMAND     - dalmatian command to run
+    SUBCOMMAND COMMAND -h  - show command help
+      Or:
+    -h                     - help
+    -l
+  ```
+
+### List commands
+
+  `dalmatian -l`
+
+  ```
+  $ dalmatian -l
+  Available commands:
+
+    login
+
+    cloudfront
+      clear-cache
+
+    ecs
+      file-upload
+      ec2-access
+
+    aws
+      assume-infrastructure-role
+      mfa
+
+    service
+      container-access
+      pull-image
+      list-environment-variables
+
+    rds
+      shell
+      export-dump
+      import-dump
+      create-database
+  ```
