@@ -4,33 +4,24 @@
 set -e
 set -o pipefail
 
+DALMATIAN_MFA_CREDENTIALS_FILE="$HOME/.config/dalmatian/mfa_credentials.json"
+
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h               - help"
-  echo "  -m <mfa_code>    - MFA code (required)"
-  echo "  -p <profile>     - AWS profile name (defaults to \$AWS_PROFILE or"
-  echo "                     'default' if that's not set)"
-  echo "  -e               - export to stdout instead of writing the mfa"
-  echo "                     credentials to ~/.aws/credentials"
+  echo "  -h                  - help"
+  echo "  -m <mfa_code>       - MFA code (required)"
+  echo "  -e                  - export to stdout instead of writing the mfa"
+  echo "                        credentials to $DALMATIAN_MFA_CREDENTIALS_FILE"
   exit 1
 }
 
-# if there are no arguments passed exit with usage
-if [ $# -lt 1 ];
-then
- usage
-fi
-
 EXPORT_TO_STDOUT=0
 
-while getopts "m:p:eh" opt;
+while getopts "m:eh" opt;
 do
   case $opt in
     m)
       MFA_CODE=$OPTARG
-      ;;
-    p)
-      AWS_PROFILE=$OPTARG
       ;;
     e)
       EXPORT_TO_STDOUT=1
@@ -44,47 +35,35 @@ do
   esac
 done
 
-if [ -z "$MFA_CODE" ];
-then
-  usage
-fi
-
-USERNAME=$(aws sts get-caller-identity --profile "$AWS_PROFILE" | jq -r .Arn | rev | cut -f1 -d'/' | rev)
-MFA_DEVICE=$(aws iam list-mfa-devices --profile "$AWS_PROFILE" --user-name "$USERNAME" | jq -r .MFADevices[0].SerialNumber)
-SESSION_TOKEN_JSON=$(aws sts get-session-token --profile "$AWS_PROFILE" --serial-number "$MFA_DEVICE" --token-code "$MFA_CODE")
-ACCESS_KEY_ID=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.AccessKeyId)
-SECRET_ACCESS_KEY=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.SecretAccessKey)
-SESSION_TOKEN=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.SessionToken)
+USERNAME=$(aws sts get-caller-identity | jq -r .Arn | rev | cut -f1 -d'/' | rev)
+MFA_DEVICE=$(aws iam list-mfa-devices --user-name "$USERNAME" | jq -r .MFADevices[0].SerialNumber)
+SESSION_TOKEN_JSON=$(aws sts get-session-token --serial-number "$MFA_DEVICE" --token-code "$MFA_CODE")
+AWS_ACCESS_KEY_ID=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.AccessKeyId)
+AWS_SECRET_ACCESS_KEY=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.SecretAccessKey)
+AWS_SESSION_TOKEN=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.SessionToken)
+AWS_SESSION_EXPIRATION=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.Expiration | awk -F':' -v OFS=':' '{ print $1, $2, $3$4 }')
 
 if [ "$EXPORT_TO_STDOUT" == 1 ];
 then
-  echo "export AWS_ACCESS_KEY_ID=$ACCESS_KEY_ID"
-  echo "export AWS_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY"
-  echo "export AWS_SESSION_TOKEN=$SESSION_TOKEN"
+  echo "export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
+  echo "export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
+  echo "export AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN"
 else
-  echo "Modifying credentials file..."
+  echo "==> Storing MFA credentials in $DALMATIAN_MFA_CREDENTIALS_FILE"
+  MFA_CREDENTIALS_JSON_STRING=$(
+    jq -n \
+    --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
+    --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
+    --arg aws_session_token "$AWS_SESSION_TOKEN" \
+    --arg aws_session_expiration "$AWS_SESSION_EXPIRATION" \
+    '{
+      aws_access_key_id: $aws_access_key_id,
+      aws_secret_access_key: $aws_secret_access_key,
+      aws_session_token: $aws_session_token,
+      aws_session_expiration: $aws_session_expiration
+    }'
+  )
 
-  MFA_PROFILE=mfa
-
-  if [ "$AWS_PROFILE" != default ];
-  then
-    MFA_PROFILE="$AWS_PROFILE-mfa"
-  fi
-
-  MFA_LINENUM=$(grep -n "\[$MFA_PROFILE\]" ~/.aws/credentials | cut -f1 -d':' | head -n1 || echo "")
-
-  if [ "$MFA_LINENUM" != "" ];
-  then
-    MFA_LINENUM_END=$((MFA_LINENUM + 4))
-    sed -i '' -e "${MFA_LINENUM},${MFA_LINENUM_END}d" ~/.aws/credentials
-  fi
-
-  {
-    echo "[$MFA_PROFILE]"
-    echo "aws_access_key_id=$ACCESS_KEY_ID"
-    echo "aws_secret_access_key=$SECRET_ACCESS_KEY"
-    echo "aws_session_token=$SESSION_TOKEN"
-  } >> ~/.aws/credentials
-
-  echo "Set credentials for '$MFA_PROFILE'"
+  echo "$MFA_CREDENTIALS_JSON_STRING" > "$DALMATIAN_MFA_CREDENTIALS_FILE"
+  chmod 600 "$DALMATIAN_MFA_CREDENTIALS_FILE"
 fi
