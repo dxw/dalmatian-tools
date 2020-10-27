@@ -9,26 +9,25 @@ usage() {
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -d <database_name>     - database name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -d <db_name>           - name of database to create"
-  echo "  -u <user_name>         - name of user to create"
-  echo "  -P <user_password>     - password for user to be created"
-  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'dalmatian-admin')"
+  echo "  -f <dump_file>         - DB dump file"
+  echo "  -R <rewrite_file>      - Rewrite file"
+  echo "  -Y <Yes>               - Auto awnser Yes (Should only be used in scripts"
+  echo "                           that ensure humans validate DB overwrites)"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ];
+if [ $# -lt 1 ]
 then
  usage
 fi
 
 SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REWRITE_FILE=""
 
-AWS_PROFILE=dalmatian-admin
-
-while getopts "i:e:r:p:d:u:P:h" opt; do
+while getopts "i:e:r:d:f:R:p:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -39,17 +38,14 @@ while getopts "i:e:r:p:d:u:P:h" opt; do
     r)
       RDS_NAME=$OPTARG
       ;;
-    p)
-      AWS_PROFILE=$OPTARG
-      ;;
     d)
-      DB_NAME=$OPTARG
+      DATABASE_NAME=$OPTARG
       ;;
-    u)
-      USER_NAME=$OPTARG
+    f)
+      DB_DUMP_FILE=$OPTARG
       ;;
-    P)
-      USER_PASSWORD=$OPTARG
+    R)
+      REWRITE_FILE=$OPTARG
       ;;
     h)
       usage
@@ -63,11 +59,10 @@ done
 if [[
   -z "$INFRASTRUCTURE_NAME"
   || -z "$RDS_NAME"
-  || -z "$DB_NAME"
-  || -z "$USER_NAME"
-  || -z "$USER_PASSWORD"
+  || -z "$DATABASE_NAME"
   || -z "$ENVIRONMENT"
-]]; then
+]]
+then
   usage
 fi
 
@@ -75,12 +70,6 @@ fi
 # aren't allowed in RDS identifiers. Dalmatian removes them on deployment, so we
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
-
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
-
-ASSUME_ROLE_AWS_CREDENTIALS=$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")
-
-eval "$ASSUME_ROLE_AWS_CREDENTIALS"
 
 echo "==> Retrieving RDS root password from Parameter Store..."
 
@@ -121,11 +110,57 @@ ECS_INSTANCE_ID=$(
 
 echo "ECS instance ID: $ECS_INSTANCE_ID"
 
-echo "==> Creating database..."
+if [ ! -f "$DB_DUMP_FILE" ];
+then
+    echo "$DB_DUMP_FILE not found ..."
+    exit 1
+fi
+
+if [ -n "$REWRITE_FILE" ];
+then
+  INPUT_FILE="$(realpath "$DB_DUMP_FILE")"
+  OUTPUT_PATH="$APP_ROOT/bin/tmp/sql-munged"
+  REWRITE_FILE="$(realpath "$REWRITE_FILE")"
+  cd "$APP_ROOT/lib"
+  "./php-sql-munge.sh" -i "$INPUT_FILE" -o "$OUTPUT_PATH" -r "$REWRITE_FILE"
+  cd "$SCRIPT_PATH"
+  DB_DUMP_FILE="$OUTPUT_PATH/$DB_DUMP_FILE"
+fi
+
+echo "--------------------------------------------------"
+echo "The RDS:"
+echo "  $RDS_IDENTIFIER"
+echo "in the infrastructure:"
+echo "  $INFRASTRUCTURE_NAME"
+echo "in environment:"
+echo "  $ENVIRONMENT"
+echo "will have the database:"
+echo "  $DATABASE_NAME"
+echo "overwritten with the file:"
+echo "  $DB_DUMP_FILE"
+echo "--------------------------------------------------"
+echo ""
+echo "Are you sure?"
+echo ""
+
+echo "Continue (Yes/No)"
+read -r -p " > " choice
+case "$choice" in
+  Yes ) echo "==> Importing ...";;
+  * ) echo "Aborting!"
+    exit 1
+    ;;
+esac
+
+echo "Uploading $DB_DUMP_FILE ..."
+
+"$APP_ROOT/bin/ecs/file-upload" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$DB_DUMP_FILE" -t "/tmp/$(basename "$DB_DUMP_FILE")"
+
+echo "==> Uploading complete!"
+
+echo "==> Starting import of $RDS_ENGINE $DB_DUMP_FILE file into $RDS_IDENTIFIER..."
 
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \
-  --document-name "$RDS_IDENTIFIER-rds-db-creation" \
-  --parameters "RootPassword=$RDS_ROOT_PASSWORD,NewDbName=$DB_NAME,NewUserName=$USER_NAME,NewUserPassword=$USER_PASSWORD"
-
-echo "Success!"
+  --document-name "$RDS_IDENTIFIER-rds-sql-import" \
+  --parameters "RootPassword=$RDS_ROOT_PASSWORD,DatabaseName=$DATABASE_NAME,SqlFile=/tmp/$(basename "$DB_DUMP_FILE")"

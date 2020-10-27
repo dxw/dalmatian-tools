@@ -14,13 +14,11 @@ usage() {
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -l                     - list available ec2 instance ids (optional)"
   echo "  -I <instance_id>       - ec2 instance id (optional)"
-  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'AWS_PROFILE' env or 'dalmatian-admin')"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ];
+if [ $# -eq 0 ]
 then
  usage
  exit 0
@@ -33,11 +31,7 @@ then
   exit 1
 fi
 
-SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
-AWS_PROFILE=${AWS_PROFILE:-dalmatian-admin}
-
-while getopts "i:e:I:p:lh" opt; do
+while getopts "i:e:I:lh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -51,9 +45,6 @@ while getopts "i:e:I:p:lh" opt; do
     I)
       INSTANCE_ID=$OPTARG
       ;;
-    p)
-      AWS_PROFILE=$OPTARG
-      ;;
     h)
       usage
       exit;;
@@ -66,15 +57,10 @@ done
 if [[
   -z "$INFRASTRUCTURE_NAME"
   || -z "$ENVIRONMENT"
-]]; then
+]]
+then
   usage
 fi
-
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
-
-ASSUME_ROLE_AWS_CREDENTIALS=$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")
-
-eval "$ASSUME_ROLE_AWS_CREDENTIALS"
 
 echo "==> Finding ECS instance..."
 INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")

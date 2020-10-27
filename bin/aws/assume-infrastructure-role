@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                       - help"
+  echo "  -i <infrastructure_name> - Infrastructure Name (required)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ];
+then
+ usage
+fi
+
+while getopts "i:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$INFRASTRUCTURE_NAME" ]; then
+  usage
+fi
+
+"$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
+
+echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
+
+INFRASTRUCTURE_ACCOUNT_ID=$(yq r "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml" "infrastructures.$INFRASTRUCTURE_NAME.account_id")
+
+if [ -z "$INFRASTRUCTURE_ACCOUNT_ID" ]
+then
+  echo "==> Error: Infrastructure '$INFRASTRUCTURE_NAME' not found in dalmatian-config,"
+  echo "           or it does not contain an 'account_id'"
+  exit 1
+fi
+
+CREDENTIALS=$(aws sts assume-role --role-arn arn:aws:iam::"$INFRASTRUCTURE_ACCOUNT_ID":role/dalmatian-admin --role-session-name dalmatian-tools)
+
+ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r .Credentials.AccessKeyId)
+SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r .Credentials.SecretAccessKey)
+SESSION_TOKEN=$(echo "$CREDENTIALS" | jq -r .Credentials.SessionToken)
+
+export AWS_ACCESS_KEY_ID=$ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY
+export AWS_SESSION_TOKEN=$SESSION_TOKEN

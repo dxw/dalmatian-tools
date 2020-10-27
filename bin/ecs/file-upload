@@ -15,13 +15,11 @@ usage() {
   echo "  -s <source>            - Source"
   echo "  -t <host_target>       - Host target"
   echo "  -r <recursive>         - Recursive"
-  echo "  -p <profile>           - AWS profile with MFA enabled (defaults to"
-  echo "                           'AWS_PROFILE' env or 'dalmatian-admin')"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ];
+if [ $# -eq 0 ]
 then
  usage
  exit 0
@@ -34,22 +32,15 @@ then
   exit 1
 fi
 
-SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-
-AWS_PROFILE=${AWS_PROFILE:-dalmatian-admin}
-
 RECURSIVE=0
 
-while getopts "i:e:p:s:t:rh" opt; do
+while getopts "i:e:s:t:rh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
       ;;
     e)
       ENVIRONMENT=$OPTARG
-      ;;
-    p)
-      AWS_PROFILE=$OPTARG
       ;;
     s)
       SOURCE=$OPTARG
@@ -74,18 +65,13 @@ if [[
   || -z "$ENVIRONMENT"
   || -z "$SOURCE"
   || -z "$HOST_TARGET"
-]]; then
+]]
+then
   usage
 fi
 
 BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
 PREFIX_DIR="$(date +%s)"
-
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
-
-ASSUME_ROLE_AWS_CREDENTIALS=$("$SCRIPT_PATH/dalmatian-assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME" -p "$AWS_PROFILE")
-
-eval "$ASSUME_ROLE_AWS_CREDENTIALS"
 
 echo "==> Copying to $BUCKET_NAME S3 bucket ..."
 
