@@ -112,3 +112,14 @@ CLI tools to help with working with Dalmatian
       import-dump
       create-database
   ```
+
+### Bash completion
+
+Add the full path to the `support/bash-completion.sh` script to your `~/.bashrc` file
+
+eg:
+
+```
+# .bashrc
+source /path/to/dalmatian-tools/support/bash-completion.sh
+```
