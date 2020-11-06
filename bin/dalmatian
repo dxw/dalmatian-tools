@@ -163,7 +163,6 @@ fi
 # Update MFA credentials if needed, or if the dalmatian aws mfa command is ran
 if [[ -n "$RUN_AWS_MFA" || "$MFA_CONFIGURED" == 0 ]]
 then
-  DALMATIAN_CREDENTIALS_FILE="$DALMATIAN_CREDENTIALS_FILE.enc"
   DALMATIAN_CREDENTIALS_JSON_STRING=$(
     gpg --decrypt \
       --quiet \
@@ -207,7 +206,7 @@ then
   fi
 fi
 
-# Update assume role credentials if needed 
+# Update assume role credentials if needed
 if [ "$ASSUME_MAIN_ROLE_CONFIGURED" == "0" ]
 then
   echo "==> Requesting Assume Role credentials ..."
