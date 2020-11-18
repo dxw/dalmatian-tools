@@ -1,0 +1,120 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -w <waf_name>          - WAF name (as defined in the Dalmatian config)"
+  echo "  -t <time_frame>        - Time frame in minutes (default 10)"
+  echo "  -V                     - Verbose mode - output full Sampled Request data"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+TIME_FRAME="10"
+
+while getopts "i:w:t:e:Vh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    w)
+      WAF_NAME=$OPTARG
+      ;;
+    t)
+      TIME_FRAME=$OPTARG
+      ;;
+    V)
+      VERBOSE=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$WAF_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+WAF_WEB_ACL_NAME="$INFRASTRUCTURE_NAME-$WAF_NAME-waf-$ENVIRONMENT-$WAF_NAME-acl"
+
+ACLS=$(aws wafv2 list-web-acls --scope "REGIONAL")
+
+ACL_SUMMARY=$(echo "$ACLS" | jq -r --arg acl_name "$WAF_WEB_ACL_NAME" '.WebACLs[] | select(.Name == $acl_name)')
+
+ACL_ARN=$(echo "$ACL_SUMMARY" | jq -r '.ARN')
+ACL_ID=$(echo "$ACL_SUMMARY" | jq -r '.Id')
+
+echo "==> Querying for Blocked sampled requests..."
+
+ACL=$(aws wafv2 get-web-acl \
+    --name "$WAF_WEB_ACL_NAME" \
+    --scope "REGIONAL" \
+    --id "$ACL_ID")
+
+ACL_METRIC_NAME=$(echo "$ACL" | jq -r '.WebACL.VisibilityConfig.MetricName')
+
+RULES=()
+while IFS='' read -r rule
+do
+  RULES+=("$rule")
+done < <(echo "$ACL" | jq -r '.WebACL.Rules[].Name')
+
+START_TIME=$(date -v-"$TIME_FRAME"M +"%Y-%m-%dT%H:%MZ")
+END_TIME=$(date +"%Y-%m-%dT%H:%MZ")
+
+BLOCKED_REQUESTS_JSON_STRING=$(jq -n '[]')
+
+for rule_name in "${RULES[@]}"
+do
+  BLOCKED_REQUESTS=$(
+    aws wafv2 get-sampled-requests \
+    --web-acl-arn "$ACL_ARN" \
+    --rule-metric-name "$ACL_METRIC_NAME-$rule_name" \
+    --time-window "StartTime=$START_TIME,EndTime=$END_TIME" \
+    --scope "REGIONAL" \
+    --max-items 500
+  )
+  BLOCKED_REQUESTS_JSON_STRING=$(
+    echo "$BLOCKED_REQUESTS" | \
+    jq -c -r --argjson j "$BLOCKED_REQUESTS_JSON_STRING" \
+    'select(.SampledRequests != null) |
+    .SampledRequests |= map( select(.Action == "BLOCK") ) |
+    .SampledRequests |
+    . += $j'
+  )
+done
+
+BLOCKED_REQUESTS_JSON_STRING=$(echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r 'sort_by(.Timestamp) | reverse')
+
+if [ "$VERBOSE" == "1" ]
+then
+  echo "$BLOCKED_REQUESTS_JSON_STRING"
+else
+  echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r '.[] | .Timestamp + " - " + 
+    .RuleNameWithinRuleGroup + " - " +
+    .Request.Method + " - " +
+    .Request.URI'
+fi
