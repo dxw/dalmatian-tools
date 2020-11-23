@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service>           - service name "
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+while getopts "i:e:s:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$SERVICE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+echo "==> deploying $SERVICE_NAME in $ENVIRONMENT"
+
+aws codepipeline start-pipeline-execution --name "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-build-and-deploy"
+
