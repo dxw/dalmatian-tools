@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Run any aws cli command in an infrastructure"
+  echo 'e.g dalmatian aws exec -i <infrastructure> s3 ls'
+  echo "Usage: $(basename "$0") [OPTIONS] <aws sub command>" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+ exit 0
+fi
+
+
+while getopts "i:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+]]
+then
+  usage
+fi
+shift $((OPTIND-1))
+
+aws "$@"
