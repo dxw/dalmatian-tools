@@ -1,5 +1,5 @@
 #!/bin/bash
-dalmatian_completion() {
+_dalmatian_completion() {
   if ! command -v dalmatian > /dev/null
   then
     return 0
@@ -74,4 +74,4 @@ dalmatian_completion() {
     fi
   fi
 }
-complete -F dalmatian_completion dalmatian
+complete -F _dalmatian_completion dalmatian
