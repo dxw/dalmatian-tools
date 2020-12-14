@@ -1,0 +1,21 @@
+#!/bin/bash
+"$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
+usage() {
+  echo "List all services or list services for an infrastructure"
+  echo "Usage: $(basename "$0") <infrastructure name [OPTIONAL]>" 1>&2
+  echo "  -h                     - help"
+  exit 1
+}
+INFRASTRUCTURE_NAME="${1:-*}"
+while getopts "h" opt; do
+  case $opt in
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+yq r --printMode pv "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml" "infrastructures.$INFRASTRUCTURE_NAME.services.[*].name" | awk -F. '{print $2 $5}' | sed  's/name: /: /g'
