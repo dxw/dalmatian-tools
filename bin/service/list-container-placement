@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service_name>      - service name (default 'all')"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+ exit 0
+fi
+
+SERVICE_NAME="all"
+
+while getopts "i:e:s:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+echo "==> Finding containers..."
+
+CLUSTER="$INFRASTRUCTURE_NAME-$ENVIRONMENT"
+if [ "$SERVICE_NAME" == "all" ]
+then
+  TASKS=$(aws ecs list-tasks --cluster "$CLUSTER")
+else
+  TASKS=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE_NAME")
+fi
+
+TASK_ARNS=()
+while IFS='' read -r task_arn
+do
+  TASK_ARNS+=("$task_arn")
+done < <(echo "$TASKS" | jq -r '.taskArns[]')
+
+RESULT=""
+NL=$'\n'
+for task_arn in "${TASK_ARNS[@]}"
+do
+  TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster "$CLUSTER" --task "$task_arn")
+  CONTAINER_INSTANCE_ARN=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containerInstanceArn')
+  CONTAINER_INSTANCE_DESCRIPTION=$(aws ecs describe-container-instances --cluster "$CLUSTER" --container-instance "$CONTAINER_INSTANCE_ARN")
+  CONTAINER_INSTANCE_ID=$(echo "$CONTAINER_INSTANCE_DESCRIPTION" | jq -r '.containerInstances[0].ec2InstanceId')
+  GROUP=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].group')
+
+  CONTAINER_NAMES=()
+  while IFS='' read -r container_name
+  do
+    CONTAINER_NAMES+=("$container_name")
+  done < <(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containers[].name')
+
+  for container_name in "${CONTAINER_NAMES[@]}"
+  do
+    RESULT+="$container_name - $GROUP - $CONTAINER_INSTANCE_ID$NL"
+  done
+
+done
+
+echo "$RESULT" | sort
