@@ -6,7 +6,7 @@ usage() {
   echo "  -h                     - help"
   exit 1
 }
-INFRASTRUCTURE_NAME="${1:-*}"
+INFRASTRUCTURE_NAME="${1:-}"
 while getopts "h" opt; do
   case $opt in
     h)
@@ -18,4 +18,11 @@ while getopts "h" opt; do
   esac
 done
 
-yq r --printMode pv "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml" "infrastructures.$INFRASTRUCTURE_NAME.services.[*].name" | awk -F. '{print $2 $5}' | sed  's/name: /: /g'
+INFRASTRUCTURES=$(yq e -j ".infrastructures" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
+
+if [ -z "$INFRASTRUCTURE_NAME" ]
+then
+  echo "$INFRASTRUCTURES" | jq -r '(. | keys[]) as $i | "\($i): \(.[$i].services[]?.name )"'
+else
+  echo "$INFRASTRUCTURES" | jq -r --arg i "$INFRASTRUCTURE_NAME" '"\($i): \(.[$i].services?[].name)"'
+fi
