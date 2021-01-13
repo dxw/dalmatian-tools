@@ -39,7 +39,7 @@ fi
 
 echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
 
-INFRASTRUCTURE_ACCOUNT_ID=$(yq e "infrastructures.$INFRASTRUCTURE_NAME.account_id" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
+INFRASTRUCTURE_ACCOUNT_ID=$(yq e ".infrastructures.$INFRASTRUCTURE_NAME.account_id" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
 
 if [ -z "$INFRASTRUCTURE_ACCOUNT_ID" ]
 then
