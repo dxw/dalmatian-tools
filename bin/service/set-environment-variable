@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "This command can set environment variables for a service"
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service>           - service name "
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -k <key>               - key e.g SMTP_HOST"
+  echo "  -v <value>             - value e.g smtp.example.org"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+while getopts "i:e:s:k:v:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    k)
+      KEY=$OPTARG
+      ;;
+    v)
+      VALUE=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$SERVICE_NAME"
+  || -z "$ENVIRONMENT"
+  || -z "$KEY"
+  || -z "$VALUE"
+]]
+then
+  usage
+fi
+
+echo "==> setting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT"
+
+aws ssm put-parameter \
+  --name "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/$KEY" \
+  --value "$VALUE" \
+  --type SecureString \
+  --key-id "alias/$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-ssm" \
+  --overwrite
