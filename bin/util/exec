@@ -1,0 +1,32 @@
+#!/bin/bash
+
+usage() {
+  echo "Run any cli command in an infrastructure or the main dalmatian account"
+  echo "useful for bootstrapping new accounts or getting AWS env vars"
+  echo 'e.g dalmatian util exec bundle exec rake dalmatian:bootstrap_account'
+  echo 'dalmatian util exec env | grep AWS'
+  echo "Usage: $(basename "$0") [OPTIONS] <command>" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name OPTIONAL defaults to main dalmatian account"
+  exit 1
+}
+
+while getopts "ih" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+if [[ -z $INFRASTRUCTURE_NAME ]]
+then
+shift $((OPTIND-1))
+shift $((OPTIND-1))
+fi
+exec "$@"
