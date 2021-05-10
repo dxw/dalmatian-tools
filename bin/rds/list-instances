@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+while getopts "i:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+]]
+then
+  usage
+fi
+
+echo "==> Getting RDS instances in $INFRASTRUCTURE_NAME..."
+
+aws rds describe-db-instances \
+  | jq -r '.DBInstances[] | "Name: \(.DBInstanceIdentifier) Engine: \(.Engine) Address: \(.Endpoint.Address):\(.Endpoint.Port)" '
