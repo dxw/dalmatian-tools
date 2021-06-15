@@ -11,6 +11,7 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -c <cluster_name>      - Optional - name of extra cluster)"
   echo "  -s <service_name>      - service name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   exit 1
@@ -30,7 +31,9 @@ then
   exit 1
 fi
 
-while getopts "i:e:s:h" opt; do
+CLUSTER_NAME=""
+
+while getopts "i:e:s:c:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -40,6 +43,9 @@ while getopts "i:e:s:h" opt; do
       ;;
     s)
       SERVICE_NAME=$OPTARG
+      ;;
+    c)
+      CLUSTER_NAME=$OPTARG
       ;;
     h)
       usage
@@ -62,6 +68,10 @@ fi
 echo "==> Finding container..."
 
 CLUSTER="$INFRASTRUCTURE_NAME-$ENVIRONMENT"
+if [ -n "$CLUSTER_NAME" ]
+then
+  CLUSTER="$CLUSTER-$CLUSTER_NAME"
+fi
 
 TASKS=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE_NAME")
 TASK_ARN=$(echo "$TASKS" | jq -r '.taskArns[0]')
