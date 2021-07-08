@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Create certifcates for use by CloudFront and ALBs"
+  echo 'e.g dalmatian -i <infrastructure> -d test.cert.tld -s www.test.cert.tld'
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                         - help"
+  echo "  -i <infrastructure>        - infrastructure name"
+  echo "  -d <domain>                - domain name"
+  echo "  -s \"<domain1> <domain2>\" - space seperated list of domain names which must be quoted. [OPTIONAL]"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+ exit 0
+fi
+
+SAN=""
+
+while getopts "i:d:s:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    d)
+      DOMAIN=$OPTARG
+      ;;
+    s)
+      SAN=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+]]
+then
+  usage
+fi
+
+if [[
+  -z "$SAN"  
+]]
+then
+  SAN="$DOMAIN"
+fi
+
+# $SAN needs to not be quoted so that the values don't become one long string
+#shellcheck disable=SC2086 
+EUW2_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region eu-west-2 | jq -r '.CertificateArn')
+#shellcheck disable=SC2086 
+USE1_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region us-east-1 | jq -r '.CertificateArn')
+# Sleep to allow the AWS API to become consistent
+sleep 2
+DNS=$(aws acm describe-certificate --certificate-arn "$EUW2_ARN" | jq -r '.Certificate.DomainValidationOptions[] | "\(.ResourceRecord.Name) CNAME \(.ResourceRecord.Value)"')
+
+echo "Load balancer SSL cert is $EUW2_ARN"
+echo "CloudFront SSL cert is $USE1_ARN"
+echo "DNS validation entries are:"
+echo "$DNS"
