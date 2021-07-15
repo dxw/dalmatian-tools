@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "list certificates in an infrastructure"
+  echo 'e.g dalmatian -i <infrastructure>'
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                         - help"
+  echo "  -i <infrastructure>        - infrastructure name"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+ exit 0
+fi
+
+while getopts "i:d:s:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+]]
+then
+  usage
+fi
+
+aws acm list-certificates --region eu-west-2 | jq -r '.CertificateSummaryList[] | "\(.DomainName) \(.CertificateArn)"'
+aws acm list-certificates --region us-east-1 | jq -r '.CertificateSummaryList[] | "\(.DomainName) \(.CertificateArn)"'
