@@ -41,5 +41,27 @@ then
   usage
 fi
 
-aws acm list-certificates --region eu-west-2 | jq -r '.CertificateSummaryList[] | "\(.DomainName) \(.CertificateArn)"'
-aws acm list-certificates --region us-east-1 | jq -r '.CertificateSummaryList[] | "\(.DomainName) \(.CertificateArn)"'
+LB_CERTIFICATES=()
+while IFS='' read -r cert
+do
+  LB_CERTIFICATES+=("$cert")
+done < <(aws acm list-certificates | jq -r '.CertificateSummaryList[] | .CertificateArn')
+
+CLOUDFRONT_CERTIFICATES=()
+while IFS='' read -r cert
+do
+  CLOUDFRONT_CERTIFICATES+=("$cert")
+done < <(aws acm list-certificates --region us-east-1 | jq -r '.CertificateSummaryList[] | .CertificateArn')
+
+ALL_CERTIFICATES=("${LB_CERTIFICATES[@]}" "${CLOUDFRONT_CERTIFICATES[@]}")
+
+for cert_arn in "${ALL_CERTIFICATES[@]}"
+do
+  if [[ "${cert_arn}" == "arn:aws:acm:us-east-1"* ]]
+  then
+    CERT_REGION="us-east-1"
+  else
+    CERT_REGION="$AWS_DEFAULT_REGION"
+  fi
+  aws acm describe-certificate --certificate-arn "$cert_arn" --region "$CERT_REGION" | jq -r '.Certificate | .CertificateArn + " " + .DomainName + " " + .Status'
+done
