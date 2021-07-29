@@ -13,7 +13,25 @@ usage() {
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -k <key>               - key e.g SMTP_HOST"
   echo "  -v <value>             - value e.g smtp.example.org"
+  echo "  -E <environment_file>  - environment file path"
   exit 1
+}
+
+set_envar() {
+  INFRASTRUCTURE_NAME="$1"
+  SERVICE_NAME="$2"
+  ENVIRONMENT="$3"
+  KEY="$4"
+  VALUE="$5"
+
+  echo "==> setting environment variable $4 for $1/$2/$3"
+
+  aws ssm put-parameter \
+    --name "/$1/$2/$3/$4" \
+    --value "$5" \
+    --type SecureString \
+    --key-id "alias/$1-$2-$3-ssm" \
+    --overwrite
 }
 
 # if there are no arguments passed exit with usage
@@ -22,7 +40,9 @@ then
  usage
 fi
 
-while getopts "i:e:s:k:v:h" opt; do
+ENV_FILE=""
+
+while getopts "i:e:s:k:v:E:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -39,6 +59,9 @@ while getopts "i:e:s:k:v:h" opt; do
     v)
       VALUE=$OPTARG
       ;;
+    E)
+      ENV_FILE=$OPTARG
+      ;;
     h)
       usage
       ;;
@@ -52,18 +75,33 @@ if [[
   -z "$INFRASTRUCTURE_NAME"
   || -z "$SERVICE_NAME"
   || -z "$ENVIRONMENT"
-  || -z "$KEY"
-  || -z "$VALUE"
 ]]
 then
   usage
 fi
 
-echo "==> setting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT"
+if [[
+  -z "$ENV_FILE"
+  && ( -z "$KEY" || -z "$VALUE" )
+]]
+then
+  usage
+fi
 
-aws ssm put-parameter \
-  --name "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/$KEY" \
-  --value "$VALUE" \
-  --type SecureString \
-  --key-id "alias/$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-ssm" \
-  --overwrite
+if [[ -n "$ENV_FILE" ]]
+then
+  if [ ! -f "$ENV_FILE" ]
+  then
+    echo "Error: $ENV_FILE does not exist"
+    exit 1
+  fi
+
+  while IFS='' read -r envar
+  do
+    KEY=$(echo "$envar" | cut -d'=' -f1)
+    VALUE=$(echo "$envar" | cut -d'=' -f2-)
+    set_envar "$INFRASTRUCTURE_NAME" "$SERVICE_NAME" "$ENVIRONMENT" "$KEY" "$VALUE"
+  done < <(sed -e "s/'//" -e "s/'$//" -e 's/"//' -e 's/"$//' "$ENV_FILE")
+else
+  set_envar "$INFRASTRUCTURE_NAME" "$SERVICE_NAME" "$ENVIRONMENT" "$KEY" "$VALUE"
+fi
