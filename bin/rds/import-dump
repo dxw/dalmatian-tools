@@ -101,7 +101,7 @@ echo "==> Finding ECS instance..."
 
 ECS_INSTANCES=$(
   aws ec2 describe-instances \
-    --filters "Name=vpc-id,Values=$RDS_VPC"
+    --filters "Name=vpc-id,Values=$RDS_VPC" "Name=instance-state-code,Values=16"
 )
 ECS_INSTANCE_ID=$(
   echo "$ECS_INSTANCES" \
