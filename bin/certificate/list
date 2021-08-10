@@ -10,6 +10,7 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                         - help"
   echo "  -i <infrastructure>        - infrastructure name"
+  echo "  -d <domain_name>           - domain name (optional)"
   exit 1
 }
 
@@ -20,10 +21,14 @@ then
  exit 0
 fi
 
+DOMAIN_NAME=""
 while getopts "i:d:s:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    d)
+      DOMAIN_NAME=$OPTARG
       ;;
     h)
       usage
@@ -41,17 +46,26 @@ then
   usage
 fi
 
+if [ -n "$DOMAIN_NAME" ]
+then
+  LB_CERTIFICATE_ARNS=$(aws acm list-certificates | jq -r --arg d "$DOMAIN_NAME" '.CertificateSummaryList[] | select(.DomainName == $d) | .CertificateArn')
+  CLOUDFRONT_CERTIFICATE_ARNS=$(aws acm list-certificates --region us-east-1 | jq -r --arg d "$DOMAIN_NAME" '.CertificateSummaryList[] | select(.DomainName == $d) | .CertificateArn')
+else
+  LB_CERTIFICATE_ARNS=$(aws acm list-certificates | jq -r '.CertificateSummaryList[] | .CertificateArn')
+  CLOUDFRONT_CERTIFICATE_ARNS=$(aws acm list-certificates --region us-east-1 | jq -r '.CertificateSummaryList[] | .CertificateArn')
+fi
+
 LB_CERTIFICATES=()
 while IFS='' read -r cert
 do
   LB_CERTIFICATES+=("$cert")
-done < <(aws acm list-certificates | jq -r '.CertificateSummaryList[] | .CertificateArn')
+done < <(echo "$LB_CERTIFICATE_ARNS")
 
 CLOUDFRONT_CERTIFICATES=()
 while IFS='' read -r cert
 do
   CLOUDFRONT_CERTIFICATES+=("$cert")
-done < <(aws acm list-certificates --region us-east-1 | jq -r '.CertificateSummaryList[] | .CertificateArn')
+done < <(echo "$CLOUDFRONT_CERTIFICATE_ARNS")
 
 ALL_CERTIFICATES=("${LB_CERTIFICATES[@]}" "${CLOUDFRONT_CERTIFICATES[@]}")
 
