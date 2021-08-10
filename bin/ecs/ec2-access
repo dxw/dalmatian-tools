@@ -65,7 +65,7 @@ fi
 echo "==> Finding ECS instance..."
 INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
 
-AVAILABLE_INSTANCES=$(echo "$INSTANCES" | jq -r '.Reservations[].Instances[] | (.InstanceId) + " | " + (.Tags[] | select(.Key == "Name") | .Value)')
+AVAILABLE_INSTANCES=$(echo "$INSTANCES" | jq -r '.Reservations[].Instances[] | (.InstanceId) + " | " + (.Tags[] | select(.Key == "Name") | .Value) + " | " + (.LaunchTime)')
 if [ -n "$LIST" ];
 then
   echo "$AVAILABLE_INSTANCES"
