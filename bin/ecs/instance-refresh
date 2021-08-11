@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+ exit 0
+fi
+
+while getopts "i:e:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+#echo "==> Refreshing instances on $INFRASTRUCTURE_NAME $ENVIRONMENT..."
+AUTO_SCALING_GROUP_NAME=$(aws autoscaling describe-auto-scaling-groups | jq -r --arg i "$INFRASTRUCTURE_NAME" --arg e "$ENVIRONMENT" '.AutoScalingGroups[] | select(.AutoScalingGroupName | test("asg-ecs-\($i)-\($e).*")) | .AutoScalingGroupName')
+INSTANCE_REFRESH_ID=$(aws autoscaling start-instance-refresh --auto-scaling-group-name "$AUTO_SCALING_GROUP_NAME" | jq -r '.InstanceRefreshId')
+
+STATUS=""
+STATUS_REASON=""
+while [ "$STATUS" != "Successful" ]
+do
+  REFRESH_STATUS=$(aws autoscaling describe-instance-refreshes --auto-scaling-group-name "$AUTO_SCALING_GROUP_NAME" | jq -r --arg i "$INSTANCE_REFRESH_ID" '.InstanceRefreshes[] | select(.InstanceRefreshId==$i)')
+  STATUS=$(echo "$REFRESH_STATUS" | jq -r '.Status')
+  NEW_STATUS_REASON=$(echo "$REFRESH_STATUS" | jq -r '.StatusReason')
+  PERCENT_COMPLETE=$(echo "$REFRESH_STATUS" | jq -r '.PercentageComplete')
+  INSTANCES_TO_UPDATE=$(echo "$REFRESH_STATUS" | jq -r '.InstancesToUpdate')
+  if [ "$NEW_STATUS_REASON" != "$STATUS_REASON" ]
+  then
+    if [ "$NEW_STATUS_REASON" != "null" ]
+    then
+      echo "$NEW_STATUS_REASON"
+    fi
+    STATUS_REASON="$NEW_STATUS_REASON"
+  fi
+  echo "Status: $STATUS, Percent Complete: $PERCENT_COMPLETE, Instances to update: $INSTANCES_TO_UPDATE"
+  if [ "$STATUS" != "Successful" ]
+  then
+    sleep 30
+  fi
+done
