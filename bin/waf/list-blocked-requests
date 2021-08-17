@@ -11,6 +11,8 @@ usage() {
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -w <waf_name>          - WAF name (as defined in the Dalmatian config)"
   echo "  -t <time_frame>        - Time frame in minutes (default 10)"
+  echo "  -H <header_name>       - Search based on header, name  (eg. Host)"
+  echo "  -v <header_value>      - Serach based on header, value (eg. example.com)"
   echo "  -V                     - Verbose mode - output full Sampled Request data"
   exit 1
 }
@@ -23,7 +25,7 @@ fi
 
 TIME_FRAME="10"
 
-while getopts "i:w:t:e:Vh" opt; do
+while getopts "i:w:t:e:H:v:Vh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -36,6 +38,12 @@ while getopts "i:w:t:e:Vh" opt; do
       ;;
     t)
       TIME_FRAME=$OPTARG
+      ;;
+    H)
+      HEADER_NAME=$OPTARG
+      ;;
+    v)
+      HEADER_VALUE=$OPTARG
       ;;
     V)
       VERBOSE=1
@@ -56,6 +64,14 @@ if [[
 ]]
 then
   usage
+fi
+
+if [[ -n "$HEADER_NAME" || -n "$HEADER_VALUE" ]]
+then
+  if [[ -z "$HEADER_NAME" || -z "$HEADER_VALUE" ]]
+  then
+    usage
+  fi
 fi
 
 WAF_WEB_ACL_NAME="$INFRASTRUCTURE_NAME-$WAF_NAME-waf-$ENVIRONMENT-$WAF_NAME-acl"
@@ -106,6 +122,11 @@ do
     . += $j'
   )
 done
+
+if [[ -n "$HEADER_NAME" && -n "$HEADER_VALUE" ]]
+then
+  BLOCKED_REQUESTS_JSON_STRING=$(echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r --arg n "$HEADER_NAME" --arg v "$HEADER_VALUE" '[ .[] | select(.Request.Headers[] as $h | $h.Name=="\($n)" | $h.Value=="\($v)") ]')
+fi
 
 BLOCKED_REQUESTS_JSON_STRING=$(echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r 'sort_by(.Timestamp) | reverse')
 
