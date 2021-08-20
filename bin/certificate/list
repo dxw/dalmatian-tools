@@ -8,9 +8,10 @@ usage() {
   echo "list certificates in an infrastructure"
   echo 'e.g dalmatian -i <infrastructure>'
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                         - help"
-  echo "  -i <infrastructure>        - infrastructure name"
-  echo "  -d <domain_name>           - domain name (optional)"
+  echo "  -h                                 - help"
+  echo "  -i <infrastructure>                - infrastructure name"
+  echo "  -d <domain_name>                   - domain name (optional)"
+  echo "  -D <output_dns_validation_records> - output DNS validation records"
   exit 1
 }
 
@@ -22,13 +23,17 @@ then
 fi
 
 DOMAIN_NAME=""
-while getopts "i:d:s:h" opt; do
+OUTPUT_DNS_VALIDATION_RECORDS=""
+while getopts "i:d:s:Dh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
       ;;
     d)
       DOMAIN_NAME=$OPTARG
+      ;;
+    D)
+      OUTPUT_DNS_VALIDATION_RECORDS="1"
       ;;
     h)
       usage
@@ -77,5 +82,21 @@ do
   else
     CERT_REGION="$AWS_DEFAULT_REGION"
   fi
-  aws acm describe-certificate --certificate-arn "$cert_arn" --region "$CERT_REGION" | jq -r '.Certificate | .CertificateArn + " " + .DomainName + " " + .Status'
+  CERTIFICATE=$(aws acm describe-certificate --certificate-arn "$cert_arn" --region "$CERT_REGION")
+
+  echo "$CERTIFICATE" | jq -r '.Certificate | .CertificateArn + " " + .DomainName + " " + .Status'
+
+  if [ -n "$OUTPUT_DNS_VALIDATION_RECORDS" ]
+  then
+    while IFS='' read -r r
+    do
+      if [ "$r" != "null" ]
+      then
+        echo "$r" | jq -r '.Name + " " + .Type + " " + .Value'
+      else
+        echo "Validation records unavailable"
+      fi
+    done < <(echo "$CERTIFICATE" | jq -c '.Certificate | .DomainValidationOptions[].ResourceRecord')
+    echo ""
+  fi
 done
