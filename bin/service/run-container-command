@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# Requires the `session-manager-plugin` to be installed:
+# https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -c <cluster_name>      - Optional - name of extra cluster)"
+  echo "  -s <service_name>      - service name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -C <command>           - command to run (Warning: will be ran as root)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+ exit 0
+fi
+
+if ! command -v session-manager-plugin > /dev/null
+then
+  echo "This script requires the \`session-manager-plugin\` to be installed:"
+  echo "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
+  exit 1
+fi
+
+CLUSTER_NAME=""
+
+while getopts "i:e:s:c:C:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    c)
+      CLUSTER_NAME=$OPTARG
+      ;;
+    C)
+      COMMAND=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+  || -z "$SERVICE_NAME"
+  || -z "$COMMAND"
+]]
+then
+  usage
+fi
+
+echo "==> Finding container..."
+
+CLUSTER="$INFRASTRUCTURE_NAME-$ENVIRONMENT"
+if [ -n "$CLUSTER_NAME" ]
+then
+  CLUSTER="$CLUSTER-$CLUSTER_NAME"
+fi
+
+TASKS=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE_NAME")
+TASK_ARN=$(echo "$TASKS" | jq -r '.taskArns[0]')
+
+TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster "$CLUSTER" --task "$TASK_ARN")
+CONTAINER_INSTANCE_ARN=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containerInstanceArn')
+TASK_DEFINITION_ARN=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].taskDefinitionArn')
+
+CONTAINER_NAME_PREFIX="ecs-$(echo "$TASK_DEFINITION_ARN" | cut -d'/' -f2| sed -e 's/:/-/')-$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-"
+
+CONTAINER_INSTANCE_DESCRIPTION=$(aws ecs describe-container-instances --cluster "$CLUSTER" --container-instance "$CONTAINER_INSTANCE_ARN")
+CONTAINER_INSTANCE_ID=$(echo "$CONTAINER_INSTANCE_DESCRIPTION" | jq -r '.containerInstances[0].ec2InstanceId')
+
+echo "==> Running command on container $CONTAINER_NAME_PREFIX* on $CLUSTER cluster..."
+
+aws ssm start-session \
+  --target "$CONTAINER_INSTANCE_ID" \
+  --document-name "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-ecs-service-run-container-command" \
+  --parameters "ContainerNamePrefix=$CONTAINER_NAME_PREFIX,Command='$COMMAND'"
