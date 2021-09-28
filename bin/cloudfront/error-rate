@@ -1,0 +1,131 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service_name>      - service name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -t <start_time>        - start time (ISO 8601 UTC format eg. 2016-10-03T23:00:00Z)"
+  echo "  -T <end_time>          - end time (same format as start time)"
+  echo "                           Tip: you can use \$(date +\"%Y-%m-%dT%TZ\") for the curent time"
+  echo "                                or eg. \$(date -v -1d +\"%Y-%m-%dT%TZ\") for the time 1 day ago"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+ exit 0
+fi
+
+
+while getopts "i:e:s:t:T:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    t)
+      START_TIME=$OPTARG
+      ;;
+    T)
+      END_TIME=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+  || -z "$SERVICE_NAME"
+  || -z "$START_TIME"
+  || -z "$END_TIME"
+]]
+then
+  usage
+fi
+
+DISTRIBUTIONS=$(aws cloudfront list-distributions)
+DISTRIBUTION=$(echo "$DISTRIBUTIONS" | jq -r --arg origin "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-default-origin" '.DistributionList.Items[] | select(.Origins.Items[].Id==$origin)')
+DISTRIBUTION_ID=$(echo "$DISTRIBUTION" | jq -r '.Id')
+DISTRIBUTION_ALIAS=$(echo "$DISTRIBUTION" | jq -r '.Aliases.Items[0]')
+DISTRIBUTION_DOMAIN=$(echo "$DISTRIBUTION" | jq -r '.DomainName')
+
+echo "==> Getting 'Requests' metrics ..."
+REQUEST_METRICS=$(aws cloudwatch get-metric-statistics \
+  --namespace "AWS/CloudFront" \
+  --dimensions "Name=DistributionId,Value=$DISTRIBUTION_ID" "Name=Region,Value=Global" \
+  --metric-name "Requests" \
+  --start-time "$START_TIME" \
+  --end-time "$END_TIME" \
+  --period 3600 \
+  --statistics "Sum" \
+  --region us-east-1 | jq -r '.Datapoints | sort_by(.Timestamp)')
+
+echo "==> Getting '5xxErrorRate' metrics ..."
+FIVE_XX_METRICS=$(aws cloudwatch get-metric-statistics \
+  --namespace "AWS/CloudFront" \
+  --dimensions "Name=DistributionId,Value=$DISTRIBUTION_ID" "Name=Region,Value=Global" \
+  --metric-name "5xxErrorRate" \
+  --start-time "$START_TIME" \
+  --end-time "$END_TIME" \
+  --period 3600 \
+  --statistics "Average" \
+  --region us-east-1 | jq -r '.Datapoints | sort_by(.Timestamp)')
+
+echo "==> Getting '4xxErrorRate' metrics ..."
+FOUR_XX_METRICS=$(aws cloudwatch get-metric-statistics \
+  --namespace "AWS/CloudFront" \
+  --dimensions "Name=DistributionId,Value=$DISTRIBUTION_ID" "Name=Region,Value=Global" \
+  --metric-name "4xxErrorRate" \
+  --start-time "$START_TIME" \
+  --end-time "$END_TIME" \
+  --period 3600 \
+  --statistics "Average" \
+  --region us-east-1 | jq -r '.Datapoints | sort_by(.Timestamp)')
+
+echo "Results for $DISTRIBUTION_ID ( $DISTRIBUTION_ALIAS, $DISTRIBUTION_DOMAIN ):"
+REQUEST_METRICS_LENGTH=$(echo "$REQUEST_METRICS" | jq -r '. | length')
+FIVE_XX_METRICS_LENGTH=$(echo "$FIVE_XX_METRICS" | jq -r '. | length')
+FOUR_XX_METRICS_LENGTH=$(echo "$FOUR_XX_METRICS" | jq -r '. | length')
+if [[ "$REQUEST_METRICS_LENGTH" != "$FIVE_XX_METRICS_LENGTH" || "$FIVE_XX_METRICS_LENGTH" != "$FOUR_XX_METRICS_LENGTH" ]]
+then
+  echo "Mismatching metric lengths - try run the same cammand again ..."
+  echo "(R: $REQUEST_METRICS_LENGTH, 5: $FIVE_XX_METRICS_LENGTH, $FOUR_XX_METRICS_LENGTH)"
+  exit 1
+fi
+
+TOTAL_REQUESTS=0
+TOTAL_FIVE_XX_PERCENT=0
+TOTAL_FOUR_XX_PERCENT=0
+for i in $(seq 0 $((REQUEST_METRICS_LENGTH - 1)) )
+do
+  REQUEST_TIMESTAMP=$(echo "$REQUEST_METRICS" | jq -r --arg i "$i" '.[($i|tonumber)].Timestamp')
+  REQUEST_SUM=$(echo "$REQUEST_METRICS" | jq -r --arg i "$i" '.[($i|tonumber)].Sum')
+  FIVE_XX_PERCENT=$(echo "$FIVE_XX_METRICS" | jq -r --arg i "$i" '.[($i|tonumber)].Average')
+  FOUR_XX_PERCENT=$(echo "$FOUR_XX_METRICS" | jq -r --arg i "$i" '.[($i|tonumber)].Average')
+  echo "$REQUEST_TIMESTAMP Requests: $REQUEST_SUM, 5xx: $FIVE_XX_PERCENT%, 4xx: $FOUR_XX_PERCENT%" 
+  TOTAL_REQUESTS=$(echo "$TOTAL_REQUESTS + $REQUEST_SUM" | bc)
+  TOTAL_FIVE_XX_PERCENT=$(echo "$TOTAL_FIVE_XX_PERCENT + $FIVE_XX_PERCENT" | bc)
+  TOTAL_FOUR_XX_PERCENT=$(echo "$TOTAL_FOUR_XX_PERCENT + $FOUR_XX_PERCENT" | bc)
+done
+TOTAL_FIVE_XX_PERCENT=$(echo "$TOTAL_FIVE_XX_PERCENT / $REQUEST_METRICS_LENGTH" | bc -l)
+TOTAL_FOUR_XX_PERCENT=$(echo "$TOTAL_FOUR_XX_PERCENT / $REQUEST_METRICS_LENGTH" | bc -l)
+echo "Total Requests: $TOTAL_REQUESTS, 5xx: $TOTAL_FIVE_XX_PERCENT%, 4xx: $TOTAL_FOUR_XX_PERCENT%"
