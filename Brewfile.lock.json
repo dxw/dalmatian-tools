@@ -68,6 +68,14 @@
           }
         }
       }
+    },
+    "cask": {
+      "session-manager-plugin": {
+        "version": "1.2.245.0",
+        "options": {
+          "full_name": "session-manager-plugin"
+        }
+      }
     }
   },
   "system": {
