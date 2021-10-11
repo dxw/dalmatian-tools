@@ -17,10 +17,13 @@ then
  usage
 fi
 
-while getopts "i:h" opt; do
+while getopts "i:e:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
       ;;
     h)
       usage
@@ -32,13 +35,14 @@ while getopts "i:h" opt; do
 done
 
 if [[
-  -z "$INFRASTRUCTURE_NAME"
+  -z "$INFRASTRUCTURE_NAME" ||
+  -z "$ENVIRONMENT"
 ]]
 then
   usage
 fi
 
-echo "==> Getting RDS instances in $INFRASTRUCTURE_NAME..."
+echo "==> Getting RDS instances in $INFRASTRUCTURE_NAME $ENVIRONMENT..."
 
 aws rds describe-db-instances \
-  | jq -r '.DBInstances[] | "Name: \(.DBInstanceIdentifier) Engine: \(.Engine) Address: \(.Endpoint.Address):\(.Endpoint.Port)" '
+  | jq -r '.DBInstances[] | "Name: \(.DBInstanceIdentifier) Engine: \(.Engine) Address: \(.Endpoint.Address):\(.Endpoint.Port)" ' | grep "$INFRASTRUCTURE_NAME.*$ENVIRONMENT"
