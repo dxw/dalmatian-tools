@@ -19,7 +19,8 @@ then
  usage
 fi
 
-while getopts "i:e:s:h" opt; do
+WATCH=""
+while getopts "i:e:s:wh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -29,6 +30,9 @@ while getopts "i:e:s:h" opt; do
       ;;
     s)
       SERVICE_NAME=$OPTARG
+      ;;
+    w)
+      WATCH="1"
       ;;
     h)
       usage
@@ -48,6 +52,15 @@ then
   usage
 fi
 
-PIPELINE_STATUS=$(aws codepipeline get-pipeline-state --name "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-build-and-deploy")
-echo "$PIPELINE_STATUS" | jq -r '.stageStates[] | .stageName + ": " + .latestExecution.status + " (" + .actionStates[0].latestExecution.lastStatusChange + ")"'
+pipeline_status() {
+  PIPELINE_STATUS=$(aws codepipeline get-pipeline-state --name "$1-$2-$3-build-and-deploy")
+  echo "$PIPELINE_STATUS" | jq -r '.stageStates[] | .stageName + ": " + .latestExecution.status + " (" + .actionStates[0].latestExecution.lastStatusChange + ")"'
+}
 
+if [ -n "$WATCH" ]
+then
+  export -f pipeline_status
+  watch -n5 -x /bin/bash -c "pipeline_status $INFRASTRUCTURE_NAME $SERVICE_NAME $ENVIRONMENT"
+else
+  pipeline_status "$INFRASTRUCTURE_NAME" "$SERVICE_NAME" "$ENVIRONMENT"
+fi
