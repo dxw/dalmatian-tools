@@ -100,35 +100,6 @@ Console and setting it up afresh.
 
   `dalmatian -l`
 
-  ```
-  $ dalmatian -l
-  Available commands:
-
-    login
-
-    cloudfront
-      clear-cache
-
-    ecs
-      file-upload
-      ec2-access
-
-    aws
-      assume-infrastructure-role
-      mfa
-
-    service
-      container-access
-      pull-image
-      list-environment-variables
-
-    rds
-      shell
-      export-dump
-      import-dump
-      create-database
-  ```
-
 ### Bash completion
 
 Add the full path to the `support/bash-completion.sh` script to your `~/.bashrc` file
