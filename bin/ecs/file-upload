@@ -15,6 +15,7 @@ usage() {
   echo "  -s <source>            - Source"
   echo "  -t <host_target>       - Host target"
   echo "  -r <recursive>         - Recursive"
+  echo "  -I <ecs_insatnce_id>   - ECS instance ID (optional)"
   exit 1
 }
 
@@ -34,7 +35,7 @@ fi
 
 RECURSIVE=0
 
-while getopts "i:e:s:t:rh" opt; do
+while getopts "i:e:s:t:I:rh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -47,6 +48,9 @@ while getopts "i:e:s:t:rh" opt; do
       ;;
     t)
       HOST_TARGET=$OPTARG
+      ;;
+    I)
+      ECS_INSTANCE_ID=$OPTARG
       ;;
     r)
       RECURSIVE=1
@@ -89,18 +93,20 @@ fi
 # shellcheck disable=2086
 aws s3 cp "$SOURCE" s3://"$BUCKET_NAME"/"$PREFIX_DIR"/"$(basename "$SOURCE")" $S3_RECURSIVE
 
-echo "==> Finding ECS instance..."
+if [ -z "$ECS_INSTANCE_ID" ]
+then
+  echo "==> Finding ECS instance..."
 
-INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
-INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
-INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
+  ECS_INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
+  ECS_INSTANCE_ID=$(echo "$ECS_INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
+fi
 
-echo "==> Downloading from S3 to '$INSTANCE_NAME' (id: $INSTANCE_ID)..."
+echo "==> Downloading from S3 to $ECS_INSTANCE_ID..."
 
 echo "==> s3://$BUCKET_NAME/$PREFIX_DIR/$(basename "$SOURCE") -> $HOST_TARGET"
 
 aws ssm start-session \
-  --target "$INSTANCE_ID" \
+  --target "$ECS_INSTANCE_ID" \
   --document-name "$INFRASTRUCTURE_NAME-$ENVIRONMENT-s3-download" \
   --parameters "Source=s3://$BUCKET_NAME/$PREFIX_DIR/$(basename "$SOURCE"),HostTarget=$HOST_TARGET,Recursive=$SSM_S3_RECURSIVE"
 
