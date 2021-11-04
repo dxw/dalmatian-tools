@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -w <watch>             - watch"       
+  exit 1
+}
+
+WATCH=""
+while getopts "wh" opt; do
+  case $opt in
+    w)
+      WATCH=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+pipeline_status() {
+  PIPELINE_STATUS=$(aws codepipeline get-pipeline-state --name "ci-terraform-build-pipeline")
+  echo "$PIPELINE_STATUS" | jq -r '.stageStates[] | .stageName + ": " + .latestExecution.status + " (" + .actionStates[0].latestExecution.lastStatusChange + ")"'
+  echo "$PIPELINE_STATUS" | jq -r '.stageStates[] | select(.stageName == "Build") | .actionStates[] | "  - " + .actionName + ": " + .latestExecution.status + " (" + .latestExecution.lastStatusChange + ")"'
+}
+
+if [ -n "$WATCH" ]
+then
+  export -f pipeline_status
+  watch -n5 -x /bin/bash -c "pipeline_status $INFRASTRUCTURE_NAME $SERVICE_NAME $ENVIRONMENT"
+else
+  pipeline_status "$INFRASTRUCTURE_NAME" "$SERVICE_NAME" "$ENVIRONMENT"
+fi
