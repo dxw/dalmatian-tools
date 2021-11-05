@@ -7,6 +7,7 @@ set -o pipefail
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
+  echo "  -e <environment>       - environment (eg. 'staging' or 'prod')"
   echo "  -i <infrastructure>    - infrastructure name"
   exit 1
 }
@@ -44,5 +45,7 @@ fi
 
 echo "==> Getting RDS instances in $INFRASTRUCTURE_NAME $ENVIRONMENT..."
 
+RDS_IDENTIFIER_SEARCH="${INFRASTRUCTURE_NAME//-/}.*${ENVIRONMENT//-/}"
+
 aws rds describe-db-instances \
-  | jq -r '.DBInstances[] | "Name: \(.DBInstanceIdentifier) Engine: \(.Engine) Address: \(.Endpoint.Address):\(.Endpoint.Port)" ' | grep "$INFRASTRUCTURE_NAME.*$ENVIRONMENT"
+  | jq -r '.DBInstances[] | "Name: \(.DBInstanceIdentifier) Engine: \(.Engine) Address: \(.Endpoint.Address):\(.Endpoint.Port)" ' | grep "$RDS_IDENTIFIER_SEARCH"
