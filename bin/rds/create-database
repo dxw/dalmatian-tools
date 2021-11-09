@@ -13,6 +13,7 @@ usage() {
   echo "  -d <db_name>           - name of database to create"
   echo "  -u <user_name>         - name of user to create"
   echo "  -P <user_password>     - password for user to be created"
+  echo "  -I <ecs_instance_id>   - ECS instance ID to connect through (optional)"
   exit 1
 }
 
@@ -22,7 +23,7 @@ then
  usage
 fi
 
-while getopts "i:e:r:d:u:P:h" opt; do
+while getopts "i:e:r:d:u:P:I:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -41,6 +42,9 @@ while getopts "i:e:r:d:u:P:h" opt; do
       ;;
     P)
       USER_PASSWORD=$OPTARG
+      ;;
+    I)
+      ECS_INSTANCE_ID=$OPTARG
       ;;
     h)
       usage
@@ -94,16 +98,19 @@ echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 echo "VPC ID: $RDS_VPC"
 
-echo "==> Finding ECS instance..."
+if [ -z "$ECS_INSTANCE_ID" ]
+then
+  echo "==> Finding ECS instance..."
 
-ECS_INSTANCES=$(
-  aws ec2 describe-instances \
-    --filters "Name=vpc-id,Values=$RDS_VPC" "Name=instance-state-code,Values=16"
-)
-ECS_INSTANCE_ID=$(
-  echo "$ECS_INSTANCES" \
-    | jq -r .Reservations[0].Instances[0].InstanceId
-)
+  ECS_INSTANCES=$(
+    aws ec2 describe-instances \
+      --filters "Name=vpc-id,Values=$RDS_VPC" "Name=instance-state-code,Values=16"
+  )
+  ECS_INSTANCE_ID=$(
+    echo "$ECS_INSTANCES" \
+      | jq -r .Reservations[0].Instances[0].InstanceId
+  )
+fi
 
 echo "ECS instance ID: $ECS_INSTANCE_ID"
 
