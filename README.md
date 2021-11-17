@@ -42,6 +42,17 @@ CLI tools to help with working with Dalmatian
 
   Run the `dalmatian login` command
 
+  You can find your AWS Access Key and Secret Key in the AWS console by heading
+  to the [IAM users list](https://console.aws.amazon.com/iamv2/home#/users),
+  choosing your `dalmatian-user-admin`, and selecting the "Security credentials"
+  tab. You will need to create a new Access Key. *Do not close this dialog*
+  until you have successfully logged in, as this is the only time you can view
+  your Secret Key.
+
+  When prompted for your MFA secret, this is _not_ the six numbers from 2FA.
+  Instead, you will need the secret key used to generate this. See below for the
+  FAQ if you don't know how to get this.
+
   ```
   $ dalmatian login
   Note: You must have a Dalmatian Admin account to use Dalmatian Tools
@@ -64,6 +75,8 @@ CLI tools to help with working with Dalmatian
   ==> Login success!
   ```
 
+  Once you're signed in you can safely close the AWS Access Key dialog.
+
 ## FAQ
 
 ### Why am I seeing "oathtool: base32 decoding failed: Base32 string is invalid"
@@ -74,7 +87,8 @@ secret which is a long alphanumeric string. This secret is available:
 - at the time you set up MFA in the AWS Console (Security Credentials | Manage MFA), and
 
 - in 1Password if you're using that software to generate MFA codes. You need to
-  go into 'edit' mode to view.
+  go into 'edit' mode to view. You're looking for the string of letters and
+  numbers after `?secret=`.
 
 If you are using an 'app' such as Google Authenticator on your phone you may not
 be able to access this initial secret without removing your MFA in the AWS
