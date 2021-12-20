@@ -213,7 +213,8 @@ then
   ASSUME_ROLE_RESULT=$(
     aws sts assume-role \
     --role-arn "arn:aws:iam::$ACCOUNT_ID:role/$DALMATIAN_ROLE" \
-    --role-session-name dalmatian-tools
+    --role-session-name dalmatian-tools \
+    --external-id dalmatian-tools
   )
   AWS_ACCESS_KEY_ID=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.AccessKeyId')
   AWS_SECRET_ACCESS_KEY=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.SecretAccessKey')
