@@ -48,7 +48,11 @@ then
   exit 1
 fi
 
-CREDENTIALS=$(aws sts assume-role --role-arn arn:aws:iam::"$INFRASTRUCTURE_ACCOUNT_ID":role/dalmatian-admin --role-session-name dalmatian-tools)
+CREDENTIALS=$(aws sts assume-role \
+  --role-arn arn:aws:iam::"$INFRASTRUCTURE_ACCOUNT_ID":role/dalmatian-admin \
+  --role-session-name dalmatian-tools \
+  --external-id dalmatian-tools
+)
 
 ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r .Credentials.AccessKeyId)
 SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r .Credentials.SecretAccessKey)
