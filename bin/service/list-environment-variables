@@ -55,4 +55,5 @@ aws ssm get-parameters-by-path \
   --recursive \
   --with-decryption \
   | jq -r '.Parameters[] | "\(.Name)=\(.Value)"' \
-  | sed -e "s#^/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/##"
+  | sed -e "s#^/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/##" \
+  | sort
