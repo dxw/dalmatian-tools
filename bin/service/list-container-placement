@@ -66,8 +66,6 @@ do
   TASK_ARNS+=("$task_arn")
 done < <(echo "$TASKS" | jq -r '.taskArns[]')
 
-RESULT=""
-NL=$'\n'
 for task_arn in "${TASK_ARNS[@]}"
 do
   TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster "$CLUSTER" --task "$task_arn")
@@ -76,17 +74,10 @@ do
   CONTAINER_INSTANCE_ID=$(echo "$CONTAINER_INSTANCE_DESCRIPTION" | jq -r '.containerInstances[0].ec2InstanceId')
   GROUP=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].group')
 
-  CONTAINER_NAMES=()
-  while IFS='' read -r container_name
+  while IFS='' read -r TASK
   do
-    CONTAINER_NAMES+=("$container_name")
-  done < <(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containers[].name')
-
-  for container_name in "${CONTAINER_NAMES[@]}"
-  do
-    RESULT+="$container_name - $GROUP - $CONTAINER_INSTANCE_ID$NL"
-  done
-
+    CONTAINER_NAME=$(echo "$TASK" | jq -r '.containers[0].name')
+    STARTED_AT=$(echo "$TASK" | jq -r '.startedAt')
+    echo "$CONTAINER_NAME ($STARTED_AT) - $GROUP - $CONTAINER_INSTANCE_ID"
+  done < <(echo "$TASK_DESCRIPTION" | jq -c '.tasks[]')
 done
-
-echo "$RESULT" | sort
