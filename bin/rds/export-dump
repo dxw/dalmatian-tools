@@ -105,7 +105,7 @@ then
 
   ECS_INSTANCES=$(
     aws ec2 describe-instances \
-      --filters "Name=vpc-id,Values=$RDS_VPC" "Name=instance-state-code,Values=16"
+      --filters "Name=vpc-id,Values=$RDS_VPC" "Name=instance-state-code,Values=16" Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*"
   )
   ECS_INSTANCE_ID=$(
     echo "$ECS_INSTANCES" \
