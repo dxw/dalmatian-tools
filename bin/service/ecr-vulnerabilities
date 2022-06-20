@@ -1,0 +1,103 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service>           - service name "
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -t <image_tag>         - image tag (default: 'latest')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+IMAGE_TAG="latest"
+
+while getopts "i:e:s:t:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    t)
+      IMAGE_TAG=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$SERVICE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+REPOSITORY_NAME="$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT"
+
+echo "==> Getting image vulnerabilities..."
+
+IMAGE_SCAN_FINDINGS=$(aws ecr describe-image-scan-findings --repository-name "$REPOSITORY_NAME" --image-id imageTag="$IMAGE_TAG" | jq -rc '.imageScanFindings.findings[]')
+
+SEVERITIES=(
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  UNDEFINED
+)
+
+for SEVERITY in "${SEVERITIES[@]}"
+do
+  SEVERITY_FINDINGS=$(echo "$IMAGE_SCAN_FINDINGS" | jq -cr --arg severity "$SEVERITY" 'select(.severity==$severity)')
+  SEVERITY_FINDINGS_COUNT=$(echo "$SEVERITY_FINDINGS" | wc -l | sed 's/^ *//g') 
+  SEVERITY_FINDINGS_COUNT=$(echo "$SEVERITY_FINDINGS_COUNT - 1" | bc -l)
+  if [ "$SEVERITY_FINDINGS_COUNT" -gt 0 ]
+  then
+    echo "$SEVERITY's"
+    echo "----"
+    while IFS='' read -r FINDING
+    do
+      CVE=$(echo "$FINDING" | jq -r '.name')
+      CVE_URI=$(echo "$FINDING" | jq -r '.uri')
+      PACKAGE=$(echo "$FINDING" | jq -r '.attributes[] | select(.key=="package_name") | .value')
+      PACKAGE_VERSION=$(echo "$FINDING" | jq -r '.attributes[] | select(.key=="package_version") | .value')
+      DESCRIPTION=$(echo "$FINDING" | jq -r '.description')
+      echo -e "\033[1mCVE:\033[0m $CVE ($CVE_URI)"
+      echo -e "\033[1mPackage:\033[0m $PACKAGE:$PACKAGE_VERSION"
+      echo -e "\033[1mDescription:\033[0m $DESCRIPTION"
+      echo ""
+    done < <(echo "$SEVERITY_FINDINGS")
+  fi
+done
+
+echo "Found:"
+for SEVERITY in "${SEVERITIES[@]}"
+do
+  SEVERITY_FINDINGS=$(echo "$IMAGE_SCAN_FINDINGS" | jq -cr --arg severity "$SEVERITY" 'select(.severity==$severity)')
+  SEVERITY_FINDINGS_COUNT=$(echo "$SEVERITY_FINDINGS" | wc -l | sed 's/^ *//g')
+  SEVERITY_FINDINGS_COUNT=$(echo "$SEVERITY_FINDINGS_COUNT - 1" | bc -l)
+  echo "$SEVERITY: $SEVERITY_FINDINGS_COUNT"
+done
+
