@@ -1,0 +1,36 @@
+#!/bin/bash
+
+usage() {
+  echo 'Get AWS credentials for an infrastructure'
+  echo "Usage: $(basename "$0") [OPTIONS] <command>" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name OPTIONAL defaults to main dalmatian account"
+  echo "  -r                     -  output without export prepended OPTIONAL"
+  
+  exit 1
+}
+
+while getopts "irh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    r)
+      RAW=true
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+>&2 echo "==> Getting AWS credentials for $INFRASTRUCTURE_NAME"
+if [ "$RAW" = "true" ]
+then
+env | grep AWS
+else
+env | grep AWS | sed s/^/export\ /g
+fi
