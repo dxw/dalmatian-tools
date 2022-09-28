@@ -17,4 +17,4 @@ while getopts "h" opt; do
       exit;;
   esac
 done
-yq r --printMode p "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml" infrastructures.* | sed 's/infrastructures.//g'
+yq e '.infrastructures | keys()' "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml" | sed 's/- *//g'
