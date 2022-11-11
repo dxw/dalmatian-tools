@@ -10,7 +10,7 @@ usage() {
   echo "  SUBCOMMAND COMMAND -h  - show command help"
   echo "    Or:"
   echo "  -h                     - help"
-  echo "  -l                     - list comands"
+  echo "  -l                     - list commands"
   exit 1
 }
 

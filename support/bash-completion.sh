@@ -14,7 +14,7 @@ _dalmatian_completion() {
     while IFS=  read -r -d $'\0'; do
       DIRS+=("$REPLY")
     done < <(find "$DALMATIAN_BIN_PATH" -maxdepth 1 -type d -print0)
-    
+
     FILES=()
     while IFS=  read -r -d $'\0'; do
       FILES+=("$REPLY")
