@@ -18,7 +18,7 @@ while getopts "h" opt; do
   esac
 done
 
-INFRASTRUCTURES=$(yq e -j ".infrastructures" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
+INFRASTRUCTURES=$(yq e -o=json ".infrastructures" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
 
 if [ -z "$INFRASTRUCTURE_NAME" ]
 then
