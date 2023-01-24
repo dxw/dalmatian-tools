@@ -1,0 +1,73 @@
+#!/bin/bash
+
+# Requires the `session-manager-plugin` to be installed:
+# https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Connect to any ec2 instance in an infrastructure"
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -l                     - list available ec2 instance ids (optional)"
+  echo "  -I <instance_id>       - ec2 instance id (optional)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+ exit 0
+fi
+
+if ! command -v session-manager-plugin > /dev/null
+then
+  echo "This script requires the \`session-manager-plugin\` to be installed:"
+  echo "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
+  exit 1
+fi
+
+while getopts "i:e:I:lh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    l)
+      LIST=1
+      ;;
+    I)
+      INSTANCE_ID=$OPTARG
+      ;;
+    h)
+      usage
+      exit;;
+    *)
+      usage
+      exit;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+]]
+then
+  usage
+fi
+
+if [ -n "$LIST" ];
+then
+  echo "==> Finding ECS instance..."
+  INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16)
+  AVAILABLE_INSTANCES=$(echo "$INSTANCES" | jq -r '.Reservations[].Instances[] | (.InstanceId) + " | " + (.LaunchTime)')
+  echo "$AVAILABLE_INSTANCES"
+  exit 0
+fi
+
+
+echo "==> Connecting to $INSTANCE_ID..."
+
+aws ssm start-session --target "$INSTANCE_ID"
