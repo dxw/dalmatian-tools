@@ -7,8 +7,19 @@ if ! command -v oathtool > /dev/null
 then
   echo "Error: oathtool is not installed on this system"
   echo "This can be installed with homebrew:"
-  echo "brew install oath-toolkit"
-  exit 1
+  echo "# brew install oath-toolkit"
+
+  if command -v brew > /dev/null
+  then
+    echo
+    read -p "Enter Y to install now or anything else to exit: " BREW_INSTALL_DEP
+    if [ "$BREW_INSTALL_DEP" != "${BREW_INSTALL_DEP#[Yy]}" ]
+    then
+      $(command -v brew) install oath-toolkit
+    fi
+  else
+    exit 1
+  fi
 fi
 
 DALMATIAN_CONFIG_STORE="$HOME/.config/dalmatian"
