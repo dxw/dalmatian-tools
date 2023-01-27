@@ -115,15 +115,18 @@ fi
 # shellcheck disable=2086
 aws s3 cp "$SOURCE" s3://"$BUCKET_NAME"/"$PREFIX_DIR"/"$(basename "$SOURCE")" $S3_RECURSIVE
 
+success "Uploading to $BUCKET_NAME S3 bucket..."
+
 if [ -z "$ECS_INSTANCE_ID" ]
 then
-  echo "==> Finding ECS instance..."
+  echo "Finding available EC2 instance..."
 
   ECS_INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
   ECS_INSTANCE_ID=$(echo "$ECS_INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
+  INSTANCE_NAME=$(echo "$ECS_INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
 fi
 
-echo "==> Downloading from S3 to $ECS_INSTANCE_ID..."
+success "Downloading from S3 using instance: '$INSTANCE_NAME' (id: $ECS_INSTANCE_ID)..."
 
 echo "==> s3://$BUCKET_NAME/$PREFIX_DIR/$(basename "$SOURCE") -> $HOST_TARGET"
 
