@@ -81,7 +81,12 @@ then
   exit 0
 fi
 
-
-echo "==> Connecting to $INSTANCE_ID..."
-
-aws ssm start-session --target "$INSTANCE_ID"
+if [[ -z "$INSTANCE_ID" ]]
+then
+  fatal "Please specify a target instance ID"
+  exit 0
+else
+  echo
+  success "Target instance: '$INSTANCE_ID'..."
+  aws ssm start-session --target "$INSTANCE_ID"
+fi
