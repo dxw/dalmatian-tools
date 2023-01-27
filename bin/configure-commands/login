@@ -17,9 +17,15 @@ then
     if [ "$BREW_INSTALL_DEP" != "${BREW_INSTALL_DEP#[Yy]}" ]
     then
       $(command -v brew) install oath-toolkit
+      echo
+      success "Continuing..."
+    else
+      fatal "Install oath-toolkit and run 'dalmatian login' again"
+      exit 0
     fi
   else
-    exit 1
+    fatal "Install oath-toolkit and run 'dalmatian login' again"
+    exit 0
   fi
 fi
 

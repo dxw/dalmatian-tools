@@ -38,6 +38,30 @@ pipeline_status() {
 
 if [ -n "$WATCH" ]
 then
+  if ! command -v watch > /dev/null
+  then
+    fatal "watch is not installed on this system"
+    echo "This can be installed with homebrew:"
+    echo "# brew install watch"
+
+    if command -v brew > /dev/null
+    then
+      echo
+      read -p "Enter Y to install now or anything else to exit: " BREW_INSTALL_DEP
+      if [ "$BREW_INSTALL_DEP" != "${BREW_INSTALL_DEP#[Yy]}" ]
+      then
+        $(command -v brew) install watch
+        echo
+        success "Continuing..."
+      else
+        fatal "Install 'watch' and run 'dalmatian ci deploy-status -w' again"
+        exit 0
+      fi
+    else
+      fatal "Install 'watch' and run 'dalmatian ci deploy-status -w' again"
+      exit 0
+    fi
+  fi
   export -f pipeline_status
   watch -n5 -x /bin/bash -c "pipeline_status $INFRASTRUCTURE_NAME $SERVICE_NAME $ENVIRONMENT"
 else
