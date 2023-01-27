@@ -4,22 +4,25 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Run any aws cli command in an infrastructure"
-  echo 'e.g dalmatian aws exec -i <infrastructure> s3 ls'
-  echo "Usage: $(basename "$0") [OPTIONS] <aws sub command>" 1>&2
-  echo "  -h                     - help"
-  echo "  -i <infrastructure>    - infrastructure name"
+  echo "Description: Execute an aws cli command within a target infrastructure"
+  echo
+  echo "Usage: dalmatian aws $(basename "$0") -i <infrastructure> <aws subcommand>" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -eq 0 ]
 then
- usage
- exit 0
+  fatal "Please specify a target infrastructure"
+  echo
+  usage
+  exit 0
 fi
-
 
 while getopts "i:h" opt; do
   case $opt in
@@ -35,12 +38,14 @@ while getopts "i:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-]]
+if [[ -z "$INFRASTRUCTURE_NAME" ]]
 then
+  fatal "Please specify a target infrastructure"
+  echo
   usage
+  exit 0
 fi
+
 shift $((OPTIND-1))
 
 aws "$@"
