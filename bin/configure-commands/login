@@ -56,13 +56,32 @@ then
   fi
 fi
 
-echo "For added security, your credentials and MFA secret will be"
-echo "encrypted with GPG"
+echo "For added security, your credentials and MFA secret will be encrypted with GPG"
 echo ""
 read -rp "Email associated with GPG key: " GPG_ENCRYPT_EMAIL
+echo
+echo "Enter your AWS Access Key and Secret Key"
+echo "You can find these in the AWS console by heading to the IAM users list, choosing your dalmatian-user-admin, and"
+echo "selecting the \"Security credentials\" tab. You will need to create a new Access Key. "
+warn "Do not close the AWS dialog until you have successfully logged in, as this is the only time you can view your Key."
+echo
 read -rp "AWS Access Key ID: " AWS_ACCESS_KEY_ID
 read -rsp "AWS Secret Access Key: " AWS_SECRET_ACCESS_KEY
-echo ""
+echo
+echo
+echo "Enter your MFA secret."
+warn "This is NOT the randomly generated one-time passcode."
+echo "Instead, you will need the MFA secret key used to generate this."
+echo
+echo "This secret is available:"
+echo "  - At the time you set up MFA in the AWS Console (Security Credentials | Manage MFA)"
+echo "  - in 1Password if you're using that software to generate MFA codes. "
+echo "      You need to go into 'edit' mode to view. "
+echo "      You're looking for the string of letters and numbers after '?secret='"
+echo
+echo "If you are using an 'app' such as Google Authenticator on your phone you may not be able to access this initial "
+echo "secret without removing your MFA in the AWS Console and setting it up again."
+echo
 read -rsp "AWS MFA Secret: " AWS_MFA_SECRET
 echo ""
 
