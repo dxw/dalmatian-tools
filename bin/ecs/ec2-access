@@ -7,26 +7,32 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -l                     - list available ec2 instance ids (optional)"
-  echo "  -I <instance_id>       - ec2 instance id (optional)"
+  echo "Usage: dalmatian ecs $(basename "$0") -i <infrastructure> -e <environment> [options]" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo "  -e <environment>       Environment name (e.g. 'staging' or 'prod')"
+  echo
+  echo "Available options:"
+  echo "  -l                     List available EC2 instance ids"
+  echo "  -I <instance_id>       Target a specific EC2 instance"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -eq 0 ]
 then
- usage
- exit 0
+  fatal "Please specify a target infrastructure and environment"
+  echo
+  usage
+  exit 0
 fi
 
 if ! command -v session-manager-plugin > /dev/null
 then
-  echo "This script requires the \`session-manager-plugin\` to be installed:"
+  fatal "This script requires the \`session-manager-plugin\` to be installed:"
   echo "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
   echo
   read -p "Enter Y to install now or anything else to exit: " SM_PLUGIN_DEP
@@ -96,10 +102,10 @@ else
   INSTANCE_NAME=$(echo "$INSTANCES" | jq -r --arg i "$INSTANCE_ID" '.Reservations[].Instances[] | select(.InstanceId == $i) | .Tags[] | select(.Key == "Name") | .Value')
   if [ -z "$INSTANCE_NAME" ];
   then
-    echo "Error: Instance ID $INSTANCE_ID not found"
+    fatal "Instance ID $INSTANCE_ID not found"
     echo "Available isntances:"
     echo "$AVAILABLE_INSTANCES"
-    exit 1
+    exit 0
   fi
 fi
 

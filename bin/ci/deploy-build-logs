@@ -4,22 +4,27 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                       - help"
-  echo "  -I <infrastructure_name> - infrastructure name "
+  echo "Usage: dalmatian ci $(basename "$0") -i <infrastructure>" 1>&2
+  echo "  -h                   Get help with this command"
+  echo "  -i <infrastructure>  Name of the infrastructure you want to target"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
+if [ $# -eq 0 ]
 then
- usage
+  fatal "Please specify a target infrastructure"
+  echo
+  usage
+  exit 0
 fi
 
-while getopts "I:h" opt; do
+while getopts "i:h" opt; do
   case $opt in
-    I)
+    i)
       INFRASTRUCTURE_NAME=$OPTARG
       ;;
     h)
@@ -31,11 +36,12 @@ while getopts "I:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-]]
+if [[ -z "$INFRASTRUCTURE_NAME" ]]
 then
+  fatal "Please specify a target infrastructure"
+  echo
   usage
+  exit 0
 fi
 
 PIPELINE_STATUS=$(aws codepipeline get-pipeline-state --name "ci-terraform-build-pipeline")
@@ -65,12 +71,14 @@ do
   fi
   PIPELINE_STATUS=$(aws codepipeline get-pipeline-state --name "ci-terraform-build-pipeline")
   BUILD_STATUS=$(echo "$PIPELINE_STATUS" | jq -r --arg build_name "Build-$INFRASTRUCTURE_NAME" '.stageStates[] | select(.stageName == "Build") | .actionStates[] | select(.actionName == $build_name) | .latestExecution.status')
+
+  echo
   if [ "$BUILD_STATUS" == "Failed" ]
   then
-    echo "Build Failed"
-    exit 1
+    fatal "Build status: Failed"
   fi
+
   sleep 1
 done
 
-echo "$BUILD_STATUS"
+success "Build status: $BUILD_STATUS"

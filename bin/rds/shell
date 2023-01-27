@@ -4,20 +4,29 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: dalmatian $(basename "$(dirname "${BASH_SOURCE[0]}")") $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
-  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -I <ecs_insatnce_id>   - ECS instance ID to connect through (optional)"
+  echo "Description: Start an interactive shell on the target RDS"
+  echo
+  echo "Usage: dalmatian rds $(basename "$0") -i <infrastructure> -e <environment> -r <rds> [-I <instance_id>]" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo "  -e <environment>       Environment name (e.g. 'staging' or 'prod')"
+  echo "  -r <rds>               RDS name (as defined in the Dalmatian config)"
+  echo
+  echo "Options:"
+  echo "  -I <instance_id>       EC2 instance ID to connect through"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -lt 1 ];
 then
- usage
+  fatal "Please populate all required parameters"
+  echo
+  usage
+  exit 0
 fi
 
 while getopts "i:e:r:I:h" opt; do
@@ -48,7 +57,10 @@ if [[
   || -z "$RDS_NAME"
   || -z "$ENVIRONMENT"
 ]]; then
+  fatal "Please specify a target infrastructure, environment and RDS"
+  echo
   usage
+  exit 0
 fi
 
 # Remove dashes from the variables to create the RDS identifier, because dashes
@@ -56,7 +68,7 @@ fi
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
-echo "==> Retrieving RDS root password from Parameter Store..."
+echo "Retrieving RDS root password from Parameter Store..."
 
 RDS_ROOT_PASSWORD_PARAMETER=$(
   aws ssm get-parameters \
@@ -68,7 +80,7 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-echo "==> Getting RDS info..."
+echo "Getting RDS info..."
 
 RDS_INFO=$(
   aws rds describe-db-instances \
@@ -84,7 +96,7 @@ echo "VPC ID: $RDS_VPC"
 
 if [ -z "$ECS_INSTANCE_ID" ]
 then
-  echo "==> Finding ECS instance..."
+  echo "Finding ECS instance..."
 
   ECS_INSTANCES=$(
     aws ec2 describe-instances \
@@ -96,9 +108,9 @@ then
   )
 fi
 
-echo "ECS instance ID: $ECS_INSTANCE_ID"
+success "Using EC2 instance ID: $ECS_INSTANCE_ID"
 
-echo "==> Starting $RDS_ENGINE session on $RDS_IDENTIFIER..."
+echo "Starting $RDS_ENGINE session on $RDS_IDENTIFIER..."
 
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \

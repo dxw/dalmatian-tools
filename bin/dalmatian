@@ -4,24 +4,29 @@
 set -e
 set -o pipefail
 
+APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
+export APP_ROOT
+
 usage() {
-  echo "Usage: $(basename "$0")" 1>&2
-  echo "  SUBCOMMAND COMMAND     - dalmatian command to run"
-  echo "  SUBCOMMAND COMMAND -h  - show command help"
-  echo "    Or:"
-  echo "  -h                     - help"
-  echo "  -l                     - list comands"
+  echo "Usage: $(basename "$0") [-l]" 1>&2
+  echo "  -h        Get help for commands"
+  echo
+  echo "Options:"
+  echo "  -l        List all available commands"
+  echo
+  echo "Hint: Use \"dalmatian <subcommand> <command> -h\" to get help for a specific command"
   exit 1
 }
+
+. "${APP_ROOT}/lib/colors.sh"
 
 # if there are no arguments passed exit with usage
 if [ $# -lt 1 ];
 then
- usage
+  fatal "Please specify a subcommand to run"
+  echo
+  usage
 fi
-
-APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
-export APP_ROOT
 
 if [ "${1:0:1}" == "-" ]
 then
@@ -128,9 +133,9 @@ ASSUME_MAIN_ROLE_CONFIGURED=0
 
 if [ ! -f "$DALMATIAN_CONFIG_FILE" ]
 then
-  echo "Error: You are not logged into Dalmatian"
-  echo "       Run \`dalmatian login\` to continue"
-  exit 1
+  fatal "You are not logged into Dalmatian"
+  fatal "       Run \`dalmatian login\` to continue"
+  exit 0
 fi
 
 AWS_DEFAULT_REGION="eu-west-2" # London
@@ -154,7 +159,7 @@ then
   EPOCH=$(date +%s)
   if [ "$DALMATIAN_MFA_EXPIRATION_SECONDS" -lt "$EPOCH" ]
   then
-    echo "==> MFA credentials expired, requesting new credentials ..."
+    warn "MFA credentials expired, requesting new credentials..."
   else
     MFA_CONFIGURED=1
   fi
@@ -205,7 +210,7 @@ then
   EPOCH=$(date +%s)
   if [ "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS" -lt "$EPOCH" ]
   then
-    echo "==> Assume role credentials expired ..."
+    warn "Assume role credentials expired ..."
   else
     ASSUME_MAIN_ROLE_CONFIGURED=1
   fi
@@ -214,7 +219,7 @@ fi
 # Update assume role credentials if needed
 if [ "$ASSUME_MAIN_ROLE_CONFIGURED" == "0" ]
 then
-  echo "==> Requesting Assume Role credentials ..."
+  echo "Requesting Assume Role credentials ..."
   ASSUME_ROLE_RESULT=$(
     aws sts assume-role \
     --role-arn "arn:aws:iam::$ACCOUNT_ID:role/$DALMATIAN_ROLE" \
@@ -240,6 +245,8 @@ then
   )
 
   echo "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING" > "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE"
+  success "Credentials refreshed"
+  echo
 fi
 
 # export assume role credentials

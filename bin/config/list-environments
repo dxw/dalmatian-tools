@@ -1,12 +1,24 @@
 #!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
 "$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
+
 usage() {
-  echo "List environment names (e.g. 'staging' or 'prod') for an infrastructure"
-  echo "Usage: $(basename "$0") <infrastructure name [OPTIONAL]>" 1>&2
-  echo "  -h                     - help"
+  echo "Description: List environment names (e.g. 'staging' or 'prod') for an infrastructure"
+  echo
+  echo "Usage: dalmatian config $(basename "$0") [infrastructure]" 1>&2
+  echo "  -h                     Get help with this command"
+  echo
+  echo "Options:"
+  echo "  [infrastructure]       Name of the infrastructure you want to target"
   exit 1
 }
+
 INFRASTRUCTURE_NAME="${1:-}"
+
 while getopts "h" opt; do
   case $opt in
     h)

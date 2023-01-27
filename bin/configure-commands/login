@@ -1,11 +1,12 @@
 #!/bin/bash
+. "${APP_ROOT}/lib/colors.sh"
 
-echo "Note: You must have a Dalmatian Admin account to use Dalmatian Tools"
+warn "You must have a Dalmatian Admin account to use Dalmatian Tools"
 echo ""
 
 if ! command -v oathtool > /dev/null
 then
-  echo "Error: oathtool is not installed on this system"
+  fatal "oathtool is not installed on this system"
   echo "This can be installed with homebrew:"
   echo "# brew install oath-toolkit"
 
@@ -32,7 +33,7 @@ DALMATIAN_ROLE="dalmatian-admin"
 
 if ! command -v gpg > /dev/null
 then
-  echo "Error: GPG is not installed on this system"
+  fatal "GPG is not installed on this system"
   echo "This can be installed with homebrew:"
   echo "# brew install gpg"
 
@@ -59,7 +60,7 @@ echo ""
 read -rsp "AWS MFA Secret: " AWS_MFA_SECRET
 echo ""
 
-echo "==> Checking credentials..."
+echo "Checking credentials..."
 
 export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
@@ -73,8 +74,6 @@ USER_ARN=$(echo "$CALLER_ID" | jq -r '.Arn')
 echo "  User ID: $USER_ID"
 echo "  Account: $ACCOUNT_ID"
 echo "  Arn:     $USER_ARN"
-
-echo "==> Saving configuration settings in $DALMATIAN_CONFIG_FILE ..."
 
 CONFIG_JSON_STRING=$(
   jq -n \
@@ -90,7 +89,7 @@ CONFIG_JSON_STRING=$(
 
 echo "$CONFIG_JSON_STRING" > "$DALMATIAN_CONFIG_FILE"
 
-echo "==> Storing credentials in $DALMATIAN_CREDENTIALS_FILE ..."
+success "Saved configuration settings in $DALMATIAN_CONFIG_FILE ..."
 
 CREDENTIALS_JSON_STRING=$(
   jq -n \
@@ -112,7 +111,9 @@ echo "$CREDENTIALS_JSON_STRING" | gpg \
   --out "$DALMATIAN_CREDENTIALS_FILE"
 chmod 600 "$DALMATIAN_CREDENTIALS_FILE"
 
-echo "==> Attempting MFA..."
+success "Stored encrypted credentials in $DALMATIAN_CREDENTIALS_FILE ..."
+
+echo "Attempting MFA..."
 
 MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
 
@@ -121,4 +122,4 @@ export AWS_SECRET_ACCESS_KEY
 
 "$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
 
-echo "==> Login success!"
+success "Login success!"

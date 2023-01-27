@@ -4,11 +4,13 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "Usage: dalmatian ecs $(basename "$0") -i <infrastructure> -e <environment>" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo "  -e <environment>       Environment name (e.g. 'staging' or 'prod')"
   exit 1
 }
 
@@ -41,7 +43,10 @@ if [[
   || -z "$ENVIRONMENT"
 ]]
 then
+  fatal "Please specify a target infrastructure and environment"
+  echo
   usage
+  exit 0
 fi
 
 #echo "==> Refreshing instances on $INFRASTRUCTURE_NAME $ENVIRONMENT..."

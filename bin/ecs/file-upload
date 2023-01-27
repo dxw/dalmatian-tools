@@ -7,15 +7,21 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -s <source>            - Source"
-  echo "  -t <host_target>       - Host target"
-  echo "  -r <recursive>         - Recursive"
-  echo "  -I <ecs_insatnce_id>   - ECS instance ID (optional)"
+  echo "Description: Upload files or folders to a running EC2 instance"
+  echo
+  echo "Usage: dalmatian ecs $(basename "$0") -i <infrastructure> -e <environment> -s <from> -t <to> [-r] [-I <instance_id>]" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo "  -e <environment>       Environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <from>              Source File or folder in the container"
+  echo "  -t <to>                Target directory to download files to"
+  echo
+  echo "Options:"
+  echo "  -r                     Include all subdirectories"
+  echo "  -I <instance_id>       Specify the EC2 instance ID to use"
   exit 1
 }
 
@@ -85,16 +91,18 @@ if [[
   || -z "$HOST_TARGET"
 ]]
 then
+  fatal "Please specify a target infrastructure, environment, file source and target folder"
+  echo
   usage
+  exit 0
 fi
 
 BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
 PREFIX_DIR="$(date +%s)"
 
-echo "==> Copying to $BUCKET_NAME S3 bucket ..."
-
 if [ "$RECURSIVE" == 1 ];
 then
+  warn "Recursive mode enabled..."
   S3_RECURSIVE="--recursive"
   SSM_S3_RECURSIVE="$S3_RECURSIVE"
 else
@@ -124,9 +132,9 @@ aws ssm start-session \
   --document-name "$INFRASTRUCTURE_NAME-$ENVIRONMENT-s3-download" \
   --parameters "Source=s3://$BUCKET_NAME/$PREFIX_DIR/$(basename "$SOURCE"),HostTarget=$HOST_TARGET,Recursive=$SSM_S3_RECURSIVE"
 
-echo "==> Removing from S3 bucket ..."
+echo "Cleaning up S3 bucket..."
 
 # shellcheck disable=2086
 aws s3 rm s3://"$BUCKET_NAME"/"$PREFIX_DIR"/"$(basename "$SOURCE")" $S3_RECURSIVE
 
-echo "Success!"
+success "Downloaded to $HOST_TARGET"

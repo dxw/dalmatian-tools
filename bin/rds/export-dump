@@ -4,22 +4,36 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
-  echo "  -d <database_name>     - database name"
-  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -o <output_file_path>  - output file path"
-  echo "  -I <ecs_instance_id>   - ECS insatnce ID to connect through (optional)"
+  echo "Description: Export and download a database backup"
+  echo
+  echo "Usage: dalmatian rds $(basename "$0") [-I <instance_id>] \\"
+  echo "           -i <infrastructure> \\"
+  echo "           -e <environment> \\"
+  echo "           -r <rds> \\"
+  echo "           -d <db_name> [-o <output_file>]"
+  echo
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo "  -e <environment>       Environment name (e.g. 'staging' or 'prod')"
+  echo "  -r <rds>               RDS name (as defined in the Dalmatian config)"
+  echo "  -d <db_name>           Name of the database to backup"
+  echo
+  echo "Options:"
+  echo "  -I <instance_id>       EC2 instance ID to connect through"
+  echo "  -o <output_file>       Filename of the database backup"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -lt 1 ]
 then
- usage
+  fatal "Please populate all required parameters"
+  echo
+  usage
+  exit 0
 fi
 
 while getopts "i:e:r:d:o:I:h" opt; do
@@ -58,7 +72,10 @@ if [[
   || -z "$ENVIRONMENT"
 ]]
 then
+  fatal "Please populate all required parameters"
+  echo
   usage
+  exit 0
 fi
 
 if [ -n "$OUTPUT_FILE_PATH" ]
@@ -73,7 +90,7 @@ fi
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
-echo "==> Retrieving RDS root password from Parameter Store..."
+echo "Retrieving RDS root password from Parameter Store..."
 
 RDS_ROOT_PASSWORD_PARAMETER=$(
   aws ssm get-parameters \
@@ -85,7 +102,7 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-echo "==> Getting RDS info..."
+echo "Getting RDS info..."
 
 RDS_INFO=$(
   aws rds describe-db-instances \
@@ -101,7 +118,7 @@ echo "VPC ID: $RDS_VPC"
 
 if [ -z "$ECS_INSTANCE_ID" ]
 then
-  echo "==> Finding ECS instance..."
+  echo "Finding ECS instance..."
 
   ECS_INSTANCES=$(
     aws ec2 describe-instances \
@@ -113,7 +130,7 @@ then
   )
 fi
 
-echo "ECS instance ID: $ECS_INSTANCE_ID"
+success "EC2 instance ID: $ECS_INSTANCE_ID"
 
 echo "Exporting $DATABASE_NAME db from $RDS_IDENTIFIER rds..."
 
@@ -122,15 +139,15 @@ aws ssm start-session \
   --document-name "$RDS_IDENTIFIER-rds-sql-dump" \
   --parameters "RootPassword=$RDS_ROOT_PASSWORD,DatabaseName=$DATABASE_NAME"
 
-echo "==> Export complete"
+success "Export complete"
 
 SQL_FILE_NAME="$DATABASE_NAME-$ENVIRONMENT-sql-export.sql"
 S3_BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
 
-echo "==> Starting download of $SQL_FILE_NAME from s3 bucket $S3_BUCKET_NAME..."
+echo "Starting download of $SQL_FILE_NAME from s3 bucket $S3_BUCKET_NAME..."
 
 aws s3 cp "s3://$S3_BUCKET_NAME/db_exports/$SQL_FILE_NAME" "$OUTPUT_FILE_PATH"
 
-echo "==> Deleting sql file from S3 ..."
+echo "Deleting sql file from S3 ..."
 
 aws s3 rm "s3://$S3_BUCKET_NAME/db_exports/$SQL_FILE_NAME"

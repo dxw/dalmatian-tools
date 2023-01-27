@@ -4,24 +4,29 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -s <service_name>      - service name"
-  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -p <pattern>           - pattern to include [Optional] (e.g. '2020-11-13')"
-  echo "  -d <directory>         - directory to download logs to [Optional] (e.g /home/user/logs/)"
+  echo "Usage: dalmatian cloudfront $(basename "$0") -i <infrastructure> -s <service> -e <environment> [options]" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo "  -s <service>           Name of the service you want to target"
+  echo "  -e <environment>       Name of the environment (e.g. 'staging' or 'prod')"
+  echo
+  echo "Options:"
+  echo "  -p <pattern>           Glob pattern to match against (e.g. '2020-11-13')"
+  echo "  -d <directory>         Local directory to download logs to (e.g /home/user/logs/)"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -eq 0 ]
 then
- usage
- exit 0
+  fatal "Please specify an infrastructure, environment and service name"
+  echo
+  usage
+  exit 0
 fi
-
 
 while getopts "i:e:s:p:d:h" opt; do
   case $opt in
@@ -55,7 +60,10 @@ if [[
   || -z "$SERVICE_NAME"
 ]]
 then
+  fatal "Please specify an infrastructure, environment and service name"
+  echo
   usage
+  exit 0
 fi
 
 if [[ -z "$DIRECTORY" ]]
@@ -63,11 +71,11 @@ then
   DIRECTORY=/tmp/$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-cloudfront-logs
 fi
 
-echo "==> making sure $DIRECTORY exists"
 mkdir -p "$DIRECTORY"
+success "Destination path: $DIRECTORY"
 
+echo "Downloading log files..."
 
-echo "==> downloading log files"
 if [[ -z "$PATTERN" ]]
 then
   aws s3 sync s3://"${INFRASTRUCTURE_NAME}"-"${SERVICE_NAME}"-"${ENVIRONMENT}"-cloudfront-logs/ "$DIRECTORY"
@@ -75,4 +83,5 @@ else
   aws s3 sync s3://"${INFRASTRUCTURE_NAME}"-"${SERVICE_NAME}"-"${ENVIRONMENT}"-cloudfront-logs/ "$DIRECTORY" --exclude "*" --include "*${PATTERN}*"
 fi
 
-echo "==> logs in ${DIRECTORY}"
+echo
+success "Finished"

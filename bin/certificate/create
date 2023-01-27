@@ -4,22 +4,33 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Create certifcates for use by CloudFront and ALBs"
-  echo 'e.g dalmatian -i <infrastructure> -d test.cert.tld -s www.test.cert.tld'
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                         - help"
-  echo "  -i <infrastructure>        - infrastructure name"
-  echo "  -d <domain>                - domain name"
-  echo "  -s \"<domain1> <domain2>\" - space seperated list of domain names which must be quoted. [OPTIONAL]"
+  echo "Description: Requests a TLS certificate for use with other AWS services within an infrastructure."
+  echo "             You must specify a fully qualified domain name (FQDN) with the -d parameter."
+  echo "             You can also specify additional FQDNs using the -s parameter."
+  echo
+  echo "Usage: dalmatian certificate $(basename "$0") -i <infrastructure> -d <domain> [-s]" 1>&2
+  echo "  -h                          Get help with this command"
+  echo "  -i <infrastructure>         Name of the infrastructure you want to target"
+  echo "  -d <domain>                 Specify the primary domain for the certificate"
+  echo
+  echo "Options:"
+  echo "  -s <\"domain\" \"domain\">      List of domain names to add as Subject Alternative Names (SAN)"
+  echo
+  warn "The maximum number of domain names that you can add to a certificate is 10"
+  echo "If you need more than 10 names, you must request a quota increase on AWS"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -eq 0 ]
 then
- usage
- exit 0
+  fatal "Please specify the primary domain name"
+  echo
+  usage
+  exit 0
 fi
 
 SAN=""
@@ -44,30 +55,30 @@ while getopts "i:d:s:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-]]
-then
-  usage
-fi
-
-if [[
-  -z "$SAN"  
-]]
+if [[ -z "$SAN" ]]
 then
   SAN="$DOMAIN"
 fi
 
+# if there are no arguments passed exit with usage
+if [ -z "$INFRASTRUCTURE_NAME" ]
+then
+  fatal "Please specify a target infrastructure"
+  echo
+  usage
+  exit 0
+fi
+
 # $SAN needs to not be quoted so that the values don't become one long string
-#shellcheck disable=SC2086 
+#shellcheck disable=SC2086
 EUW2_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region eu-west-2 | jq -r '.CertificateArn')
-#shellcheck disable=SC2086 
+#shellcheck disable=SC2086
 USE1_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region us-east-1 | jq -r '.CertificateArn')
 # Sleep to allow the AWS API to become consistent
 sleep 2
 DNS=$(aws acm describe-certificate --certificate-arn "$EUW2_ARN" | jq -r '.Certificate.DomainValidationOptions[] | "\(.ResourceRecord.Name) CNAME \(.ResourceRecord.Value)"')
 
-echo "Load balancer SSL cert is $EUW2_ARN"
-echo "CloudFront SSL cert is $USE1_ARN"
-echo "DNS validation entries are:"
+success "Load balancer SSL cert is $EUW2_ARN"
+success "CloudFront SSL cert is $USE1_ARN"
+success "DNS validation entries are:"
 echo "$DNS"

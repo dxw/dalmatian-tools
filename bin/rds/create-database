@@ -4,26 +4,41 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
-  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -d <db_name>           - name of database to create"
-  echo "  -u <user_name>         - name of user to create"
-  echo "  -P <user_password>     - password for user to be created"
-  echo "  -I <ecs_instance_id>   - ECS instance ID to connect through (optional)"
+  echo "Description: Creates a database and a user. You will be asked"
+  echo "             to set a password during the creation stage."
+  echo
+  echo "Usage: dalmatian rds $(basename "$0") [-I <instance_id>] \\"
+  echo "           -i <infrastructure> \\"
+  echo "           -e <environment> \\"
+  echo "           -r <rds> \\"
+  echo "           -d <db_name> \\"
+  echo "           -u <db_user>"
+  echo
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo "  -e <environment>       Environment name (e.g. 'staging' or 'prod')"
+  echo "  -r <rds>               RDS name (as defined in the Dalmatian config)"
+  echo "  -d <db_name>           Name of the database to create"
+  echo "  -u <db_user>           Name of the database user to create"
+  echo
+  echo "Options:"
+  echo "  -I <instance_id>       EC2 instance ID to connect through"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -lt 1 ]
 then
- usage
+  fatal "Please populate all required parameters"
+  echo
+  usage
+  exit 0
 fi
 
-while getopts "i:e:r:d:u:P:I:h" opt; do
+while getopts "i:e:r:d:u:I:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -39,9 +54,6 @@ while getopts "i:e:r:d:u:P:I:h" opt; do
       ;;
     u)
       USER_NAME=$OPTARG
-      ;;
-    P)
-      USER_PASSWORD=$OPTARG
       ;;
     I)
       ECS_INSTANCE_ID=$OPTARG
@@ -84,7 +96,7 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-echo "==> Getting RDS info..."
+echo "Getting RDS info..."
 
 RDS_INFO=$(
   aws rds describe-db-instances \
@@ -112,13 +124,13 @@ then
   )
 fi
 
-echo "ECS instance ID: $ECS_INSTANCE_ID"
+success "EC2 instance ID: $ECS_INSTANCE_ID"
 
-echo "==> Creating database..."
+echo "Creating database..."
 
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \
   --document-name "$RDS_IDENTIFIER-rds-db-creation" \
   --parameters "RootPassword=$RDS_ROOT_PASSWORD,NewDbName=$DB_NAME,NewUserName=$USER_NAME,NewUserPassword=$USER_PASSWORD"
 
-echo "Success!"
+success "Finished!"

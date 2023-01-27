@@ -7,27 +7,33 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -s <source>            - Source"
-  echo "  -t <local target>      - local target"
-  echo "  -r <recursive>         - Recursive"
+  echo "Description: Download files or folders from a running EC2 instance"
+  echo
+  echo "Usage: dalmatian ecs $(basename "$0") -i <infrastructure> -e <environment> -s <from> -t <to> [-r]" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo "  -e <environment>       Environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <from>              Source File or folder in the container"
+  echo "  -t <to>                Target directory to download files to"
+  echo
+  echo "Options:"
+  echo "  -r                     Include all subdirectories"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -eq 0 ]
 then
- usage
- exit 0
+  usage
+  exit 0
 fi
 
 if ! command -v session-manager-plugin > /dev/null
 then
-  echo "This script requires the \`session-manager-plugin\` to be installed:"
+  fatal "This script requires the \`session-manager-plugin\` to be installed:"
   echo "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
   echo
   read -p "Enter Y to install now or anything else to exit: " SM_PLUGIN_DEP
@@ -81,16 +87,18 @@ if [[
   || -z "$LOCAL_TARGET"
 ]]
 then
+  fatal "Please specify a target infrastructure, environment, file source and target folder"
+  echo
   usage
+  exit 0
 fi
 
 BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
 PREFIX_DIR="$(date +%s)"
 
-echo "==> Copying to $BUCKET_NAME S3 bucket ..."
-
 if [ "$RECURSIVE" == 1 ];
 then
+  warn "Recursive mode enabled..."
   S3_RECURSIVE="--recursive"
   SSM_S3_RECURSIVE="$S3_RECURSIVE"
 else
@@ -100,27 +108,30 @@ else
   SSM_S3_RECURSIVE="--ignore-glacier-warnings"
 fi
 
-
-echo "==> Finding ECS instance..."
+echo "Finding available EC2 instance..."
 
 INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
 INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
 INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
 
-echo "==> uploading from '$INSTANCE_NAME' (id: $INSTANCE_ID) to S3.."
+success "Uploading to S3 from instance: '$INSTANCE_NAME' (id: $INSTANCE_ID)..."
 
+echo "==> $SOURCE -> s3://$BUCKET_NAME/$PREFIX_DIR/$(basename "$SOURCE")"
 
 aws ssm start-session \
   --target "$INSTANCE_ID" \
   --document-name "$INFRASTRUCTURE_NAME-$ENVIRONMENT-s3-upload" \
   --parameters "S3Target=s3://$BUCKET_NAME/$PREFIX_DIR/$(basename "$SOURCE"),Source=$SOURCE,Recursive=$SSM_S3_RECURSIVE"
 
+echo
+echo "Downloading from S3..."
 
-echo "==> Downloading from S3 bucket"
 # shellcheck disable=2086
 aws s3 cp s3://"$BUCKET_NAME"/"$PREFIX_DIR"/"$(basename "$SOURCE")" "$LOCAL_TARGET" $S3_RECURSIVE
-echo "==> Removing from S3 bucket ..."
+
+echo "Cleaning up S3 bucket..."
+
 # shellcheck disable=2086
 aws s3 rm s3://"$BUCKET_NAME"/"$PREFIX_DIR"/"$(basename "$SOURCE")" $S3_RECURSIVE
 
-echo "Success!"
+success "Downloaded to $LOCAL_TARGET"

@@ -4,10 +4,14 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -w <watch>             - watch"       
+  echo "Usage: dalmatian ci $(basename "$0") [-w]" 1>&2
+  echo "  -h             Get help with this command"
+  echo
+  echo "Options:"
+  echo "  -w             Monitor the deploy log and report the status every 5 seconds"
   exit 1
 }
 

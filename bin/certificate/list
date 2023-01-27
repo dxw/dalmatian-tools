@@ -4,22 +4,28 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "list certificates in an infrastructure"
-  echo 'e.g dalmatian -i <infrastructure>'
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                                 - help"
-  echo "  -i <infrastructure>                - infrastructure name"
-  echo "  -d <domain_name>                   - domain name (optional)"
-  echo "  -D <output_dns_validation_records> - output DNS validation records"
+  echo "Description: List certificates in an infrastructure"
+  echo
+  echo "Usage: dalmatian certificate $(basename "$0") -i <infrastructure> [options]" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo
+  echo "Options:"
+  echo "  -d <domain_name>       Get certificates assigned only to the specified domain name"
+  echo "  -D                     Output required DNS validation records to screen"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -eq 0 ]
 then
- usage
- exit 0
+  fatal "Please specify a target infrastructure"
+  echo
+  usage
+  exit 0
 fi
 
 DOMAIN_NAME=""
@@ -44,11 +50,12 @@ while getopts "i:d:s:Dh" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-]]
+if [[ -z "$INFRASTRUCTURE_NAME" ]]
 then
+  fatal "Please specify a target infrastructure"
+  echo
   usage
+  exit 0
 fi
 
 if [ -n "$DOMAIN_NAME" ]
@@ -74,6 +81,9 @@ done < <(echo "$CLOUDFRONT_CERTIFICATE_ARNS")
 
 ALL_CERTIFICATES=("${LB_CERTIFICATES[@]}" "${CLOUDFRONT_CERTIFICATES[@]}")
 
+echo
+echo "Certificates:"
+
 for cert_arn in "${ALL_CERTIFICATES[@]}"
 do
   if [[ "${cert_arn}" == "arn:aws:acm:us-east-1"* ]]
@@ -94,7 +104,7 @@ do
       then
         echo "$r" | jq -r '.Name + " " + .Type + " " + .Value'
       else
-        echo "Validation records unavailable"
+        warn "Validation records unavailable"
       fi
     done < <(echo "$CERTIFICATE" | jq -c '.Certificate | .DomainValidationOptions[].ResourceRecord')
     echo ""

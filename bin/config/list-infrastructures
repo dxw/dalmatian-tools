@@ -1,12 +1,19 @@
 #!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
 "$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
 
 usage() {
-  echo "List all infrastructures"
-  echo "Usage: $(basename "$0")" 1>&2
-  echo "  -h                     - help"
+  echo "Description: List all infrastructures"
+  echo
+  echo "Usage: dalmatian config $(basename "$0")" 1>&2
+  echo "  -h                     Get help with this command"
   exit 1
 }
+
 while getopts "h" opt; do
   case $opt in
     h)
@@ -17,4 +24,5 @@ while getopts "h" opt; do
       exit;;
   esac
 done
+
 yq e '.infrastructures | keys()' "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml" | sed 's/- *//g'

@@ -4,18 +4,25 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -e <environment>       - environment (eg. 'staging' or 'prod')"
-  echo "  -i <infrastructure>    - infrastructure name"
+  echo "Description: List all RDS instances for a target infrastructure"
+  echo
+  echo "Usage: dalmatian rds $(basename "$0") -i <infrastructure> -e <environment> -r <rds>" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
+  echo "  -e <environment>       Environment name (e.g. 'staging' or 'prod')"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -lt 1 ]
 then
- usage
+  fatal "Please populate all required parameters"
+  echo
+  usage
+  exit 0
 fi
 
 while getopts "i:e:h" opt; do
@@ -40,10 +47,13 @@ if [[
   -z "$ENVIRONMENT"
 ]]
 then
+  fatal "Please specify a target infrastructure and environment"
+  echo
   usage
+  exit 0
 fi
 
-echo "==> Getting RDS instances in $INFRASTRUCTURE_NAME $ENVIRONMENT..."
+echo "Listing RDS instances in $INFRASTRUCTURE_NAME for environment $ENVIRONMENT..."
 
 RDS_IDENTIFIER_SEARCH="${INFRASTRUCTURE_NAME//-/}.*${ENVIRONMENT//-/}"
 
