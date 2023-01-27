@@ -4,17 +4,21 @@
 set -e
 set -o pipefail
 
+. "${APP_ROOT}/lib/colors.sh"
+
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                       - help"
-  echo "  -i <infrastructure_name> - Infrastructure Name (required)"
+  echo "Usage: dalmatian aws $(basename "$0") -i <infrastructure>" 1>&2
+  echo "  -h                     Get help with this command"
+  echo "  -i <infrastructure>    Name of the infrastructure you want to target"
   exit 1
 }
 
 # if there are no arguments passed exit with usage
 if [ $# -lt 1 ];
 then
- usage
+  fatal "Please specify a target infrastructure"
+  echo
+  usage
 fi
 
 while getopts "i:h" opt; do
@@ -37,15 +41,15 @@ fi
 
 "$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
 
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
+success "Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
 
 INFRASTRUCTURE_ACCOUNT_ID=$(yq e ".infrastructures.$INFRASTRUCTURE_NAME.account_id" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
 
 if [ -z "$INFRASTRUCTURE_ACCOUNT_ID" ]
 then
-  echo "==> Error: Infrastructure '$INFRASTRUCTURE_NAME' not found in dalmatian-config,"
-  echo "           or it does not contain an 'account_id'"
-  exit 1
+  fatal "Infrastructure '$INFRASTRUCTURE_NAME' not found in dalmatian-config,"
+  fatal "           or it does not contain an 'account_id'"
+  exit 0
 fi
 
 CREDENTIALS=$(aws sts assume-role \
