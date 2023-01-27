@@ -29,7 +29,21 @@ if ! command -v session-manager-plugin > /dev/null
 then
   echo "This script requires the \`session-manager-plugin\` to be installed:"
   echo "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
-  exit 1
+  echo
+  read -p "Enter Y to install now or anything else to exit: " SM_PLUGIN_DEP
+    if [ "$SM_PLUGIN_DEP" != "${SM_PLUGIN_DEP#[Yy]}" ]
+    then
+      $(command -v curl) "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/mac/session-manager-plugin.pkg" -o "/tmp/session-manager-plugin.pkg"
+      sudo installer -pkg /tmp/session-manager-plugin.pkg -target /
+      sudo ln -s /usr/local/sessionmanagerplugin/bin/session-manager-plugin /usr/local/bin/session-manager-plugin
+      rm /tmp/session-manager-plugin.pkg
+      echo
+      success "Continuing..."
+    else
+      fatal "Install session-manager-plugin before trying again"
+      exit 0
+    fi
+  exit 0
 fi
 
 RECURSIVE=0
