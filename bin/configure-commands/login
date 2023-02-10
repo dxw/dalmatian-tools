@@ -46,6 +46,7 @@ CALLER_ID=$(aws sts get-caller-identity)
 USER_ID=$(echo "$CALLER_ID" | jq -r '.UserId')
 ACCOUNT_ID=$(echo "$CALLER_ID" | jq -r '.Account')
 USER_ARN=$(echo "$CALLER_ID" | jq -r '.Arn')
+AWS_MFA_SECRET=$(echo "$AWS_MFA_SECRET" | xargs)
 
 echo "  User ID: $USER_ID"
 echo "  Account: $ACCOUNT_ID"
