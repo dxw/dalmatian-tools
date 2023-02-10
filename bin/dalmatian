@@ -179,6 +179,7 @@ then
   AWS_MFA_SECRET=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_mfa_secret')
   export AWS_ACCESS_KEY_ID
   export AWS_SECRET_ACCESS_KEY
+  echo "$AWS_MFA_SECRET"
   oathtool --base32 --totp "$AWS_MFA_SECRET"
   MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
   echo "$MFA_CODE"
