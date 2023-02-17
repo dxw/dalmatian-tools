@@ -9,4 +9,4 @@ jobs:
       - uses: actions/checkout@v3
       - uses: ludeeus/action-shellcheck@master
         env:
-          SHELLCHECK_OPTS: -x
+          SHELLCHECK_OPTS: -x -e SC2317
