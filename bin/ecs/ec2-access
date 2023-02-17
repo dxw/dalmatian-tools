@@ -21,7 +21,6 @@ usage() {
 if [ $# -eq 0 ]
 then
  usage
- exit 0
 fi
 
 if ! command -v session-manager-plugin > /dev/null
@@ -47,10 +46,10 @@ while getopts "i:e:I:lh" opt; do
       ;;
     h)
       usage
-      exit;;
+      ;;
     *)
       usage
-      exit;;
+      ;;
   esac
 done
 

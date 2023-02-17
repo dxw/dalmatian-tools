@@ -17,7 +17,6 @@ usage() {
 if [ $# -eq 0 ]
 then
  usage
- exit 0
 fi
 
 SERVICE_NAME="all"
@@ -35,10 +34,10 @@ while getopts "i:e:s:h" opt; do
       ;;
     h)
       usage
-      exit;;
+      ;;
     *)
       usage
-      exit;;
+      ;;
   esac
 done
 

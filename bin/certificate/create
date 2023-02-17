@@ -19,7 +19,6 @@ usage() {
 if [ $# -eq 0 ]
 then
  usage
- exit 0
 fi
 
 SAN=""
@@ -37,10 +36,10 @@ while getopts "i:d:s:h" opt; do
       ;;
     h)
       usage
-      exit;;
+      ;;
     *)
       usage
-      exit;;
+      ;;
   esac
 done
 
