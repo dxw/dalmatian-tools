@@ -140,3 +140,10 @@ autoload -Uz +X compinit && compinit
 autoload -Uz +X bashcompinit && bashcompinit
 source /path/to/dalmatian-tools/support/zsh-completion.sh
 ```
+
+### Environment Variables
+
+- DALMATIAN_CONFIG_PATH
+  Set a path to dalmatian.yml to override the use of the checkout used by the
+  tools by default. Useful if bringing up a service or infrastructure whose
+  config hasn't been merged in yet.
