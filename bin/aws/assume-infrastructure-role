@@ -35,12 +35,19 @@ if [ -z "$INFRASTRUCTURE_NAME" ]; then
   usage
 fi
 
+if [ -z "$DALMATIAN_CONFIG_PATH" ]
+then
 "$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
 
 echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
 
 INFRASTRUCTURE_ACCOUNT_ID=$(yq e ".infrastructures.$INFRASTRUCTURE_NAME.account_id" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
+else
+  echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
 
+INFRASTRUCTURE_ACCOUNT_ID=$(yq e ".infrastructures.$INFRASTRUCTURE_NAME.account_id" "$DALMATIAN_CONFIG_PATH")
+
+fi
 if [ -z "$INFRASTRUCTURE_ACCOUNT_ID" ]
 then
   echo "==> Error: Infrastructure '$INFRASTRUCTURE_NAME' not found in dalmatian-config,"
