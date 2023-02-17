@@ -28,10 +28,10 @@ do
       ;;
     h)
       usage
-      exit;;
+      ;;
     *)
       usage
-      exit;;
+      ;;
   esac
 done
 

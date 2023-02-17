@@ -18,10 +18,10 @@ while getopts "ih" opt; do
       ;;
     h)
       usage
-      exit;;
+      ;;
     *)
       usage
-      exit;;
+      ;;
   esac
 done
 if [[ -z $INFRASTRUCTURE_NAME ]]

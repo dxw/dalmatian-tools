@@ -17,7 +17,6 @@ usage() {
 if [ $# -eq 0 ]
 then
  usage
- exit 0
 fi
 
 
@@ -28,10 +27,10 @@ while getopts "i:h" opt; do
       ;;
     h)
       usage
-      exit;;
+      ;;
     *)
       usage
-      exit;;
+      ;;
   esac
 done
 

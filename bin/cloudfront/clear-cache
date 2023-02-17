@@ -18,7 +18,6 @@ usage() {
 if [ $# -eq 0 ]
 then
  usage
- exit 0
 fi
 
 PATHS="/*"
@@ -39,10 +38,10 @@ while getopts "i:e:s:P:h" opt; do
       ;;
     h)
       usage
-      exit;;
+      ;;
     *)
       usage
-      exit;;
+      ;;
   esac
 done
 
