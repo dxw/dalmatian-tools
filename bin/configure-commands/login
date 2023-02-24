@@ -33,6 +33,8 @@ read -rp "Email associated with GPG key: " GPG_ENCRYPT_EMAIL
 read -rp "AWS Access Key ID: " AWS_ACCESS_KEY_ID
 read -rsp "AWS Secret Access Key: " AWS_SECRET_ACCESS_KEY
 echo ""
+echo "This is your MFA secret not a generated 6 character MFA code"
+echo "https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
 read -rsp "AWS MFA Secret: " AWS_MFA_SECRET
 echo ""
 
