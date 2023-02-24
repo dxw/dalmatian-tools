@@ -111,6 +111,9 @@ fi
 export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
 
-"$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
-
+if "$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
+then
 echo "==> Login success!"
+else
+  echo "==> Login failed"
+fi
