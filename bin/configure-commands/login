@@ -39,6 +39,12 @@ read -rsp "AWS MFA Secret: " AWS_MFA_SECRET
 echo ""
 
 echo "==> Checking credentials..."
+if [ ${#AWS_MFA_SECRET} -lt 7 ]
+then
+  echo "==> please enter your MFA secret not your generated MFA code"
+  echo "==> please see https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
+  exit 1
+fi
 
 export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
