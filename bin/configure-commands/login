@@ -116,4 +116,5 @@ echo "$CREDENTIALS_JSON_STRING" | gpg \
 chmod 600 "$DALMATIAN_CREDENTIALS_FILE"
 else
   echo "==> Login failed"
+  exit 1
 fi
