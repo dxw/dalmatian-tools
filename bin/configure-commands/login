@@ -33,10 +33,18 @@ read -rp "Email associated with GPG key: " GPG_ENCRYPT_EMAIL
 read -rp "AWS Access Key ID: " AWS_ACCESS_KEY_ID
 read -rsp "AWS Secret Access Key: " AWS_SECRET_ACCESS_KEY
 echo ""
+echo "This is your MFA secret not a generated 6 character MFA code"
+echo "https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
 read -rsp "AWS MFA Secret: " AWS_MFA_SECRET
 echo ""
 
 echo "==> Checking credentials..."
+if [ ${#AWS_MFA_SECRET} -lt 7 ]
+then
+  echo "==> please enter your MFA secret not your generated MFA code"
+  echo "==> please see https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
+  exit 1
+fi
 
 export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
@@ -67,7 +75,25 @@ CONFIG_JSON_STRING=$(
 
 echo "$CONFIG_JSON_STRING" > "$DALMATIAN_CONFIG_FILE"
 
-echo "==> Storing credentials in $DALMATIAN_CREDENTIALS_FILE ..."
+
+echo "==> Attempting MFA..."
+
+MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
+
+if [ ${#MFA_CODE} -ne 6 ]
+then
+  echo "==> Failed to generate an MFA code"
+  echo "==> please see https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
+  exit 1
+fi
+
+export AWS_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY
+
+if "$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
+then
+echo "==> Login success!"
+echo "==> Storing credentials in $DALMATIAN_CREDENTIALS_FILE" 
 
 CREDENTIALS_JSON_STRING=$(
   jq -n \
@@ -88,14 +114,7 @@ echo "$CREDENTIALS_JSON_STRING" | gpg \
   -r "$GPG_ENCRYPT_EMAIL" \
   --out "$DALMATIAN_CREDENTIALS_FILE"
 chmod 600 "$DALMATIAN_CREDENTIALS_FILE"
-
-echo "==> Attempting MFA..."
-
-MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
-
-export AWS_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY
-
-"$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
-
-echo "==> Login success!"
+else
+  echo "==> Login failed"
+  exit 1
+fi
