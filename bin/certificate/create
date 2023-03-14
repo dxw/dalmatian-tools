@@ -62,11 +62,26 @@ fi
 EUW2_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region eu-west-2 | jq -r '.CertificateArn')
 #shellcheck disable=SC2086 
 USE1_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region us-east-1 | jq -r '.CertificateArn')
-# Sleep to allow the AWS API to become consistent
-sleep 2
-DNS=$(aws acm describe-certificate --certificate-arn "$EUW2_ARN" | jq -r '.Certificate.DomainValidationOptions[] | "\(.ResourceRecord.Name) CNAME \(.ResourceRecord.Value)"')
 
-echo "Load balancer SSL cert is $EUW2_ARN"
-echo "CloudFront SSL cert is $USE1_ARN"
-echo "DNS validation entries are:"
-echo "$DNS"
+# Apply a linear back-off before reporting back to the user. Allow the user
+# to see some output if the API never becomes consistent and they have to kill
+# the script with Ctrl+c.
+DNS="null"
+trap print_cert INT
+
+function print_cert() {
+  echo "Load balancer SSL cert is $EUW2_ARN"
+  echo "CloudFront SSL cert is $USE1_ARN"
+  echo "DNS validation entries are:"
+  echo "$DNS"
+  exit 0
+}
+
+while echo "$DNS" | grep -q "null"
+do
+  echo "Waiting for AWS API to become consistent. This may take more than one attempt..."
+  sleep 2
+  DNS=$(aws acm describe-certificate --certificate-arn "$EUW2_ARN" | jq -r '.Certificate.DomainValidationOptions[] | "\(.ResourceRecord.Name) CNAME \(.ResourceRecord.Value)"')
+done
+
+print_cert
