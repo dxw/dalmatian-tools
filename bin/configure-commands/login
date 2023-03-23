@@ -11,6 +11,12 @@ then
   exit 1
 fi
 
+
+if ! "$APP_ROOT/bin/aws/awscli-version"
+then
+  exit 1
+fi
+
 DALMATIAN_CONFIG_STORE="$HOME/.config/dalmatian"
 DALMATIAN_CONFIG_FILE="$DALMATIAN_CONFIG_STORE/config.json"
 DALMATIAN_CREDENTIALS_FILE="$DALMATIAN_CONFIG_STORE/credentials.json.enc"
