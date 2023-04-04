@@ -11,7 +11,6 @@ then
   exit 1
 fi
 
-
 if ! "$APP_ROOT/bin/aws/awscli-version"
 then
   exit 1
@@ -65,6 +64,12 @@ echo "  User ID: $USER_ID"
 echo "  Account: $ACCOUNT_ID"
 echo "  Arn:     $USER_ARN"
 
+echo "==> Checking access key age"
+if ! "$APP_ROOT/bin/aws/key-age"
+then
+  exit 1
+fi
+
 echo "==> Saving configuration settings in $DALMATIAN_CONFIG_FILE ..."
 
 CONFIG_JSON_STRING=$(
@@ -80,7 +85,6 @@ CONFIG_JSON_STRING=$(
 )
 
 echo "$CONFIG_JSON_STRING" > "$DALMATIAN_CONFIG_FILE"
-
 
 echo "==> Attempting MFA..."
 
