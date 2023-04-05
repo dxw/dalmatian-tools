@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Words taken from https://github.com/hermitdave/FrequencyWords CC-BY-SA-4.0.
+# See README.md in the data/ directory for more details.
+DICT="$( dirname -- "$0")/../../data/common-short-words.txt"
+
+usage() {
+  echo 'Generate a password that is suitable for use in basic auth'
+  echo 'e.g. penguin-maps-thoughts-pencil'
+  echo "Usage: $(basename "$0") [OPTIONS] <command>" 1>&2
+  echo "  -q                     - quiet"
+  echo "  -h                     - help"
+
+  exit 1
+}
+
+while getopts "qh" opt; do
+  case $opt in
+    q)
+      QUIET=true
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ ! "$QUIET" == "true" ]
+then
+  echo "Please note that the phrases generated here should not be used as login"
+  echo "passwords or to hide secrets. Please use 1Password in those cicumstances."
+  echo "If you have any questions, please ask the Technical Operations team for advice."
+  echo
+  echo
+fi
+
+WORDS=$(sort -R "$DICT" | head -n 4)
+echo "${WORDS//$'\n'/-}"
