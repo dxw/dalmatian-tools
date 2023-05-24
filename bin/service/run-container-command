@@ -15,6 +15,7 @@ usage() {
   echo "  -s <service_name>      - service name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -C <command>           - command to run (Warning: will be ran as root)"
+  echo "  -a                     - run on all matching containers"
   exit 1
 }
 
@@ -34,8 +35,9 @@ then
 fi
 
 CLUSTER_NAME=""
+CONTAINERS="first"
 
-while getopts "i:e:s:c:C:h" opt; do
+while getopts "i:e:s:c:C:ha" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -51,6 +53,9 @@ while getopts "i:e:s:c:C:h" opt; do
       ;;
     C)
       COMMAND=$OPTARG
+      ;;
+    a)
+      CONTAINERS="all"
       ;;
     h)
       usage
@@ -80,20 +85,29 @@ then
 fi
 
 TASKS=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE_NAME")
-TASK_ARN=$(echo "$TASKS" | jq -r '.taskArns[0]')
 
-TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster "$CLUSTER" --task "$TASK_ARN")
-CONTAINER_INSTANCE_ARN=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containerInstanceArn')
-TASK_DEFINITION_ARN=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].taskDefinitionArn')
+for TASK_ARN in $(echo "$TASKS" | jq -r '.taskArns|join(" ")'); do
 
-CONTAINER_NAME_PREFIX="ecs-$(echo "$TASK_DEFINITION_ARN" | cut -d'/' -f2| sed -e 's/:/-/')-$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-"
+  TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster "$CLUSTER" --task "$TASK_ARN")
+  CONTAINER_INSTANCE_ARN=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containerInstanceArn')
+  TASK_DEFINITION_ARN=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].taskDefinitionArn')
 
-CONTAINER_INSTANCE_DESCRIPTION=$(aws ecs describe-container-instances --cluster "$CLUSTER" --container-instance "$CONTAINER_INSTANCE_ARN")
-CONTAINER_INSTANCE_ID=$(echo "$CONTAINER_INSTANCE_DESCRIPTION" | jq -r '.containerInstances[0].ec2InstanceId')
+  CONTAINER_NAME_PREFIX="ecs-$(echo "$TASK_DEFINITION_ARN" | cut -d'/' -f2| sed -e 's/:/-/')-$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-"
 
-echo "==> Running command on container $CONTAINER_NAME_PREFIX* on $CLUSTER cluster..."
+  CONTAINER_INSTANCE_DESCRIPTION=$(aws ecs describe-container-instances --cluster "$CLUSTER" --container-instance "$CONTAINER_INSTANCE_ARN")
 
-aws ssm start-session \
-  --target "$CONTAINER_INSTANCE_ID" \
-  --document-name "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-ecs-service-run-container-command" \
-  --parameters "ContainerNamePrefix=$CONTAINER_NAME_PREFIX,Command='$COMMAND'"
+  CONTAINER_INSTANCE_ID=$(echo "$CONTAINER_INSTANCE_DESCRIPTION" | jq -r '.containerInstances[0].ec2InstanceId')
+
+  echo "==> Running command on container $CONTAINER_NAME_PREFIX* on $CLUSTER cluster..."
+
+  aws ssm start-session \
+    --target "$CONTAINER_INSTANCE_ID" \
+    --document-name "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-ecs-service-run-container-command" \
+    --parameters "ContainerNamePrefix=$CONTAINER_NAME_PREFIX,Command='$COMMAND'"
+
+  if [[ $CONTAINERS == "first" ]]
+  then
+    break
+  fi
+
+done
