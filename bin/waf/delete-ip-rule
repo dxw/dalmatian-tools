@@ -1,0 +1,134 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -w <waf_name>          - WAF name (as defined in the Dalmatian config)"
+  echo "  -u <ip_address>        - IP Address (with netmask) associated with the rule (e.g. 1.2.3.4/32)"
+  echo "  -a <action>            - Action assigned to the rule: Allow, Block, Captcha, Challenge"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+while getopts "i:e:w:u:a:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    w)
+      WAF_NAME=$OPTARG
+      ;;
+    u)
+      SOURCE_IP=$OPTARG
+      ;;
+    a)
+      ACTION=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+# Default action is to Block the IP
+ACTION="${ACTION:-Block}"
+
+# Enforce titlecase for the 'Action' (converts CAPTCHA to Captcha)
+ACTION="$(echo "$ACTION" | awk '{print toupper(substr($0,0,1))tolower(substr($0,2))}')"
+
+echo "[!] Target IP: $SOURCE_IP"
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$WAF_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+if [[ -n "$SOURCE_IP" ]]
+then
+  if ! [[ "$SOURCE_IP" =~ /[0-9]{1,2}$ ]]
+  then
+    echo "Error: Please specify a subnet mask with your IP address (e.g. '1.2.3.4/32')"
+    usage
+  fi
+
+  if [[ -z "$SOURCE_IP" ]]
+  then
+    usage
+  fi
+fi
+
+
+# Convert . and / chars to - char for use in a label
+SOURCE_IP_LABEL=$(echo "$SOURCE_IP" | tr ./ -)
+
+WAF_IP_SET_NAME="Dalmatian$ACTION$SOURCE_IP_LABEL"
+# e.g. DalmatianBlock123-123-123-123-32
+
+WAF_WEB_ACL_NAME="$INFRASTRUCTURE_NAME-$WAF_NAME-waf-$ENVIRONMENT-$WAF_NAME-acl"
+echo "==> Getting Web ACL '$WAF_WEB_ACL_NAME'..."
+
+ACLS=$(aws wafv2 list-web-acls --scope "REGIONAL")
+ACL_SUMMARY=$(echo "$ACLS" | jq -r --arg acl_name "$WAF_WEB_ACL_NAME" '.WebACLs[] | select(.Name == $acl_name)')
+ACL_ID=$(echo "$ACL_SUMMARY" | jq -r '.Id')
+ACL_LOCK_TOKEN=$(echo "$ACL_SUMMARY" | jq -r '.LockToken')
+ACL=$(aws wafv2 get-web-acl --scope "REGIONAL" \
+  --name "$WAF_WEB_ACL_NAME" \
+  --id "$ACL_ID")
+ACL_VISIBILITY_CONFIG=$(echo "$ACL" | jq -cr '.WebACL.VisibilityConfig')
+ACL_DEFAULT_ACTION=$(echo "$ACL" | jq -cr '.WebACL.DefaultAction')
+
+echo "[!] Found target Web ACL $ACL_ID"
+
+ACL_RULES=$(echo "$ACL" | jq -r '.WebACL.Rules')
+
+ACL_RULE_NAME="Custom$WAF_IP_SET_NAME"
+echo "==> Removing rule $ACL_RULE_NAME from Web ACL..."
+
+RULES=$(echo "$ACL_RULES" | jq -r --arg name "$ACL_RULE_NAME" 'del(.[] | select(.Name == $name))' | jq -c)
+
+ACL=$(aws wafv2 update-web-acl --scope "REGIONAL" \
+  --name "$WAF_WEB_ACL_NAME" \
+  --id "$ACL_ID" \
+  --default-action "$ACL_DEFAULT_ACTION" \
+  --visibility-config "$ACL_VISIBILITY_CONFIG" \
+  --lock-token "$ACL_LOCK_TOKEN" \
+  --rules "$RULES"
+)
+
+echo "==> Getting IP Sets..."
+IP_SETS=$(aws wafv2 list-ip-sets --scope "REGIONAL")
+IP_SET_SUMMARY=$(echo "$IP_SETS" | jq -r --arg ipset_name "$WAF_IP_SET_NAME" '.IPSets[] | select(.Name == $ipset_name)')
+IP_SET_ID=$(echo "$IP_SET_SUMMARY" | jq -r '.Id')
+IP_SET_LOCK_TOKEN=$(echo "$IP_SET_SUMMARY" | jq -r '.LockToken')
+
+echo "[!] Found target IP Set $IP_SET_ID"
+
+echo "==> Deleting IP Set '$WAF_IP_SET_NAME'..."
+aws wafv2 delete-ip-set --scope "REGIONAL" \
+  --name "$WAF_IP_SET_NAME" \
+  --id "$IP_SET_ID" \
+  --lock-token "$IP_SET_LOCK_TOKEN"
+
+echo
+echo "Done"
