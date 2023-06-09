@@ -64,16 +64,16 @@ if [[ -z "$FILE_SYSTEM_ID" ]]; then
   exit 1
 fi
 
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
 # Retrieve the list of recovery points for the file system
 log_info "Retrieving recovery points for the file system..."
-RECOVERY_POINTS=$(aws backup list-recovery-points-by-resource --resource-arn "arn:aws:elasticfilesystem:eu-west-2:666653442229:file-system/${FILE_SYSTEM_ID}" --query "RecoveryPoints[].RecoveryPointArn" --output json)
+RECOVERY_POINTS=$(aws backup list-recovery-points-by-resource --resource-arn "arn:aws:elasticfilesystem:eu-west-2:${ACCOUNT_ID}:file-system/${FILE_SYSTEM_ID}" --query "RecoveryPoints[].RecoveryPointArn" --output json)
 
 if [[ -z "$RECOVERY_POINTS" ]]; then
   log_error "No recovery points found for the specified file system."
   exit 1
 fi
-
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 # Retrieve the latest recovery point ARN from the list
 LATEST_RECOVERY_POINT_ARN=$(echo "$RECOVERY_POINTS" | jq -r '.[0]')
