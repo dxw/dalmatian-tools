@@ -63,6 +63,9 @@ fi
 
 if [ -n "$OUTPUT_FILE_PATH" ]
 then
+  if [[ ! -f "$OUTPUT_FILE_PATH" ]]; then
+    touch "$OUTPUT_FILE_PATH"
+  fi
   OUTPUT_FILE_PATH="$(realpath "$OUTPUT_FILE_PATH")"
 else
   OUTPUT_FILE_PATH="."
