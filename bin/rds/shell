@@ -96,6 +96,7 @@ echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 echo "VPC ID: $RDS_VPC"
 
+CHOOSE_NTH_INSTANCE=0
 if [ -z "$ECS_INSTANCE_ID" ]
 then
   echo "==> Finding ECS instance..."
@@ -106,7 +107,7 @@ then
   )
   ECS_INSTANCE_ID=$(
     echo "$ECS_INSTANCES" \
-      | jq -r .Reservations[0].Instances[0].InstanceId
+      | jq -r .Reservations[0].Instances[$CHOOSE_NTH_INSTANCE].InstanceId
   )
 fi
 
@@ -114,7 +115,14 @@ echo "ECS instance ID: $ECS_INSTANCE_ID"
 
 echo "==> Starting $RDS_ENGINE session on $RDS_IDENTIFIER..."
 
-aws ssm start-session \
+while ! aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \
   --document-name "$RDS_IDENTIFIER-rds-shell" \
-  --parameters "RootPassword=$RDS_ROOT_PASSWORD"
+  --parameters "RootPassword=$RDS_ROOT_PASSWORD";
+  do
+    ((CHOOSE_NTH_INSTANCE=CHOOSE_NTH_INSTANCE+1))
+    ECS_INSTANCE_ID=$(
+      echo "$ECS_INSTANCES" \
+        | jq -r .Reservations[0].Instances[$CHOOSE_NTH_INSTANCE].InstanceId
+    )
+  done
