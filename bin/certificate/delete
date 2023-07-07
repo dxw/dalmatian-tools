@@ -11,7 +11,7 @@ usage() {
   echo "  -h                         - help"
   echo "  -i <infrastructure>        - infrastructure name"
   echo "  -c <certificate arn>       - remove a single certificate with a given ARN"
-  echo "  -D <domain>                - remove all certificates for domain which are not ISSUED"
+  echo "  -D <domain>                - remove all certificates for domain which are not ISSUED or PENDING"
   echo "  -d                         - perform a dry run, do not delete any certificates"
   exit 1
 }
@@ -106,8 +106,9 @@ for cert_arn in "${ALL_CERTIFICATES[@]}"
 do
   CERT_REGION=$(get_region "${cert_arn}")
   CERTIFICATE=$(aws acm describe-certificate --certificate-arn "$cert_arn" --region "$CERT_REGION")
+  STATUS=$(echo "$CERTIFICATE" | jq -r '.Certificate | .Status')
 
-  if [ "$(echo "$CERTIFICATE" | jq -r '.Certificate | .Status')" != "ISSUED" ];
+  if [ "$STATUS" != "ISSUED" ] && [ "$STATUS" != "PENDING" ];
   then
     delete_cert "$(echo "$CERTIFICATE" | jq -r '.Certificate | .CertificateArn')"
   fi
