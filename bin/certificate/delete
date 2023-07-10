@@ -1,0 +1,115 @@
+#!/bin/bash
+
+set -e
+set -o pipefail
+
+usage() {
+  echo "Delete an unused CloudFront certifcate"
+  echo 'e.g.    dalmatian certificate delete -i infra -D example.com'
+  echo '        dalmatian certificate delete -i infra -c arn:aws:acm:region:account:certificate/12345678-1234-1234-1234-123456789012'
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                         - help"
+  echo "  -i <infrastructure>        - infrastructure name"
+  echo "  -c <certificate arn>       - remove a single certificate with a given ARN"
+  echo "  -D <domain>                - remove all certificates for domain which are not ISSUED or PENDING"
+  echo "  -d                         - perform a dry run, do not delete any certificates"
+  exit 1
+}
+
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+while getopts "c:i:D:hd" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    c)
+      CERTIFICATE_ARN=$OPTARG
+      ;;
+    D)
+      DOMAIN_NAME=$OPTARG
+      ;;
+    d)
+      DRY_RUN=true
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE_NAME" ]];
+then
+  echo "ERROR: -i must be specified."
+  echo
+  usage
+fi
+
+if [[ -z "$CERTIFICATE_ARN" ]] && [[ -z "$DOMAIN_NAME" ]] ;
+then
+  echo "ERROR: either -c or -D must be specified."
+  echo
+  usage
+fi
+
+function get_region() {
+  if [[ "$1" == "arn:aws:acm:us-east-1"* ]];
+  then
+    echo "us-east-1"
+  else
+    echo "$AWS_DEFAULT_REGION"
+  fi
+}
+
+function delete_cert() {
+  local region
+  region=$(get_region "$1")
+  if [[ -n "$DRY_RUN" ]];
+  then
+    echo aws acm delete-certificate --certificate-arn "$1" --region "$region"
+  else
+    aws acm delete-certificate --certificate-arn "$1" --region "$region"
+    echo "Deleted: $1"
+  fi
+}
+
+if [[ -n "$CERTIFICATE_ARN" ]];
+then
+  delete_cert "$CERTIFICATE_ARN" --region "$CERT_REGION"
+  exit 0
+fi
+
+LB_CERTIFICATE_ARNS=$(aws acm list-certificates | jq -r --arg d "$DOMAIN_NAME" '.CertificateSummaryList[] | select(.DomainName == $d) | .CertificateArn')
+CLOUDFRONT_CERTIFICATE_ARNS=$(aws acm list-certificates --region us-east-1 | jq -r --arg d "$DOMAIN_NAME" '.CertificateSummaryList[] | select(.DomainName == $d) | .CertificateArn')
+
+LB_CERTIFICATES=()
+while IFS='' read -r cert
+do
+  LB_CERTIFICATES+=("$cert")
+done < <(echo "$LB_CERTIFICATE_ARNS")
+
+CLOUDFRONT_CERTIFICATES=()
+while IFS='' read -r cert
+do
+  CLOUDFRONT_CERTIFICATES+=("$cert")
+done < <(echo "$CLOUDFRONT_CERTIFICATE_ARNS")
+
+ALL_CERTIFICATES=("${LB_CERTIFICATES[@]}" "${CLOUDFRONT_CERTIFICATES[@]}")
+
+for cert_arn in "${ALL_CERTIFICATES[@]}"
+do
+  CERT_REGION=$(get_region "${cert_arn}")
+  CERTIFICATE=$(aws acm describe-certificate --certificate-arn "$cert_arn" --region "$CERT_REGION")
+  STATUS=$(echo "$CERTIFICATE" | jq -r '.Certificate | .Status')
+
+  if [ "$STATUS" != "ISSUED" ] && [ "$STATUS" != "PENDING" ];
+  then
+    delete_cert "$(echo "$CERTIFICATE" | jq -r '.Certificate | .CertificateArn')"
+  fi
+done
