@@ -1,0 +1,106 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: dalmatian $(basename "$(dirname "${BASH_SOURCE[0]}")") $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <aurora_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -I <ecs_insatnce_id>   - ECS instance ID to connect through (optional)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ];
+then
+ usage
+fi
+
+while getopts "i:e:r:I:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    I)
+      ECS_INSTANCE_ID=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$RDS_NAME"
+  || -z "$ENVIRONMENT"
+]]; then
+  usage
+fi
+
+# Remove dashes from the variables to create the RDS identifier, because dashes
+# aren't allowed in RDS identifiers. Dalmatian removes them on deployment, so we
+# need to remove them here to get the correct identifier.
+RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
+
+echo "==> Retrieving RDS root password from Parameter Store..."
+
+RDS_ROOT_PASSWORD_PARAMETER=$(
+  aws ssm get-parameters \
+    --names "/$INFRASTRUCTURE_NAME/$RDS_IDENTIFIER-aurora/password" \
+    --with-decryption
+)
+RDS_ROOT_PASSWORD=$(
+  echo "$RDS_ROOT_PASSWORD_PARAMETER" \
+    | jq -r .Parameters[0].Value
+)
+
+
+
+echo "==> Getting RDS info..."
+
+RDS_INFO=$(
+  aws rds describe-db-clusters \
+    --db-cluster-identifier "$RDS_IDENTIFIER"
+)
+RDS_ENGINE=$(echo "$RDS_INFO" | jq -r .DBClusters[0].Engine)
+RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBClusters[0].MasterUsername)
+
+echo "Engine: $RDS_ENGINE"
+echo "Root username: $RDS_ROOT_USERNAME"
+
+if [ -z "$ECS_INSTANCE_ID" ]
+then
+  echo "==> Finding ECS instance..."
+
+  ECS_INSTANCES=$(
+    aws ec2 describe-instances \
+      --filters "Name=instance-state-code,Values=16" Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*"
+  )
+  ECS_INSTANCE_ID=$(
+    echo "$ECS_INSTANCES" \
+      | jq -r .Reservations[0].Instances[0].InstanceId
+  )
+fi
+
+echo "ECS instance ID: $ECS_INSTANCE_ID"
+
+echo "==> Starting $RDS_ENGINE session on $RDS_IDENTIFIER..."
+set -x 
+aws ssm start-session \
+  --target "$ECS_INSTANCE_ID" \
+  --document-name "$RDS_IDENTIFIER-aurora-shell" \
+  --parameters "RootPassword=$RDS_ROOT_PASSWORD"
