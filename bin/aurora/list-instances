@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -e <environment>       - environment (eg. 'staging' or 'prod')"
+  echo "  -i <infrastructure>    - infrastructure name"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+while getopts "i:e:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME" ||
+  -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+echo "==> Getting RDS instances in $INFRASTRUCTURE_NAME $ENVIRONMENT..."
+
+RDS_IDENTIFIER_SEARCH="${INFRASTRUCTURE_NAME//-/}.*${ENVIRONMENT//-/}"
+
+aws rds describe-db-clusters  \
+  | jq -r '.DBClusters[] | "Name: \(.DBClusterIdentifier) Engine: \(.Engine) Address: \(.Endpoint):\(.Port)" ' | grep "$RDS_IDENTIFIER_SEARCH"

@@ -1,0 +1,172 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <aurora_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -d <database_name>     - database name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -f <dump_file>         - DB dump file"
+  echo "  -R <rewrite_file>      - Rewrite file"
+  echo "  -I <ecs_instance_id>   - ECS instance ID to connect through (optional)"
+  echo "  -Y <Yes>               - Auto awnser Yes (Should only be used in scripts"
+  echo "                           that ensure humans validate DB overwrites)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REWRITE_FILE=""
+
+while getopts "i:e:r:d:f:R:p:I:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    d)
+      DATABASE_NAME=$OPTARG
+      ;;
+    f)
+      DB_DUMP_FILE=$OPTARG
+      ;;
+    R)
+      REWRITE_FILE=$OPTARG
+      ;;
+    I)
+      ECS_INSTANCE_ID=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$RDS_NAME"
+  || -z "$DATABASE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+# Remove dashes from the variables to create the RDS identifier, because dashes
+# aren't allowed in RDS identifiers. Dalmatian removes them on deployment, so we
+# need to remove them here to get the correct identifier.
+RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
+
+echo "==> Retrieving RDS root password from Parameter Store..."
+
+RDS_ROOT_PASSWORD_PARAMETER=$(
+  aws ssm get-parameters \
+    --names "/$INFRASTRUCTURE_NAME/$RDS_IDENTIFIER-aurora/password" \
+    --with-decryption
+)
+RDS_ROOT_PASSWORD=$(
+  echo "$RDS_ROOT_PASSWORD_PARAMETER" \
+    | jq -r .Parameters[0].Value
+)
+
+echo "==> Getting RDS info..."
+
+RDS_INFO=$(
+  aws rds describe-db-clusters \
+    --db-cluster-identifier "$RDS_IDENTIFIER"
+)
+RDS_ENGINE=$(echo "$RDS_INFO" | jq -r .DBClusters[0].Engine)
+RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBClusters[0].MasterUsername)
+
+echo "Engine: $RDS_ENGINE"
+echo "Root username: $RDS_ROOT_USERNAME"
+
+if [ -z "$ECS_INSTANCE_ID" ]
+then
+  echo "==> Finding ECS instance..."
+
+  ECS_INSTANCES=$(
+    aws ec2 describe-instances \
+      --filters "Name=instance-state-code,Values=16" Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*"
+  )
+  ECS_INSTANCE_ID=$(
+    echo "$ECS_INSTANCES" \
+      | jq -r .Reservations[0].Instances[0].InstanceId
+  )
+fi
+
+echo "ECS instance ID: $ECS_INSTANCE_ID"
+
+if [ ! -f "$DB_DUMP_FILE" ];
+then
+    echo "$DB_DUMP_FILE not found ..."
+    exit 1
+fi
+
+if [ -n "$REWRITE_FILE" ];
+then
+  INPUT_FILE="$(realpath "$DB_DUMP_FILE")"
+  OUTPUT_PATH="$APP_ROOT/bin/tmp/sql-munged"
+  REWRITE_FILE="$(realpath "$REWRITE_FILE")"
+  cd "$APP_ROOT/lib"
+  "./php-sql-munge.sh" -i "$INPUT_FILE" -o "$OUTPUT_PATH" -r "$REWRITE_FILE"
+  cd "$SCRIPT_PATH"
+  DB_DUMP_FILE="$(basename "$DB_DUMP_FILE")"
+  DB_DUMP_FILE="$OUTPUT_PATH/$DB_DUMP_FILE"
+fi
+
+echo "--------------------------------------------------"
+echo "The RDS:"
+echo "  $RDS_IDENTIFIER"
+echo "in the infrastructure:"
+echo "  $INFRASTRUCTURE_NAME"
+echo "in environment:"
+echo "  $ENVIRONMENT"
+echo "will have the database:"
+echo "  $DATABASE_NAME"
+echo "overwritten with the file:"
+echo "  $DB_DUMP_FILE"
+echo "--------------------------------------------------"
+echo ""
+echo "Are you sure?"
+echo ""
+
+echo "Continue (Yes/No)"
+read -r -p " > " choice
+case "$choice" in
+  Yes ) echo "==> Importing ...";;
+  * ) echo "Aborting!"
+    exit 1
+    ;;
+esac
+
+echo "Uploading $DB_DUMP_FILE ..."
+
+"$APP_ROOT/bin/ecs/file-upload" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$DB_DUMP_FILE" -t "/tmp/$(basename "$DB_DUMP_FILE")" -I "$ECS_INSTANCE_ID"
+
+echo "==> Uploading complete!"
+
+echo "==> Starting import of $RDS_ENGINE $DB_DUMP_FILE file into $RDS_IDENTIFIER..."
+
+aws ssm start-session \
+  --target "$ECS_INSTANCE_ID" \
+  --document-name "$RDS_IDENTIFIER-aurora-sql-import" \
+  --parameters "RootPassword=$RDS_ROOT_PASSWORD,DatabaseName=$DATABASE_NAME,SqlFile=/tmp/$(basename "$DB_DUMP_FILE")"
