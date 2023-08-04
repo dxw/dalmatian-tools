@@ -48,7 +48,7 @@ else
 INFRASTRUCTURE_ACCOUNT_ID=$(yq e ".infrastructures.$INFRASTRUCTURE_NAME.account_id" "$DALMATIAN_CONFIG_PATH")
 
 fi
-if [ -z "$INFRASTRUCTURE_ACCOUNT_ID" ]
+if [ -z "$INFRASTRUCTURE_ACCOUNT_ID" ] || [ "$INFRASTRUCTURE_ACCOUNT_ID" == "null" ]
 then
   echo "==> Error: Infrastructure '$INFRASTRUCTURE_NAME' not found in dalmatian-config,"
   echo "           or it does not contain an 'account_id'"
