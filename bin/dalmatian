@@ -196,6 +196,10 @@ export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
 export AWS_SESSION_TOKEN
 
+AWS_CALLER_IDENTITY_ARN="$(aws sts get-caller-identity | jq '.Arn')"
+IFS='/' read -r -a array <<< "$AWS_CALLER_IDENTITY_ARN"
+export AWS_CALLER_IDENTITY_USERNAME="${array[2]%?}"
+
 # Check if the assume role credentials have expired
 if [ -f "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE" ]
 then
