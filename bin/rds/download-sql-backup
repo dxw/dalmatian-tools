@@ -1,0 +1,118 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -o <output_file_path>  - output file path (optional)"
+  echo "  -d <date>              - date (optional e.g %Y-%m-%d)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+while getopts "i:r:e:d:o:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    o)
+      OUTPUT_FILE_PATH=$OPTARG
+      ;;
+    d)
+      DATE=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$RDS_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+# Remove dashes from the variables to create the RDS identifier, because dashes
+# aren't allowed in RDS identifiers. Dalmatian removes them on deployment, so we
+# need to remove them here to get the correct identifier.
+RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
+
+S3_BUCKET_NAME="$INFRASTRUCTURE_NAME-$RDS_IDENTIFIER-sql-backup"
+TODAY=$(date +%Y-%m-%d)
+
+echo "==> Listing SQL backups in $INFRASTRUCTURE_NAME $RDS_NAME $ENVIRONMENT..."
+
+if [ -z "$DATE" ]
+then
+  DATE=$TODAY
+fi
+
+OBJECTS="$(aws s3api list-objects-v2 \
+  --bucket "$S3_BUCKET_NAME" \
+  --query "Contents[?contains(LastModified,\`${DATE}\`)].Key" \
+  --output json)"
+
+BACKUP_COUNT="$(echo "$OBJECTS" | jq -r 'length')"
+
+echo "Found $BACKUP_COUNT backups from $DATE"
+
+if [ "$BACKUP_COUNT" -lt 1 ];
+then
+  echo "Please specify a different date."
+  exit 1
+fi
+
+STR="$(echo "$OBJECTS" | jq -r '. | join(",")')"
+IFS=',' read -r -a array <<< "$STR"
+
+echo
+cat -n < <(printf "%s\n" "${array[@]}")
+echo
+
+n=""
+while true; do
+    read -rp 'Select backup to download: ' n
+    # If $n is an integer between one and $count...
+    if [ "$n" -eq "$n" ] && [ "$n" -gt 0 ] && [ "$n" -le "$BACKUP_COUNT" ]; then
+        break
+    fi
+done
+
+i=$((n-1)) # Arrays are zero-indexed
+SQL_FILE_NAME="${array[$i]}"
+
+if [ -z "$OUTPUT_FILE_PATH" ];
+then
+  OUTPUT_FILE_PATH="$HOME/Downloads/$SQL_FILE_NAME"
+fi
+
+echo "[i] You've chosen option number $n: '$SQL_FILE_NAME'"
+echo
+
+echo "==> Starting download of $SQL_FILE_NAME from s3 bucket $S3_BUCKET_NAME..."
+
+aws s3 cp "s3://$S3_BUCKET_NAME/$SQL_FILE_NAME" "$OUTPUT_FILE_PATH"
