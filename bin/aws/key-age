@@ -20,15 +20,18 @@ while getopts "i:h" opt; do
   esac
 done
 
-read -r -p "Enter your AWS username: " username
+if [ -z "$AWS_CALLER_IDENTITY_USERNAME" ];
+then
+  read -r -p "Enter your AWS username: " AWS_CALLER_IDENTITY_USERNAME
+fi
 
 # Get access key metadata for the user
-metadata=$(aws iam list-access-keys --user-name "$username")
+metadata=$(aws iam list-access-keys --user-name "$AWS_CALLER_IDENTITY_USERNAME")
 
 # Check if any access keys were found
 if [[ $(echo "$metadata" | jq '.AccessKeyMetadata | length') == 0 ]]
 then
-    echo "No access keys found for user $username"
+    echo "No access keys found for user $AWS_CALLER_IDENTITY_USERNAME"
     exit 1
 fi
 
