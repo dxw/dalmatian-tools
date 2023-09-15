@@ -14,12 +14,12 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 WATCH=""
+
 while getopts "i:e:s:wh" opt; do
   case $opt in
     i)
@@ -43,12 +43,7 @@ while getopts "i:e:s:wh" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$SERVICE_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$SERVICE_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
@@ -57,8 +52,7 @@ pipeline_status() {
   echo "$PIPELINE_STATUS" | jq -r '.stageStates[] | .stageName + ": " + .latestExecution.status + " (" + .actionStates[0].latestExecution.lastStatusChange + ")"'
 }
 
-if [ -n "$WATCH" ]
-then
+if [ -n "$WATCH" ]; then
   export -f pipeline_status
   watch -n5 -x /bin/bash -c "pipeline_status $INFRASTRUCTURE_NAME $SERVICE_NAME $ENVIRONMENT"
 else

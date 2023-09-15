@@ -20,9 +20,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -60,13 +59,7 @@ while getopts "i:e:r:d:f:R:p:I:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$RDS_NAME"
-  || -z "$DATABASE_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$RDS_NAME" || -z "$DATABASE_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
@@ -99,8 +92,7 @@ RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBClusters[0].MasterUsername)
 echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 
-if [ -z "$ECS_INSTANCE_ID" ]
-then
+if [ -z "$ECS_INSTANCE_ID" ]; then
   echo "==> Finding ECS instance..."
 
   ECS_INSTANCES=$(
@@ -115,14 +107,12 @@ fi
 
 echo "ECS instance ID: $ECS_INSTANCE_ID"
 
-if [ ! -f "$DB_DUMP_FILE" ];
-then
+if [ ! -f "$DB_DUMP_FILE" ]; then
     echo "$DB_DUMP_FILE not found ..."
     exit 1
 fi
 
-if [ -n "$REWRITE_FILE" ];
-then
+if [ -n "$REWRITE_FILE" ]; then
   INPUT_FILE="$(realpath "$DB_DUMP_FILE")"
   OUTPUT_PATH="$APP_ROOT/bin/tmp/sql-munged"
   REWRITE_FILE="$(realpath "$REWRITE_FILE")"
@@ -149,12 +139,15 @@ echo ""
 echo "Are you sure?"
 echo ""
 
-echo "Continue (Yes/No)"
+echo "Continue (Y/N)"
 read -r -p " > " choice
+
 case "$choice" in
-  Yes ) echo "==> Importing ...";;
-  * ) echo "Aborting!"
-    exit 1
+  Y)
+    echo "==> Importing ..."
+    ;;
+  *)
+    echo "Aborting!" && exit 1
     ;;
 esac
 

@@ -15,9 +15,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 while getopts "i:r:e:d:h" opt; do
@@ -43,12 +42,7 @@ while getopts "i:r:e:d:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$RDS_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$RDS_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
@@ -62,13 +56,12 @@ TODAY=$(date +%Y-%m-%d)
 
 echo "==> Counting SQL backups in $INFRASTRUCTURE_NAME $RDS_NAME $ENVIRONMENT..."
 
-if [ -n "$DATE" ]
-then
- aws s3api list-objects-v2 \
-   --bucket "$S3_BUCKET_NAME" \
-   --query "Contents[?contains(LastModified,\`${DATE}\`)].Key" | jq -r 'length'
+if [ -n "$DATE" ]; then
+  aws s3api list-objects-v2 \
+    --bucket "$S3_BUCKET_NAME" \
+    --query "Contents[?contains(LastModified,\`${DATE}\`)].Key" | jq -r 'length'
 else
- aws s3api list-objects-v2 \
-   --bucket "$S3_BUCKET_NAME" \
-   --query "Contents[?contains(LastModified,\`${TODAY}\`)].Key" | jq -r 'length'
+  aws s3api list-objects-v2 \
+    --bucket "$S3_BUCKET_NAME" \
+    --query "Contents[?contains(LastModified,\`${TODAY}\`)].Key" | jq -r 'length'
 fi

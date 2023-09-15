@@ -14,11 +14,9 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
-
 
 while getopts "i:h" opt; do
   case $opt in
@@ -34,12 +32,10 @@ while getopts "i:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" ]]; then
   usage
 fi
-shift $((OPTIND-1))
+
+shift $((OPTIND - 1))
 
 aws "$@"

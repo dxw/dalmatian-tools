@@ -15,9 +15,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ];
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 while getopts "i:e:r:I:h" opt; do
@@ -43,11 +42,7 @@ while getopts "i:e:r:I:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$RDS_NAME"
-  || -z "$ENVIRONMENT"
-]]; then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$RDS_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
@@ -68,8 +63,6 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-
-
 echo "==> Getting RDS info..."
 
 RDS_INFO=$(
@@ -82,8 +75,7 @@ RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBClusters[0].MasterUsername)
 echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 
-if [ -z "$ECS_INSTANCE_ID" ]
-then
+if [ -z "$ECS_INSTANCE_ID" ]; then
   echo "==> Finding ECS instance..."
 
   ECS_INSTANCES=$(
@@ -99,7 +91,7 @@ fi
 echo "ECS instance ID: $ECS_INSTANCE_ID"
 
 echo "==> Starting $RDS_ENGINE session on $RDS_IDENTIFIER..."
-set -x 
+set -x
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \
   --document-name "$RDS_IDENTIFIER-aurora-shell" \

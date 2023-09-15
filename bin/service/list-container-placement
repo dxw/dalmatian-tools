@@ -14,9 +14,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
 
 SERVICE_NAME="all"
@@ -41,42 +40,37 @@ while getopts "i:e:s:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
 echo "==> Finding containers..."
 
 CLUSTER="$INFRASTRUCTURE_NAME-$ENVIRONMENT"
-if [ "$SERVICE_NAME" == "all" ]
-then
+
+if [ "$SERVICE_NAME" == "all" ]; then
   TASKS=$(aws ecs list-tasks --cluster "$CLUSTER")
 else
   TASKS=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE_NAME")
 fi
 
 TASK_ARNS=()
-while IFS='' read -r task_arn
-do
+
+while IFS='' read -r task_arn; do
   TASK_ARNS+=("$task_arn")
 done < <(echo "$TASKS" | jq -r '.taskArns[]')
 
-for task_arn in "${TASK_ARNS[@]}"
-do
+for task_arn in "${TASK_ARNS[@]}"; do
   TASK_DESCRIPTION=$(aws ecs describe-tasks --cluster "$CLUSTER" --task "$task_arn")
   CONTAINER_INSTANCE_ARN=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containerInstanceArn')
   CONTAINER_INSTANCE_DESCRIPTION=$(aws ecs describe-container-instances --cluster "$CLUSTER" --container-instance "$CONTAINER_INSTANCE_ARN")
   CONTAINER_INSTANCE_ID=$(echo "$CONTAINER_INSTANCE_DESCRIPTION" | jq -r '.containerInstances[0].ec2InstanceId')
   GROUP=$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].group')
 
-  while IFS='' read -r TASK
-  do
+  while IFS='' read -r TASK; do
     CONTAINER_NAME=$(echo "$TASK" | jq -r '.containers[0].name')
     STARTED_AT=$(echo "$TASK" | jq -r '.startedAt')
+
     echo "$CONTAINER_NAME ($STARTED_AT) - $GROUP - $CONTAINER_INSTANCE_ID"
   done < <(echo "$TASK_DESCRIPTION" | jq -c '.tasks[]')
 done

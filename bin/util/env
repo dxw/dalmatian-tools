@@ -6,7 +6,6 @@ usage() {
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name OPTIONAL defaults to main dalmatian account"
   echo "  -r                     -  output without export prepended OPTIONAL"
-  
   exit 1
 }
 
@@ -27,10 +26,10 @@ while getopts "irh" opt; do
   esac
 done
 
->&2 echo "==> Getting AWS credentials for $INFRASTRUCTURE_NAME"
-if [ "$RAW" = "true" ]
-then
-env | grep AWS
+echo >&2 "==> Getting AWS credentials for $INFRASTRUCTURE_NAME"
+
+if [ "$RAW" = "true" ]; then
+  env | grep AWS
 else
-env | grep AWS | sed s/^/export\ /g
+  env | grep AWS | sed s/^/export\ /g
 fi

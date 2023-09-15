@@ -7,11 +7,12 @@ set -o pipefail
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
-  echo "  -w <watch>             - watch"       
+  echo "  -w <watch>             - watch"
   exit 1
 }
 
 WATCH=""
+
 while getopts "wh" opt; do
   case $opt in
     w)
@@ -32,8 +33,7 @@ pipeline_status() {
   echo "$PIPELINE_STATUS" | jq -r '.stageStates[] | select(.stageName == "Build") | .actionStates[] | "  - " + .actionName + ": " + .latestExecution.status + " (" + .latestExecution.lastStatusChange + ")"'
 }
 
-if [ -n "$WATCH" ]
-then
+if [ -n "$WATCH" ]; then
   export -f pipeline_status
   watch -n5 -x /bin/bash -c "pipeline_status $INFRASTRUCTURE_NAME $SERVICE_NAME $ENVIRONMENT"
 else

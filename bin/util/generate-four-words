@@ -28,8 +28,7 @@ while getopts "qh" opt; do
   esac
 done
 
-if [ ! "$QUIET" == "true" ]
-then
+if [ ! "$QUIET" == "true" ]; then
   echo "Please note that the phrases generated here should not be used as login"
   echo "passwords or to hide secrets. Please use 1Password in those cicumstances."
   echo "If you have any questions, please ask the Technical Operations team for advice."
@@ -38,4 +37,5 @@ then
 fi
 
 WORDS=$(sort -R "$DICT" | head -n 4)
+
 echo "${WORDS//$'\n'/-}"

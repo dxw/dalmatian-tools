@@ -15,8 +15,7 @@ usage() {
   exit 1
 }
 
-if [ $# -lt 1 ]
-then
+if [ $# -lt 1 ]; then
   usage
 fi
 
@@ -43,18 +42,12 @@ while getopts "i:e:s:k:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$SERVICE_NAME"
-  || -z "$ENVIRONMENT"
-  || -z "$KEY"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$SERVICE_NAME" || -z "$ENVIRONMENT" || -z "$KEY" ]]; then
   usage
 fi
-  
+
 echo "==> getting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT"
 
 aws ssm get-parameter --with-decryption \
   --name "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/$KEY" \
- | jq -r '.Parameter.Value'
+  | jq -r '.Parameter.Value'

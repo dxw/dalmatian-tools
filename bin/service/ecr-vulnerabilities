@@ -15,9 +15,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 IMAGE_TAG="latest"
@@ -45,12 +44,7 @@ while getopts "i:e:s:t:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$SERVICE_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$SERVICE_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
@@ -68,22 +62,22 @@ SEVERITIES=(
   UNDEFINED
 )
 
-for SEVERITY in "${SEVERITIES[@]}"
-do
+for SEVERITY in "${SEVERITIES[@]}"; do
   SEVERITY_FINDINGS=$(echo "$IMAGE_SCAN_FINDINGS" | jq -cr --arg severity "$SEVERITY" 'select(.severity==$severity)')
-  SEVERITY_FINDINGS_COUNT=$(echo "$SEVERITY_FINDINGS" | wc -l | sed 's/^ *//g') 
+  SEVERITY_FINDINGS_COUNT=$(echo "$SEVERITY_FINDINGS" | wc -l | sed 's/^ *//g')
   SEVERITY_FINDINGS_COUNT=$(echo "$SEVERITY_FINDINGS_COUNT - 1" | bc -l)
-  if [ "$SEVERITY_FINDINGS_COUNT" -gt 0 ]
-  then
+
+  if [ "$SEVERITY_FINDINGS_COUNT" -gt 0 ]; then
     echo "$SEVERITY's"
     echo "----"
-    while IFS='' read -r FINDING
-    do
+
+    while IFS='' read -r FINDING; do
       CVE=$(echo "$FINDING" | jq -r '.name')
       CVE_URI=$(echo "$FINDING" | jq -r '.uri')
       PACKAGE=$(echo "$FINDING" | jq -r '.attributes[] | select(.key=="package_name") | .value')
       PACKAGE_VERSION=$(echo "$FINDING" | jq -r '.attributes[] | select(.key=="package_version") | .value')
       DESCRIPTION=$(echo "$FINDING" | jq -r '.description')
+
       echo -e "\033[1mCVE:\033[0m $CVE ($CVE_URI)"
       echo -e "\033[1mPackage:\033[0m $PACKAGE:$PACKAGE_VERSION"
       echo -e "\033[1mDescription:\033[0m $DESCRIPTION"
@@ -93,11 +87,11 @@ do
 done
 
 echo "Found:"
-for SEVERITY in "${SEVERITIES[@]}"
-do
+
+for SEVERITY in "${SEVERITIES[@]}"; do
   SEVERITY_FINDINGS=$(echo "$IMAGE_SCAN_FINDINGS" | jq -cr --arg severity "$SEVERITY" 'select(.severity==$severity)')
   SEVERITY_FINDINGS_COUNT=$(echo "$SEVERITY_FINDINGS" | wc -l | sed 's/^ *//g')
   SEVERITY_FINDINGS_COUNT=$(echo "$SEVERITY_FINDINGS_COUNT - 1" | bc -l)
+
   echo "$SEVERITY: $SEVERITY_FINDINGS_COUNT"
 done
-

@@ -35,9 +35,8 @@ set_envar() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 ENV_FILE=""
@@ -71,35 +70,24 @@ while getopts "i:e:s:k:v:E:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$SERVICE_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$SERVICE_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
-if [[
-  -z "$ENV_FILE"
-  && ( -z "$KEY" || -z "$VALUE" )
-]]
-then
+if [[ -z "$ENV_FILE" && (-z "$KEY" || -z "$VALUE") ]]; then
   usage
 fi
 
-if [[ -n "$ENV_FILE" ]]
-then
-  if [ ! -f "$ENV_FILE" ]
-  then
+if [[ -n "$ENV_FILE" ]]; then
+  if [ ! -f "$ENV_FILE" ]; then
     echo "Error: $ENV_FILE does not exist"
     exit 1
   fi
 
-  while IFS='' read -r envar
-  do
+  while IFS='' read -r envar; do
     KEY=$(echo "$envar" | cut -d'=' -f1)
     VALUE=$(echo "$envar" | cut -d'=' -f2-)
+
     set_envar "$INFRASTRUCTURE_NAME" "$SERVICE_NAME" "$ENVIRONMENT" "$KEY" "$VALUE"
   done < <(sed -e "s/'//" -e "s/'$//" -e 's/"//' -e 's/"$//' "$ENV_FILE")
 else

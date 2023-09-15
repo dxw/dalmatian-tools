@@ -24,9 +24,10 @@ while getopts "ih" opt; do
       ;;
   esac
 done
-if [[ -z $INFRASTRUCTURE_NAME ]]
-then
-shift $((OPTIND-1))
-shift $((OPTIND-1))
+
+if [[ -z $INFRASTRUCTURE_NAME ]]; then
+  shift $((OPTIND - 1))
+  shift $((OPTIND - 1))
 fi
+
 exec "$@"

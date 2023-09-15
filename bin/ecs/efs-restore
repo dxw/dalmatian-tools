@@ -10,14 +10,12 @@ usage() {
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -f                     - full file path from root of the mount (e.g /wp-uploads/saluki-test/FILE.jpg)"
-
   exit 1
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
 
 while getopts "i:e:f:h" opt; do
@@ -40,22 +38,18 @@ while getopts "i:e:f:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$ENVIRONMENT"
-  || -z "$FILE_PATH"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$FILE_PATH" ]]; then
   usage
 fi
 
 log_info() {
   echo "==>[INFO] $1"
-} 
+}
 
 log_error() {
   echo "==>[ERROR] $1" >&2
 }
+
 # Retrieve the latest file system ID for the given infrastructure and environment
 FILE_SYSTEM_ID=$(aws efs describe-file-systems --query "FileSystems[?Name=='${INFRASTRUCTURE_NAME}-${ENVIRONMENT}-shared-storage-efs'].FileSystemId" --output text --region eu-west-2)
 

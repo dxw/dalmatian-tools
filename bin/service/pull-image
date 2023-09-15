@@ -17,9 +17,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
 
 while getopts "i:e:s:h" opt; do
@@ -42,12 +41,7 @@ while getopts "i:e:s:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$ENVIRONMENT"
-  || -z "$SERVICE_NAME"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$SERVICE_NAME" ]]; then
   usage
 fi
 

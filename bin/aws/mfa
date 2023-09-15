@@ -17,8 +17,7 @@ usage() {
 
 EXPORT_TO_STDOUT=0
 
-while getopts "m:eh" opt;
-do
+while getopts "m:eh" opt; do
   case $opt in
     m)
       MFA_CODE=$OPTARG
@@ -43,8 +42,7 @@ AWS_SECRET_ACCESS_KEY=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.SecretAc
 AWS_SESSION_TOKEN=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.SessionToken)
 AWS_SESSION_EXPIRATION=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.Expiration | awk -F':' -v OFS=':' '{ print $1, $2, $3$4 }')
 
-if [ "$EXPORT_TO_STDOUT" == 1 ];
-then
+if [ "$EXPORT_TO_STDOUT" == 1 ]; then
   echo "export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
   echo "export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
   echo "export AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN"
@@ -52,11 +50,11 @@ else
   echo "==> Storing MFA credentials in $DALMATIAN_MFA_CREDENTIALS_FILE"
   MFA_CREDENTIALS_JSON_STRING=$(
     jq -n \
-    --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
-    --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
-    --arg aws_session_token "$AWS_SESSION_TOKEN" \
-    --arg aws_session_expiration "$AWS_SESSION_EXPIRATION" \
-    '{
+      --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
+      --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
+      --arg aws_session_token "$AWS_SESSION_TOKEN" \
+      --arg aws_session_expiration "$AWS_SESSION_EXPIRATION" \
+      '{
       aws_access_key_id: $aws_access_key_id,
       aws_secret_access_key: $aws_secret_access_key,
       aws_session_token: $aws_session_token,

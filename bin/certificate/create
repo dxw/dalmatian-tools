@@ -16,9 +16,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
 
 SAN=""
@@ -43,24 +42,18 @@ while getopts "i:d:s:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" ]]; then
   usage
 fi
 
-if [[
-  -z "$SAN"  
-]]
-then
+if [[ -z "$SAN" ]]; then
   SAN="$DOMAIN"
 fi
 
 # $SAN needs to not be quoted so that the values don't become one long string
-#shellcheck disable=SC2086 
+#shellcheck disable=SC2086
 EUW2_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region eu-west-2 | jq -r '.CertificateArn')
-#shellcheck disable=SC2086 
+#shellcheck disable=SC2086
 USE1_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region us-east-1 | jq -r '.CertificateArn')
 
 # Apply a linear back-off before reporting back to the user. Allow the user
@@ -77,8 +70,7 @@ function print_cert() {
   exit 0
 }
 
-while echo "$DNS" | grep -q "null"
-do
+while echo "$DNS" | grep -q "null"; do
   echo "Waiting for AWS API to become consistent. This may take more than one attempt..."
   sleep 2
   DNS=$(aws acm describe-certificate --certificate-arn "$EUW2_ARN" | jq -r '.Certificate.DomainValidationOptions[] | "\(.ResourceRecord.Name) CNAME \(.ResourceRecord.Value)"')

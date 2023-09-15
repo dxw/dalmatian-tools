@@ -16,9 +16,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 while getopts "i:r:e:d:o:h" opt; do
@@ -47,12 +46,7 @@ while getopts "i:r:e:d:o:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$RDS_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$RDS_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
@@ -66,8 +60,7 @@ TODAY=$(date +%Y-%m-%d)
 
 echo "==> Listing SQL backups in $INFRASTRUCTURE_NAME $RDS_NAME $ENVIRONMENT..."
 
-if [ -z "$DATE" ]
-then
+if [ -z "$DATE" ]; then
   DATE=$TODAY
 fi
 
@@ -80,8 +73,7 @@ BACKUP_COUNT="$(echo "$OBJECTS" | jq -r 'length')"
 
 echo "Found $BACKUP_COUNT backups from $DATE"
 
-if [ "$BACKUP_COUNT" -lt 1 ];
-then
+if [ "$BACKUP_COUNT" -lt 1 ]; then
   echo "Please specify a different date."
   exit 1
 fi
@@ -95,18 +87,17 @@ echo
 
 n=""
 while true; do
-    read -rp 'Select backup to download: ' n
-    # If $n is an integer between one and $count...
-    if [ "$n" -eq "$n" ] && [ "$n" -gt 0 ] && [ "$n" -le "$BACKUP_COUNT" ]; then
-        break
-    fi
+  read -rp 'Select backup to download: ' n
+  # If $n is an integer between one and $count...
+  if [ "$n" -eq "$n" ] && [ "$n" -gt 0 ] && [ "$n" -le "$BACKUP_COUNT" ]; then
+    break
+  fi
 done
 
-i=$((n-1)) # Arrays are zero-indexed
+i=$((n - 1)) # Arrays are zero-indexed
 SQL_FILE_NAME="${array[$i]}"
 
-if [ -z "$OUTPUT_FILE_PATH" ];
-then
+if [ -z "$OUTPUT_FILE_PATH" ]; then
   OUTPUT_FILE_PATH="$HOME/Downloads/$SQL_FILE_NAME"
 fi
 

@@ -13,9 +13,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
 
 while getopts "i:e:h" opt; do
@@ -35,11 +34,7 @@ while getopts "i:e:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
@@ -49,24 +44,25 @@ INSTANCE_REFRESH_ID=$(aws autoscaling start-instance-refresh --auto-scaling-grou
 
 STATUS=""
 STATUS_REASON=""
-while [ "$STATUS" != "Successful" ]
-do
+
+while [ "$STATUS" != "Successful" ]; do
   REFRESH_STATUS=$(aws autoscaling describe-instance-refreshes --auto-scaling-group-name "$AUTO_SCALING_GROUP_NAME" | jq -r --arg i "$INSTANCE_REFRESH_ID" '.InstanceRefreshes[] | select(.InstanceRefreshId==$i)')
   STATUS=$(echo "$REFRESH_STATUS" | jq -r '.Status')
   NEW_STATUS_REASON=$(echo "$REFRESH_STATUS" | jq -r '.StatusReason')
   PERCENT_COMPLETE=$(echo "$REFRESH_STATUS" | jq -r '.PercentageComplete')
   INSTANCES_TO_UPDATE=$(echo "$REFRESH_STATUS" | jq -r '.InstancesToUpdate')
-  if [ "$NEW_STATUS_REASON" != "$STATUS_REASON" ]
-  then
-    if [ "$NEW_STATUS_REASON" != "null" ]
-    then
+
+  if [ "$NEW_STATUS_REASON" != "$STATUS_REASON" ]; then
+    if [ "$NEW_STATUS_REASON" != "null" ]; then
       echo "$NEW_STATUS_REASON"
     fi
+
     STATUS_REASON="$NEW_STATUS_REASON"
   fi
+
   echo "Status: $STATUS, Percent Complete: $PERCENT_COMPLETE, Instances to update: $INSTANCES_TO_UPDATE"
-  if [ "$STATUS" != "Successful" ]
-  then
+
+  if [ "$STATUS" != "Successful" ]; then
     sleep 30
   fi
 done
