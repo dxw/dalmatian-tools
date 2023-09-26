@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -a <dalmatian-account> - AWS Account ID (Optional - By default all accounts will be cycled through)"
+  echo "  -N                     - Non-interactive mode (auto-approves terraform apply)"
+  exit 1
+}
+
+DALMATIAN_ACCOUNT=""
+NON_INTERACTIVE_MODE=0
+while getopts "a:Nh" opt; do
+  case $opt in
+    a)
+      DALMATIAN_ACCOUNT=$OPTARG
+      ;;
+    N)
+      NON_INTERACTIVE_MODE=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+AUTO_APPROVE=""
+if [ "$NON_INTERACTIVE_MODE" == "1" ]
+then
+  AUTO_APPROVE="--auto-approve"
+fi
+
+if [ -z "$DALMATIAN_ACCOUNT" ]
+then
+  read -rp "No account has been provided. Do you wish to boostrap all initialised accounts? [y/n]: " BOOTSTRAP_ALL
+  if [ "$BOOTSTRAP_ALL" != "y" ]
+  then
+    exit 0
+  fi
+fi
+
+WORKSPACE_EXISTS=0
+while IFS='' read -r workspace <&9
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [[ ( "$DALMATIAN_ACCOUNT" == "$workspace" || 
+    -z "$DALMATIAN_ACCOUNT" ) &&
+    "$workspace" != "default" &&
+    -n "$workspace"
+  ]]
+  then
+    WORKSPACE_EXISTS=1
+    terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace select "$workspace"
+    ACCOUNT_NAME=$(echo "$workspace" | cut -d'-' -f5-)
+    echo "Account Name: $ACCOUNT_NAME"
+    if [[ "$ACCOUNT_NAME" == "dalmatian-main" ]]; then
+      export TF_VAR_enable_s3_tfvars=true
+      TF_VAR_tfvars_s3_tfvars_files="$(cat "$CONFIG_TFVARS_PATHS_FILE")"
+      export TF_VAR_tfvars_s3_tfvars_files
+    else
+      TF_VAR_enable_s3_tfvars=false
+      TF_VAR_tfvars_s3_tfvars_files="{}"
+    fi
+    export AWS_PROFILE="$ACCOUNT_NAME"
+    terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" apply \
+      -var-file="$CONFIG_TFVARS_DIR/000-terraform.tfvars" \
+      -var-file="$CONFIG_TFVARS_DIR/100-$workspace.tfvars" \
+      "$AUTO_APPROVE"
+  fi
+done 9< <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)
+
+if [ "$WORKSPACE_EXISTS" == "0" ]
+then
+  echo "$DALMATIAN_ACCOUNT does not exist."
+  echo "Here are the available dalmatian accounts:"
+  "$APP_ROOT/bin/dalmatian" deploy list-accounts
+fi
