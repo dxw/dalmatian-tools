@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+append_sso_config_file ()
+{
+  config_file="$1"
+  profile_name="$2"
+  sso_start_url="$3"
+  sso_region="$4"
+  sso_account_id="$5"
+  sso_role_name="$6"
+  region="$7"
+
+  cat <<EOT >> "$config_file"
+[profile $profile_name]
+sso_start_url = $sso_start_url
+sso_region = $sso_region
+sso_account_id = $sso_account_id
+sso_role_name = $sso_role_name
+region = $region
+  
+EOT
+}
+
+echo "==> Generating Dalmatian SSO configuration ..."
+
+AWS_SSO_START_URL="$(jq -r '.aws_sso.start_url' < "$CONFIG_SETUP_JSON_FILE")"
+AWS_SSO_REGION="$(jq -r '.aws_sso.region' < "$CONFIG_SETUP_JSON_FILE")"
+AWS_SSO_REGISTRATION_SCOPES="$(jq -r '.aws_sso.registration_scopes' < "$CONFIG_SETUP_JSON_FILE")"
+
+cat <<EOT > "$CONFIG_AWS_SSO_FILE"
+[profile dalmatian-login]
+sso_start_url = $AWS_SSO_START_URL
+sso_region = $AWS_SSO_REGION
+sso_registration_scopes = $AWS_SSO_REGISTRATION_SCOPES
+
+EOT
+
+DALMATIAN_ACCOUNT_ID="$(jq -r '.main_dalmatian_account_id' < "$CONFIG_SETUP_JSON_FILE")"
+DALMATIAN_ACCOUNT_ADMIN_ROLE_NAME="$(jq -r '.aws_sso.default_admin_role_name' < "$CONFIG_SETUP_JSON_FILE")"
+DALMATIAN_ACCOUNT_DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
+
+append_sso_config_file \
+  "$CONFIG_AWS_SSO_FILE" \
+  "dalmatian-main" \
+  "$AWS_SSO_START_URL" \
+  "$AWS_SSO_REGION" \
+  "$DALMATIAN_ACCOUNT_ID" \
+  "$DALMATIAN_ACCOUNT_ADMIN_ROLE_NAME" \
+  "$DALMATIAN_ACCOUNT_DEFAULT_REGION"
+echo ""
+
+"$APP_ROOT/bin/dalmatian" aws-sso login -p dalmatian-login
+
+"$APP_ROOT/bin/dalmatian" terraform-dependencies initialise
+
+while IFS='' read -r workspace
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  MAIN_WORKSPACE_NAME="$DALMATIAN_ACCOUNT_ID-$DALMATIAN_ACCOUNT_DEFAULT_REGION-dalmatian-main"
+  if [[
+    "$workspace" != "$MAIN_WORKSPACE_NAME" &&
+    "$workspace" != "default" &&
+    -n "$workspace"
+  ]]
+  then
+    echo "==> Generating $workspace config ..."
+    SSO_CONFIG_ACCOUNT_ID="$(echo "$workspace" | cut -d"-" -f1)"
+    SSO_CONFIG_REGION="$(echo "$workspace" | cut -d"-" -f2-4)"
+    SSO_CONFIG_ACCOUNT_NAME="$(echo "$workspace" | cut -d"-" -f5-)"
+    append_sso_config_file \
+      "$CONFIG_AWS_SSO_FILE" \
+      "$SSO_CONFIG_ACCOUNT_NAME" \
+      "$AWS_SSO_START_URL" \
+      "$SSO_CONFIG_REGION" \
+      "$SSO_CONFIG_ACCOUNT_ID" \
+      "$DALMATIAN_ACCOUNT_ADMIN_ROLE_NAME" \
+      "$SSO_CONFIG_REGION"
+  fi
+done < <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)
