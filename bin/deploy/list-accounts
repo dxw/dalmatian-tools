@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+while IFS='' read -r workspace
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [[ -n "$workspace" && "$workspace" != "default" ]]
+  then
+    echo "$workspace"
+  fi
+done < <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)

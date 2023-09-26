@@ -1,3 +1,5 @@
 # script temp directory
 bin/tmp
+tmp
+
 Brewfile.lock.json
