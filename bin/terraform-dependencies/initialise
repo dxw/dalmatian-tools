@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+echo "==> Attempting Terraform init ..."
+export AWS_PROFILE="dalmatian-main"
+terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" init -backend-config="$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
