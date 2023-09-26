@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <aws_account_id>    - AWS Account ID"
+  echo "  -r <deefault_region>   - AWS Default region"
+  echo "  -n <account_name>      - A lower case hyphenated friendly name"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+while getopts "i:r:n:h" opt; do
+  case $opt in
+    i)
+      AWS_ACCOUNT_ID=$OPTARG
+      ;;
+    r)
+      AWS_ACCOUNT_DEFAULT_REGION=$OPTARG
+      ;;
+    n)
+      ACCOUNT_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$AWS_ACCOUNT_ID"
+  || -z "$ACCOUNT_NAME"
+  || -z "$AWS_ACCOUNT_DEFAULT_REGION"
+]]
+then
+  usage
+fi
+
+NEW_WORKSPACE_NAME="$AWS_ACCOUNT_ID-$AWS_ACCOUNT_DEFAULT_REGION-$ACCOUNT_NAME"
+echo "==> Creating $NEW_WORKSPACE_NAME workspace ..."
+
+WORKSPACE_EXISTS=0
+while IFS='' read -r workspace
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [ "$NEW_WORKSPACE_NAME" == "$workspace" ]
+  then
+    WORKSPACE_EXISTS=1
+  fi
+done < <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)
+
+if [ "$WORKSPACE_EXISTS" == "1" ]
+then
+  echo "==> $NEW_WORKSPACE_NAME workspace exists"
+  terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace select "$NEW_WORKSPACE_NAME"
+else
+  terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace new "$NEW_WORKSPACE_NAME"
+fi
+
+"$APP_ROOT/bin/dalmatian" aws-sso generate-config
+
+"$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
+
+if [ "$ACCOUNT_NAME" != "dalmatian-main" ]
+then
+  echo "==> Running account bootstrap on the main Dalmatian account to upload tfvars ..."
+  MAIN_DALMATIAN_ACCOUNT_ID="$(jq -r '.main_dalmatian_account_id' < "$CONFIG_SETUP_JSON_FILE")"
+  DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
+  "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main" -N
+fi
+
+echo "==> Running account bootstrap on $NEW_WORKSPACE_NAME"
+"$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$NEW_WORKSPACE_NAME"
