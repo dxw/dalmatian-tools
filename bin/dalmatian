@@ -77,7 +77,7 @@ then
 
     for SUBCOMMAND in "${SUBCOMMANDS[@]}"
     do
-      if [[ "$SUBCOMMAND" != "bin" && "$SUBCOMMAND" != "tmp" && "$SUBCOMMAND" != "configure-commands" ]]
+      if [[ "$SUBCOMMAND" != "bin" && "$SUBCOMMAND" != "tmp" && "$SUBCOMMAND" != "configure-commands" && "$SUBCOMMAND" != "setup" ]]
       then
         echo "  $SUBCOMMAND"
         FILES=()
@@ -112,11 +112,53 @@ then
   usage
 fi
 
-if [[ -z "$COMMAND" ]]
+if [[
+  -f "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" &&
+  "$SUBCOMMAND" != "setup" # Ignore setup for now, this requires different prerequists
+]]
 then
   "$APP_ROOT/bin/configure-commands/$SUBCOMMAND"
   exit 0
 fi
+
+# List the experimental commands that utilise the new AWS SSO config here, so that
+# they can be developed along side the original commands using the original
+# authentication methods
+if [[
+  "$SUBCOMMAND" == "setup" ||
+  "$SUBCOMMAND" == "aws-sso" ||
+  "$SUBCOMMAND" == "terraform-dependencies" ||
+  "$SUBCOMMAND" == "deploy"
+]]
+then
+  echo "-- WARNING: Experimental commands under development --"
+  echo ""
+
+  export CONFIG_DIR="$HOME/.config/dalmatian"
+  export CONFIG_SETUP_JSON_FILE="$CONFIG_DIR/setup.json"
+  export CONFIG_CACHE_DIR="$CONFIG_DIR/.cache"
+  export CONFIG_AWS_SSO_FILE="$CONFIG_DIR/dalmatian-sso.config"
+  export CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE="$CONFIG_DIR/account-bootstrap-backend.vars"
+  export CONFIG_TFVARS_DIR="$CONFIG_CACHE_DIR/tfvars"
+  export CONFIG_TFVARS_PATHS_FILE="$CONFIG_CACHE_DIR/tfvars-paths.json"
+  export TMP_DIR="$APP_ROOT/tmp"
+  export TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-account-bootstrap"
+
+  export AWS_CONFIG_FILE="$CONFIG_AWS_SSO_FILE"
+  export AWS_PROFILE="dalmatian-main"
+
+  if [[ -f "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" ]]
+  then
+    COMMAND_ARGS=( "${@:2}" )
+    "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" "${COMMAND_ARGS[@]}"
+    exit 0
+  fi
+
+  # Run specified command with args
+  "$APP_ROOT/bin/$SUBCOMMAND/$COMMAND" "${COMMAND_ARGS[@]}"
+  exit 0
+fi
+
 
 DALMATIAN_CONFIG_STORE="$HOME/.config/dalmatian"
 DALMATIAN_CONFIG_FILE="$DALMATIAN_CONFIG_STORE/config.json"

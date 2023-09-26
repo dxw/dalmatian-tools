@@ -1,0 +1,199 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+echo "----------------------------------------------------"
+echo "| To enable us to deploy the resources across      |"
+echo "| multiple AWS accounts, we will configure AWS SSO |"
+echo "| and store the required AWS profiles, and other   |"
+echo "| configuration within:                            |"
+echo "| \`\$HOME/.config/dalmatian\`                        |"
+echo "|                                                  |"
+echo "| This configuration will then be automatically    |"
+echo "| loaded and used when running other dalmatian     |"
+echo "| tools commands                                   |"
+echo "----------------------------------------------------"
+echo ""
+
+mkdir -p "$CONFIG_DIR"
+mkdir -p "$CONFIG_CACHE_DIR"
+
+usage() {
+  echo "Usage: dalmatian $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -f <setup_filepath>    - Setup Filepath (Optional)"
+  echo "  -u <setup_url>         - Setup URL (Optional)"
+  exit 1
+}
+
+read_prompt_with_setup_default() {
+  OPTIND=1
+  DEFAULT=""
+  SILENT=0
+  while getopts "p:d:s" opt; do
+    case $opt in
+      p)
+        PROMPT="$OPTARG"
+        ;;
+      d)
+        DEFAULT="$OPTARG"
+        ;;
+      s)
+        SILENT=1
+        ;;
+      *)
+        echo "Invalid usage"
+        ;;
+    esac
+  done
+  if [ "$DEFAULT" != "" ]
+  then
+    PROMPT_DEFAULT=$(jq -r --arg index "$DEFAULT" 'getpath($index / ".")' < "$CONFIG_SETUP_JSON_FILE")
+    if [[
+      -n "$PROMPT_DEFAULT" &&
+      "$PROMPT_DEFAULT" != "null"
+    ]]
+    then
+      PROMPT="$PROMPT [$PROMPT_DEFAULT]"
+    fi
+  fi
+  read -rp "$PROMPT: " VALUE
+  if [ "$VALUE" == "" ]
+  then
+    PROMPT_RESULT="$PROMPT_DEFAULT"
+  else
+    PROMPT_RESULT="$VALUE"
+  fi
+  SETUP_JSON=$(
+    jq -r \
+      --arg index "$DEFAULT" \
+      --arg value "$PROMPT_RESULT" \
+      'getpath($index / ".") |= $value' \
+      < "$CONFIG_SETUP_JSON_FILE"
+  )
+  echo "$SETUP_JSON" > "$CONFIG_SETUP_JSON_FILE"
+  if [ "$SILENT" == "0" ]
+  then
+    echo "$PROMPT_RESULT"
+  fi
+}
+
+SETUP_FILE_PATH=""
+while getopts "f:u:h" opt; do
+  case $opt in
+    f)
+      SETUP_FILE_PATH="$OPTARG"
+      ;;
+    u)
+      SETUP_FILE_URL="$OPTARG"
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -n "$SETUP_FILE_PATH" ]
+then
+  if [ -f "$SETUP_FILE_PATH" ]
+  then
+    SETUP_JSON=$(jq -r < "$SETUP_FILE_PATH")
+  else
+    echo "Error: '$SETUP_FILE_PATH' doesn't exist!"
+    exit 1
+  fi
+elif [ -n "$SETUP_FILE_URL" ]
+then
+  SETUP_JSON=$(curl -s "$SETUP_FILE_URL")
+elif [ -f "$CONFIG_SETUP_JSON_FILE" ]
+then
+  SETUP_JSON=$(jq -r < "$CONFIG_SETUP_JSON_FILE")
+else
+  SETUP_JSON=$(
+    jq -n \
+    --arg project_name "" \
+    --arg default_region "" \
+    --arg main_dalmatian_account_id "" \
+    --arg aws_sso_start_url "" \
+    --arg aws_sso_region "" \
+    --arg aws_sso_registraion_scopes "sso:account:access" \
+    --arg aws_sso_default_admin_role_name "" \
+    --arg backend_s3_bucket_name "" \
+    --arg backend_s3_bucket_region "" \
+    '{
+      project_name: $project_name,
+      default_region: $default_region,
+      main_dalmatian_account_id: $main_dalmatian_account_id,
+      aws_sso: {
+        start_url: $aws_sso_start_url,
+        region: $aws_sso_region,
+        registration_scopes: $aws_sso_registraion_scopes,
+        default_admin_role_name: $aws_sso_default_admin_role_name
+      },
+      backend: {
+        s3: {
+          bucket_name: $backend_s3_bucket_name,
+          bucket_region: $backend_s3_bucket_region
+        }
+      }
+    }'
+  )
+fi
+echo "$SETUP_JSON" > "$CONFIG_SETUP_JSON_FILE"
+
+echo "-- Dalmatian Setup --"
+read_prompt_with_setup_default -p "Dalmatian project name" -d "project_name" -s
+DEFAULT_REGION=$(read_prompt_with_setup_default -p "Default AWS Region" -d "default_region")
+echo ""
+
+echo "-- AWS SSO configration --"
+read_prompt_with_setup_default -p "AWS SSO start URL" -d "aws_sso.start_url" -s
+read_prompt_with_setup_default -p "AWS SSO Region" -d "aws_sso.region" > -s
+read_prompt_with_setup_default -p "AWS SSO Default administrative role name" -d "aws_sso.default_admin_role_name" -s
+read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.registration_scopes" -s
+echo ""
+
+echo "-- Backend Configuration --"
+echo "Enter the S3 backend configuration parameters"
+BACKEND_S3_BUCKET_NAME=$(read_prompt_with_setup_default -p "Bucket Name" -d "backend.s3.bucket_name")
+BACKEND_S3_BUCKET_REGION=$(read_prompt_with_setup_default -p "Bucket Region" -d "backend.s3.bucket_region")
+echo ""
+
+cat <<EOT > "$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
+bucket               = "$BACKEND_S3_BUCKET_NAME"
+workspace_key_prefix = "account-bootstrap"
+key                  = "terraform.tfstate"
+region               = "$BACKEND_S3_BUCKET_REGION"
+profile              = "dalmatian-main"
+encrypt              = true
+EOT
+
+echo "--- Dalmatian account configuration ---"
+MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
+echo ""
+
+
+echo "==> Cloning required terraform projects ..."
+if [ -d "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" ]
+then
+  rm -rf "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR"
+fi
+git clone git@github.com:dxw/terraform-dxw-dalmatian-account-bootstrap "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR"
+
+"$APP_ROOT/bin/dalmatian" aws-sso generate-config
+
+"$APP_ROOT/bin/dalmatian" aws-sso account-init -i "$MAIN_DALMATIAN_ACCOUNT_ID" -r "$DEFAULT_REGION" -n "dalmatian-main"
+
+echo "==> Setup complete!"
+echo ""
+echo "It is highly recommended to run the first account bootstrap for the main dalmatian account now, using \`dalmatian deploy account-bootstrap -a $MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main\`"
+read -rp "Do you want to run this now? [y/n]: " DEPLOY_NOW
+if [[ "$DEPLOY_NOW" == "y" || "$DEPLOY_NOW" == "Y" ]]
+then
+  "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main"
+fi
