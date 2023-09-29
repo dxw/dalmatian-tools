@@ -13,9 +13,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 while getopts "i:e:h" opt; do
@@ -35,11 +34,7 @@ while getopts "i:e:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME" ||
-  -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
@@ -47,5 +42,5 @@ echo "==> Getting RDS instances in $INFRASTRUCTURE_NAME $ENVIRONMENT..."
 
 RDS_IDENTIFIER_SEARCH="${INFRASTRUCTURE_NAME//-/}.*${ENVIRONMENT//-/}"
 
-aws rds describe-db-clusters  \
+aws rds describe-db-clusters \
   | jq -r '.DBClusters[] | "Name: \(.DBClusterIdentifier) Engine: \(.Engine) Address: \(.Endpoint):\(.Port)" ' | grep "$RDS_IDENTIFIER_SEARCH"

@@ -16,9 +16,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 while getopts "i:e:s:k:h" opt; do
@@ -44,19 +43,13 @@ while getopts "i:e:s:k:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$SERVICE_NAME"
-  || -z "$ENVIRONMENT"
-  || -z "$KEY"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$SERVICE_NAME" || -z "$ENVIRONMENT" || -z "$KEY" ]]; then
   usage
 fi
 
-echo "==> deleting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT ..."
+echo "==> Deleting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT ..."
 
 aws ssm delete-parameter \
   --name "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/$KEY"
 
-echo "==> deleted"
+echo "==> Deleted"

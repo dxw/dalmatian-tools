@@ -14,9 +14,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 while getopts "i:e:r:h" opt; do
@@ -39,12 +38,7 @@ while getopts "i:e:r:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$ENVIRONMENT"
-  || -z "$RDS_NAME"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$RDS_NAME" ]]; then
   usage
 fi
 
@@ -65,9 +59,7 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-
-if [ -z "$ECS_INSTANCE_ID" ]
-then
+if [ -z "$ECS_INSTANCE_ID" ]; then
   echo "==> Finding ECS instance..."
 
   ECS_INSTANCES=$(

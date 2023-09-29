@@ -16,11 +16,9 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
-
 
 while getopts "i:e:s:p:d:h" opt; do
   case $opt in
@@ -48,30 +46,23 @@ while getopts "i:e:s:p:d:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$ENVIRONMENT"
-  || -z "$SERVICE_NAME"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$SERVICE_NAME" ]]; then
   usage
 fi
 
-if [[ -z "$DIRECTORY" ]]
-then
+if [[ -z "$DIRECTORY" ]]; then
   DIRECTORY=/tmp/$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-cloudfront-logs
 fi
 
-echo "==> making sure $DIRECTORY exists"
+echo "==> Making sure $DIRECTORY exists"
 mkdir -p "$DIRECTORY"
 
+echo "==> Downloading log files"
 
-echo "==> downloading log files"
-if [[ -z "$PATTERN" ]]
-then
+if [[ -z "$PATTERN" ]]; then
   aws s3 sync s3://"${INFRASTRUCTURE_NAME}"-"${SERVICE_NAME}"-"${ENVIRONMENT}"-cloudfront-logs/ "$DIRECTORY"
 else
   aws s3 sync s3://"${INFRASTRUCTURE_NAME}"-"${SERVICE_NAME}"-"${ENVIRONMENT}"-cloudfront-logs/ "$DIRECTORY" --exclude "*" --include "*${PATTERN}*"
 fi
 
-echo "==> logs in ${DIRECTORY}"
+echo "==> Logs in ${DIRECTORY}"

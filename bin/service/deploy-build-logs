@@ -14,9 +14,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 while getopts "i:e:s:wh" opt; do
@@ -39,12 +38,7 @@ while getopts "i:e:s:wh" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$SERVICE_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$SERVICE_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
@@ -58,29 +52,30 @@ LOG_STREAM_NAME=$(echo "$BUILD_INFO" | jq -r '.builds[0].logs.streamName')
 BUILD_STATUS=""
 TIMESTAMP="0"
 HAD_LOGS="0"
-while [ "$BUILD_STATUS" != "Succeeded" ]
-do
+
+while [ "$BUILD_STATUS" != "Succeeded" ]; do
   LOGS=$(aws logs get-log-events --log-group-name "$LOG_GROUP_NAME" --log-stream-name "$LOG_STREAM_NAME" --start-time "$TIMESTAMP")
-  # echo -n "$LOGS" | jq -rj --arg t "$TIMESTAMP" '.events[] | select((.timestamp|tonumber) > ($t|tonumber)) | .message'
+
   echo -n "$LOGS" | jq -rj --arg t "$TIMESTAMP" '.events[].message'
   NEW_TIMESTAMP=$(echo "$LOGS" | jq -r '.events[-1].timestamp')
-  if [ "$NEW_TIMESTAMP" == "null" ]
-  then
-    if [ "$HAD_LOGS" != "1" ]
-    then
+
+  if [ "$NEW_TIMESTAMP" == "null" ]; then
+    if [ "$HAD_LOGS" != "1" ]; then
       echo "Waiting for logs ..."
     fi
   else
     HAD_LOGS="1"
     TIMESTAMP=$((NEW_TIMESTAMP + 1))
   fi
+
   PIPELINE_STATUS=$(aws codepipeline get-pipeline-state --name "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-build-and-deploy")
   BUILD_STATUS=$(echo "$PIPELINE_STATUS" | jq -r '.stageStates[] | select(.stageName == "Build") | .actionStates[] | select(.actionName == "Build") | .latestExecution.status')
-  if [ "$BUILD_STATUS" == "Failed" ]
-  then
+
+  if [ "$BUILD_STATUS" == "Failed" ]; then
     echo "Build Failed"
     exit 1
   fi
+
   sleep 1
 done
 

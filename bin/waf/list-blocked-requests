@@ -18,9 +18,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 TIME_FRAME="10"
@@ -57,19 +56,12 @@ while getopts "i:w:t:e:H:v:Vh" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$WAF_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$WAF_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
-if [[ -n "$HEADER_NAME" || -n "$HEADER_VALUE" ]]
-then
-  if [[ -z "$HEADER_NAME" || -z "$HEADER_VALUE" ]]
-  then
+if [[ -n "$HEADER_NAME" || -n "$HEADER_VALUE" ]]; then
+  if [[ -z "$HEADER_NAME" || -z "$HEADER_VALUE" ]]; then
     usage
   fi
 fi
@@ -85,16 +77,18 @@ ACL_ID=$(echo "$ACL_SUMMARY" | jq -r '.Id')
 
 echo "==> Querying for Blocked sampled requests..."
 
-ACL=$(aws wafv2 get-web-acl \
+ACL=$(
+  aws wafv2 get-web-acl \
     --name "$WAF_WEB_ACL_NAME" \
     --scope "REGIONAL" \
-    --id "$ACL_ID")
+    --id "$ACL_ID"
+)
 
 ACL_METRIC_NAME=$(echo "$ACL" | jq -r '.WebACL.VisibilityConfig.MetricName')
 
 RULES=()
-while IFS='' read -r rule
-do
+
+while IFS='' read -r rule; do
   RULES+=("$rule")
 done < <(echo "$ACL" | jq -r '.WebACL.Rules[].Name')
 
@@ -103,38 +97,35 @@ END_TIME=$(date +"%Y-%m-%dT%H:%MZ")
 
 BLOCKED_REQUESTS_JSON_STRING=$(jq -n '[]')
 
-for rule_name in "${RULES[@]}"
-do
+for rule_name in "${RULES[@]}"; do
   BLOCKED_REQUESTS=$(
     aws wafv2 get-sampled-requests \
-    --web-acl-arn "$ACL_ARN" \
-    --rule-metric-name "$ACL_METRIC_NAME-$rule_name" \
-    --time-window "StartTime=$START_TIME,EndTime=$END_TIME" \
-    --scope "REGIONAL" \
-    --max-items 500
+      --web-acl-arn "$ACL_ARN" \
+      --rule-metric-name "$ACL_METRIC_NAME-$rule_name" \
+      --time-window "StartTime=$START_TIME,EndTime=$END_TIME" \
+      --scope "REGIONAL" \
+      --max-items 500
   )
   BLOCKED_REQUESTS_JSON_STRING=$(
-    echo "$BLOCKED_REQUESTS" | \
-    jq -c -r --argjson j "$BLOCKED_REQUESTS_JSON_STRING" \
-    'select(.SampledRequests != null) |
+    echo "$BLOCKED_REQUESTS" \
+      | jq -c -r --argjson j "$BLOCKED_REQUESTS_JSON_STRING" \
+        'select(.SampledRequests != null) |
     .SampledRequests |= map( select(.Action == "BLOCK") ) |
     .SampledRequests |
     . += $j'
   )
 done
 
-if [[ -n "$HEADER_NAME" && -n "$HEADER_VALUE" ]]
-then
+if [[ -n "$HEADER_NAME" && -n "$HEADER_VALUE" ]]; then
   BLOCKED_REQUESTS_JSON_STRING=$(echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r --arg n "$HEADER_NAME" --arg v "$HEADER_VALUE" '[ .[] | select(.Request.Headers[] as $h | $h.Name=="\($n)" | $h.Value=="\($v)") ]')
 fi
 
 BLOCKED_REQUESTS_JSON_STRING=$(echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r 'sort_by(.Timestamp) | reverse')
 
-if [ "$VERBOSE" == "1" ]
-then
+if [ "$VERBOSE" == "1" ]; then
   echo "$BLOCKED_REQUESTS_JSON_STRING"
 else
-  echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r '.[] | .Timestamp + " - " + 
+  echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r '.[] | .Timestamp + " - " +
     .RuleNameWithinRuleGroup + " - " +
     .Request.Method + " - " +
     .Request.URI'

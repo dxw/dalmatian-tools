@@ -1,11 +1,19 @@
 #!/bin/bash
+#
+# Sets up the initial `dalmatian` tooling by authenticating with AWS and
+# invokes dependant scripts
 
 # exit on failures
-set -e
-set -o pipefail
+set -eo pipefail
 
+# Set up a handy repeatable error output function that uses `stderr`
+err() {
+  echo "[!] Error: $*" >&2
+}
+
+# List usage of the base command
 usage() {
-  echo "Usage: $(basename "$0")" 1>&2
+  echo "Usage: $(basename "${0}")"
   echo "  SUBCOMMAND COMMAND     - dalmatian command to run"
   echo "  SUBCOMMAND COMMAND -h  - show command help"
   echo "    Or:"
@@ -14,19 +22,16 @@ usage() {
   exit 1
 }
 
+APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
+
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ];
-then
- usage
+if [[ $# -lt 1 ]]; then
+  usage
 fi
 
-APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
-export APP_ROOT
-
-if [ "${1:0:1}" == "-" ]
-then
+if [[ "${1:0:1}" == "-" ]]; then
   while getopts "lh" opt; do
-    case $opt in
+    case ${opt} in
       l)
         LIST_COMMANDS=1
         ;;
@@ -39,63 +44,63 @@ then
     esac
   done
 
-  if [ -n "$LIST_COMMANDS" ]
-  then
+  if [[ -n "${LIST_COMMANDS}" ]]; then
+    DIRS=()
+    SUBCOMMANDS=()
+    FILES=()
+    CONFIGURE_COMMANDS=()
+
     echo "Available commands:"
     echo ""
 
-    DIRS=()
     while IFS=  read -r -d $'\0'; do
-      DIRS+=("$REPLY")
-    done < <(find "$APP_ROOT/bin" -maxdepth 1 -type d -print0)
+      DIRS+=("${REPLY}")
+    done < <(find "${APP_ROOT}/bin" -maxdepth 1 -type d -print0)
 
-    SUBCOMMANDS=()
-    for d in "${DIRS[@]}"
-    do
-      SUBCOMMANDS+=("$(basename "$d")")
+    for d in "${DIRS[@]}"; do
+      SUBCOMMANDS+=("$(basename "${d}")")
     done
-    IFS=" " read -r -a SUBCOMMANDS <<< "$(sort <<<"${SUBCOMMANDS[*]}")"
+
+    IFS=" " read -r -a SUBCOMMANDS <<< "$(sort <<< "${SUBCOMMANDS[*]}")"
 
     # list configure-commands
-    FILES=()
     while IFS=  read -r -d $'\0'; do
-      FILES+=("$REPLY")
-    done < <(find "$APP_ROOT/bin/configure-commands" -maxdepth 1 -type f -print0)
+      FILES+=("${REPLY}")
+    done < <(find "${APP_ROOT}/bin/configure-commands" -maxdepth 1 -type f -print0)
 
-    CONFIGURE_COMMANDS=()
-    for f in "${FILES[@]}"
-    do
-      CONFIGURE_COMMANDS+=("$(basename "$f")")
+    for f in "${FILES[@]}"; do
+      CONFIGURE_COMMANDS+=("$(basename "${f}")")
     done
-    IFS=" " read -r -a CONFIGURE_COMMANDS <<< "$(sort <<<"${CONFIGURE_COMMANDS[*]}")"
 
-    for CONFIGURE_COMMAND in "${CONFIGURE_COMMANDS[@]}"
-    do
-      echo "  $CONFIGURE_COMMAND"
+    IFS=" " read -r -a CONFIGURE_COMMANDS <<< "$(sort <<< "${CONFIGURE_COMMANDS[*]}")"
+
+    for CONFIGURE_COMMAND in "${CONFIGURE_COMMANDS[@]}"; do
+      echo "  ${CONFIGURE_COMMAND}"
     done
+
     echo ""
 
-    for SUBCOMMAND in "${SUBCOMMANDS[@]}"
-    do
-      if [[ "$SUBCOMMAND" != "bin" && "$SUBCOMMAND" != "tmp" && "$SUBCOMMAND" != "configure-commands" ]]
-      then
-        echo "  $SUBCOMMAND"
+    for SUBCOMMAND in "${SUBCOMMANDS[@]}"; do
+      if [[ "${SUBCOMMAND}" != "bin" && "${SUBCOMMAND}" != "tmp" && "${SUBCOMMAND}" != "configure-commands" ]]; then
+        echo "  ${SUBCOMMAND}"
+
         FILES=()
+        COMMANDS=()
+
         while IFS=  read -r -d $'\0'; do
           FILES+=("$REPLY")
-        done < <(find "$APP_ROOT/bin/$SUBCOMMAND" -maxdepth 1 -type f -print0)
+        done < <(find "$APP_ROOT/bin/${SUBCOMMAND}" -maxdepth 1 -type f -print0)
 
-        COMMANDS=()
-        for f in "${FILES[@]}"
-        do
-          COMMANDS+=("$(basename "$f")")
+        for f in "${FILES[@]}"; do
+          COMMANDS+=("$(basename "${f}")")
         done
-        IFS=" " read -r -a COMMANDS <<< "$(sort <<<"${COMMANDS[*]}")"
 
-        for COMMAND in "${COMMANDS[@]}"
-        do
-          echo "    $COMMAND"
+        IFS=" " read -r -a COMMANDS <<< "$(sort <<< "${COMMANDS[*]}")"
+
+        for COMMAND in "${COMMANDS[@]}"; do
+          echo "    ${COMMAND}"
         done
+
         echo ""
       fi
     done
@@ -103,112 +108,118 @@ then
   exit 0
 fi
 
-SUBCOMMAND="$1"
-COMMAND="$2"
-COMMAND_ARGS=( "${@:3}" )
+MFA_CONFIGURED=0
+ASSUME_MAIN_ROLE_CONFIGURED=0
+AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:=eu-west-2}" # London
 
-if [[ -z "$SUBCOMMAND" && -z "$COMMAND" ]]
-then
+SUBCOMMAND="${1}"
+COMMAND="${2}"
+COMMAND_ARGS=("${@:3}")
+
+if [[ -z "${SUBCOMMAND}" && -z "${COMMAND}" ]]; then
   usage
 fi
 
-if [[ -z "$COMMAND" ]]
-then
-  "$APP_ROOT/bin/configure-commands/$SUBCOMMAND"
-  exit 0
-fi
+# If no COMMAND was specified, and SUBCOMMAND isn't an executable script
+if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]]; then
+  err "'$(basename "${0}") ${SUBCOMMAND}' is not valid without a subcommand."
 
-DALMATIAN_CONFIG_STORE="$HOME/.config/dalmatian"
-DALMATIAN_CONFIG_FILE="$DALMATIAN_CONFIG_STORE/config.json"
-DALMATIAN_CREDENTIALS_FILE="$DALMATIAN_CONFIG_STORE/credentials.json.enc"
-DALMATIAN_MFA_CREDENTIALS_FILE="$DALMATIAN_CONFIG_STORE/mfa_credentials.json"
-DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE="$DALMATIAN_CONFIG_STORE/assume_role_credentials.json"
-MFA_CONFIGURED=0
-ASSUME_MAIN_ROLE_CONFIGURED=0
+  echo
+  echo "Available subcommands:"
 
-if [ ! -f "$DALMATIAN_CONFIG_FILE" ]
-then
-  echo "Error: You are not logged into Dalmatian"
-  echo "       Run \`dalmatian login\` to continue"
+  while IFS=  read -r -d $'\0'; do
+    echo "  $(basename "${0}") ${SUBCOMMAND} $(basename "${REPLY}")"
+  done < <(find "${APP_ROOT}/bin/$SUBCOMMAND" -maxdepth 1 -type f -print0)
+
   exit 1
 fi
 
-AWS_DEFAULT_REGION="eu-west-2" # London
+DALMATIAN_CONFIG_STORE="${HOME}/.config/dalmatian"
+DALMATIAN_CREDENTIALS_FILE="${DALMATIAN_CONFIG_STORE}/credentials.json.enc"
+DALMATIAN_MFA_CREDENTIALS_FILE="${DALMATIAN_CONFIG_STORE}/mfa_credentials.json"
+DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE="${DALMATIAN_CONFIG_STORE}/assume_role_credentials.json"
+
+DALMATIAN_CONFIG_FILE="${DALMATIAN_CONFIG_STORE}/config.json"
+
+if [[ ! -f "${DALMATIAN_CONFIG_FILE}" ]]; then
+  err "You are not logged into Dalmatian. Run \`dalmatian login\` to continue"
+  exit 1
+else
+  DALMATIAN_CONFIG_JSON_STRING=$(cat "${DALMATIAN_CONFIG_FILE}")
+  ACCOUNT_ID=$(echo "${DALMATIAN_CONFIG_JSON_STRING}" | jq -r '.account_id')
+  DALMATIAN_ROLE=$(echo "${DALMATIAN_CONFIG_JSON_STRING}" | jq -r '.dalmatian_role')
+fi
+
+export APP_ROOT
 export AWS_DEFAULT_REGION
 
-DALMATIAN_CONFIG_JSON_STRING=$(cat "$DALMATIAN_CONFIG_FILE")
-ACCOUNT_ID=$(echo "$DALMATIAN_CONFIG_JSON_STRING" | jq -r '.account_id')
-DALMATIAN_ROLE=$(echo "$DALMATIAN_CONFIG_JSON_STRING" | jq -r '.dalmatian_role')
-
 # If MFA credentials exist, check if they have expired
-if [ -f "$DALMATIAN_MFA_CREDENTIALS_FILE" ]
-then
-  DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_MFA_CREDENTIALS_FILE")
-  DALMATIAN_MFA_EXPIRATION=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_expiration')
-  if [ "${DALMATIAN_MFA_EXPIRATION: -1}" == "Z" ]
-  then
-    DALMATIAN_MFA_EXPIRATION_SECONDS=$(date -j -f "%F T %T Z" "$DALMATIAN_MFA_EXPIRATION" +"%s")
+if [[ -f "${DALMATIAN_MFA_CREDENTIALS_FILE}" ]]; then
+  DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "${DALMATIAN_MFA_CREDENTIALS_FILE}")
+  DALMATIAN_MFA_EXPIRATION=$(echo "${DALMATIAN_MFA_CREDENTIALS_JSON_STRING}" | jq -r '.aws_session_expiration')
+
+  if [[ "${DALMATIAN_MFA_EXPIRATION: -1}" == "Z" ]]; then
+    DALMATIAN_MFA_EXPIRATION_SECONDS=$(date -j -f "%F T %T Z" "${DALMATIAN_MFA_EXPIRATION}" +"%s")
   else
-    DALMATIAN_MFA_EXPIRATION_SECONDS=$(date -j -f "%F T %T %z" "$DALMATIAN_MFA_EXPIRATION" +"%s")
+    DALMATIAN_MFA_EXPIRATION_SECONDS=$(date -j -f "%F T %T %z" "${DALMATIAN_MFA_EXPIRATION}" +"%s")
   fi
+
   EPOCH=$(date +%s)
-  if [ "$DALMATIAN_MFA_EXPIRATION_SECONDS" -lt "$EPOCH" ]
-  then
+
+  if [[ "${DALMATIAN_MFA_EXPIRATION_SECONDS}" -lt "${EPOCH}" ]]; then
     echo "==> MFA credentials expired, requesting new credentials ..."
   else
     MFA_CONFIGURED=1
   fi
 fi
 
-if [[ "$SUBCOMMAND" == "aws" && "$COMMAND" == "mfa" ]]
-then
+if [[ "${SUBCOMMAND}" == "aws" && "${COMMAND}" == "mfa" ]]; then
   RUN_AWS_MFA=1
 fi
 
 # Update MFA credentials if needed, or if the dalmatian aws mfa command is ran
-if [[ -n "$RUN_AWS_MFA" || "$MFA_CONFIGURED" == 0 ]]
-then
+if [[ -n "${RUN_AWS_MFA}" || "${MFA_CONFIGURED}" == 0 ]]; then
   DALMATIAN_CREDENTIALS_JSON_STRING=$(
-    gpg --decrypt \
-      --quiet \
-      < "$DALMATIAN_CREDENTIALS_FILE"
+    gpg --decrypt --quiet < "${DALMATIAN_CREDENTIALS_FILE}"
   )
 
-  AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
-  AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
-  AWS_MFA_SECRET=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_mfa_secret')
+  AWS_ACCESS_KEY_ID=$(echo "${DALMATIAN_CREDENTIALS_JSON_STRING}" | jq -r '.aws_access_key_id')
+  AWS_SECRET_ACCESS_KEY=$(echo "${DALMATIAN_CREDENTIALS_JSON_STRING}" | jq -r '.aws_secret_access_key')
+  AWS_MFA_SECRET=$(echo "${DALMATIAN_CREDENTIALS_JSON_STRING}" | jq -r '.aws_mfa_secret')
+
   export AWS_ACCESS_KEY_ID
   export AWS_SECRET_ACCESS_KEY
-  MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
-  "$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
-  if [ -n "$RUN_AWS_MFA" ]
-  then
+
+  MFA_CODE="$(oathtool --base32 --totp "${AWS_MFA_SECRET}")"
+  "${APP_ROOT}/bin/aws/mfa" -m "${MFA_CODE}"
+
+  if [ -n "${RUN_AWS_MFA}" ]; then
     exit 0
   fi
 fi
 
 # export MFA credentials
-DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_MFA_CREDENTIALS_FILE")
-AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
-AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
-AWS_SESSION_TOKEN=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_token')
+DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "${DALMATIAN_MFA_CREDENTIALS_FILE}")
+AWS_ACCESS_KEY_ID=$(echo "${DALMATIAN_MFA_CREDENTIALS_JSON_STRING}" | jq -r '.aws_access_key_id')
+AWS_SECRET_ACCESS_KEY=$(echo "${DALMATIAN_MFA_CREDENTIALS_JSON_STRING}" | jq -r '.aws_secret_access_key')
+AWS_SESSION_TOKEN=$(echo "${DALMATIAN_MFA_CREDENTIALS_JSON_STRING}" | jq -r '.aws_session_token')
+
 export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
 export AWS_SESSION_TOKEN
 
 AWS_CALLER_IDENTITY_ARN="$(aws sts get-caller-identity | jq '.Arn')"
-IFS='/' read -r -a array <<< "$AWS_CALLER_IDENTITY_ARN"
+IFS='/' read -r -a array <<< "${AWS_CALLER_IDENTITY_ARN}"
 export AWS_CALLER_IDENTITY_USERNAME="${array[2]%?}"
 
 # Check if the assume role credentials have expired
-if [ -f "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE" ]
-then
-  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE")
-  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION=$(echo "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_expiration')
-  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS=$(date -j -f "%F T %T %z" "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION" +"%s")
+if [ -f "${DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE}" ]; then
+  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING=$(cat "${DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE}")
+  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION=$(echo "${DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING}" | jq -r '.aws_session_expiration')
+  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS=$(date -j -f "%F T %T %z" "${DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION}" +"%s")
   EPOCH=$(date +%s)
-  if [ "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS" -lt "$EPOCH" ]
-  then
+
+  if [ "${DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS}" -lt "$EPOCH" ]; then
     echo "==> Assume role credentials expired ..."
   else
     ASSUME_MAIN_ROLE_CONFIGURED=1
@@ -216,26 +227,25 @@ then
 fi
 
 # Update assume role credentials if needed
-if [ "$ASSUME_MAIN_ROLE_CONFIGURED" == "0" ]
-then
+if [ "${ASSUME_MAIN_ROLE_CONFIGURED}" == "0" ]; then
   echo "==> Requesting Assume Role credentials ..."
   ASSUME_ROLE_RESULT=$(
     aws sts assume-role \
-    --role-arn "arn:aws:iam::$ACCOUNT_ID:role/$DALMATIAN_ROLE" \
-    --role-session-name dalmatian-tools \
-    --external-id dalmatian-tools
+      --role-arn "arn:aws:iam::${ACCOUNT_ID}:role/${DALMATIAN_ROLE}" \
+      --role-session-name dalmatian-tools \
+      --external-id dalmatian-tools
   )
-  AWS_ACCESS_KEY_ID=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.AccessKeyId')
-  AWS_SECRET_ACCESS_KEY=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.SecretAccessKey')
-  AWS_SESSION_TOKEN=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.SessionToken')
-  AWS_SESSION_EXPIRATION=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.Expiration' | awk -F':' -v OFS=':' '{ print $1, $2, $3$4 }')
+  AWS_ACCESS_KEY_ID=$(echo "${ASSUME_ROLE_RESULT}" | jq -r '.Credentials.AccessKeyId')
+  AWS_SECRET_ACCESS_KEY=$(echo "${ASSUME_ROLE_RESULT}" | jq -r '.Credentials.SecretAccessKey')
+  AWS_SESSION_TOKEN=$(echo "${ASSUME_ROLE_RESULT}" | jq -r '.Credentials.SessionToken')
+  AWS_SESSION_EXPIRATION=$(echo "${ASSUME_ROLE_RESULT}" | jq -r '.Credentials.Expiration' | awk -F':' -v OFS=':' '{ print $1, $2, $3$4 }')
   DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING=$(
     jq -n \
-    --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
-    --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
-    --arg aws_session_token "$AWS_SESSION_TOKEN" \
-    --arg aws_session_expiration "$AWS_SESSION_EXPIRATION" \
-    '{
+      --arg aws_access_key_id "${AWS_ACCESS_KEY_ID}" \
+      --arg aws_secret_access_key "${AWS_SECRET_ACCESS_KEY}" \
+      --arg aws_session_token "${AWS_SESSION_TOKEN}" \
+      --arg aws_session_expiration "${AWS_SESSION_EXPIRATION}" \
+      '{
       aws_access_key_id: $aws_access_key_id,
       aws_secret_access_key: $aws_secret_access_key,
       aws_session_token: $aws_session_token,
@@ -243,34 +253,34 @@ then
     }'
   )
 
-  echo "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING" > "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE"
+  echo "${DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING}" > "${DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE}"
 fi
 
 # export assume role credentials
-DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE")
-AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
-AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
-AWS_SESSION_TOKEN=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_token')
+DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "${DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE}")
+AWS_ACCESS_KEY_ID=$(echo "${DALMATIAN_MFA_CREDENTIALS_JSON_STRING}" | jq -r '.aws_access_key_id')
+AWS_SECRET_ACCESS_KEY=$(echo "${DALMATIAN_MFA_CREDENTIALS_JSON_STRING}" | jq -r '.aws_secret_access_key')
+AWS_SESSION_TOKEN=$(echo "${DALMATIAN_MFA_CREDENTIALS_JSON_STRING}" | jq -r '.aws_session_token')
+
 export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
 export AWS_SESSION_TOKEN
 
 i=1
-for a in "${COMMAND_ARGS[@]}"
-do
-  if [ "$a" == "-i" ]
-  then
+
+for a in "${COMMAND_ARGS[@]}"; do
+  if [ "$a" == "-i" ]; then
     INFRASTRUCTURE_NAME="${COMMAND_ARGS[$i]}"
   fi
-  i=$(( i + 1 ))
+
+  i=$((i + 1))
 done
 
 # Assume Role for infrastructure if set
-if [ -n "$INFRASTRUCTURE_NAME" ]
-then
+if [ -n "${INFRASTRUCTURE_NAME}" ]; then
   # shellcheck source=bin/aws/assume-infrastructure-role
-  . "$APP_ROOT/bin/aws/assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME"
+  . "${APP_ROOT}/bin/aws/assume-infrastructure-role" -i "${INFRASTRUCTURE_NAME}"
 fi
 
 # Run specified command with args
-"$APP_ROOT/bin/$SUBCOMMAND/$COMMAND" "${COMMAND_ARGS[@]}"
+"${APP_ROOT}/bin/${SUBCOMMAND}/${COMMAND}" "${COMMAND_ARGS[@]}"

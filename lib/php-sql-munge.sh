@@ -14,8 +14,7 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ];
-then
+if [ $# -lt 1 ]; then
   usage
 fi
 

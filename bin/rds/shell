@@ -16,9 +16,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ];
-then
- usage
+if [ $# -lt 1 ]; then
+  usage
 fi
 
 while getopts "i:e:r:I:lh" opt; do
@@ -47,16 +46,12 @@ while getopts "i:e:r:I:lh" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$RDS_NAME"
-  || -z "$ENVIRONMENT"
-]]; then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$RDS_NAME" || -z "$ENVIRONMENT" ]] \
+  ; then
   usage
 fi
 
-if [ -n "$LIST" ];
-then
+if [ -n "$LIST" ]; then
   echo "==> Finding ECS instance..."
   INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
 
@@ -96,8 +91,7 @@ echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 echo "VPC ID: $RDS_VPC"
 
-if [ -z "$ECS_INSTANCE_ID" ]
-then
+if [ -z "$ECS_INSTANCE_ID" ]; then
   echo "==> Finding ECS instance..."
 
   ECS_INSTANCES=$(

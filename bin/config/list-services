@@ -1,12 +1,15 @@
 #!/bin/bash
 "$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
+
 usage() {
   echo "List all services or list services for an infrastructure"
   echo "Usage: $(basename "$0") <infrastructure name [OPTIONAL]>" 1>&2
   echo "  -h                     - help"
   exit 1
 }
+
 INFRASTRUCTURE_NAME="${1:-}"
+
 while getopts "h" opt; do
   case $opt in
     h)
@@ -20,8 +23,7 @@ done
 
 INFRASTRUCTURES=$(yq e -o=json ".infrastructures" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
 
-if [ -z "$INFRASTRUCTURE_NAME" ]
-then
+if [ -z "$INFRASTRUCTURE_NAME" ]; then
   echo "$INFRASTRUCTURES" | jq -r '(. | keys[]) as $i | "\($i): \(.[$i].services[]?.name )"'
 else
   echo "$INFRASTRUCTURES" | jq -r --arg i "$INFRASTRUCTURE_NAME" '"\($i): \(.[$i].services?[].name)"'

@@ -1,18 +1,15 @@
 #!/bin/bash
-
 echo "Note: You must have a Dalmatian Admin account to use Dalmatian Tools"
 echo ""
 
-if ! command -v oathtool > /dev/null
-then
+if ! command -v oathtool > /dev/null; then
   echo "Error: oathtool is not installed on this system"
   echo "This can be installed with homebrew:"
   echo "brew install oath-toolkit"
   exit 1
 fi
 
-if ! "$APP_ROOT/bin/aws/awscli-version"
-then
+if ! "$APP_ROOT/bin/aws/awscli-version"; then
   exit 1
 fi
 
@@ -24,13 +21,13 @@ mkdir -p "$DALMATIAN_CONFIG_STORE"
 
 DALMATIAN_ROLE="dalmatian-admin"
 
-if ! command -v gpg > /dev/null
-then
+if ! command -v gpg > /dev/null; then
   echo "Error: GPG is not installed on this system"
   echo "Please install GPG to continue"
   echo "https://gpgtools.org/ is recommended for MacOS"
   exit 1
 fi
+
 echo "For added security, your credentials and MFA secret will be"
 echo "encrypted with GPG"
 echo ""
@@ -44,8 +41,8 @@ read -rsp "AWS MFA Secret: " AWS_MFA_SECRET
 echo ""
 
 echo "==> Checking credentials..."
-if [ ${#AWS_MFA_SECRET} -lt 7 ]
-then
+
+if [ ${#AWS_MFA_SECRET} -lt 7 ]; then
   echo "==> please enter your MFA secret not your generated MFA code"
   echo "==> please see https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
   exit 1
@@ -55,7 +52,6 @@ export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
 
 CALLER_ID=$(aws sts get-caller-identity)
-
 USER_ID=$(echo "$CALLER_ID" | jq -r '.UserId')
 ACCOUNT_ID=$(echo "$CALLER_ID" | jq -r '.Account')
 USER_ARN=$(echo "$CALLER_ID" | jq -r '.Arn')
@@ -65,8 +61,8 @@ echo "  Account: $ACCOUNT_ID"
 echo "  Arn:     $USER_ARN"
 
 echo "==> Checking access key age"
-if ! "$APP_ROOT/bin/aws/key-age"
-then
+
+if ! "$APP_ROOT/bin/aws/key-age"; then
   exit 1
 fi
 
@@ -74,10 +70,10 @@ echo "==> Saving configuration settings in $DALMATIAN_CONFIG_FILE ..."
 
 CONFIG_JSON_STRING=$(
   jq -n \
-  --arg gpg_encrypt_email "$GPG_ENCRYPT_EMAIL" \
-  --arg account_id "$ACCOUNT_ID" \
-  --arg dalmatian_role "$DALMATIAN_ROLE" \
-  '{
+    --arg gpg_encrypt_email "$GPG_ENCRYPT_EMAIL" \
+    --arg account_id "$ACCOUNT_ID" \
+    --arg dalmatian_role "$DALMATIAN_ROLE" \
+    '{
     gpg_encrypt_email: $gpg_encrypt_email,
     account_id: $account_id,
     dalmatian_role: $dalmatian_role
@@ -90,8 +86,7 @@ echo "==> Attempting MFA..."
 
 MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
 
-if [ ${#MFA_CODE} -ne 6 ]
-then
+if [ ${#MFA_CODE} -ne 6 ]; then
   echo "==> Failed to generate an MFA code"
   echo "==> please see https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
   exit 1
@@ -100,30 +95,29 @@ fi
 export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
 
-if "$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
-then
-echo "==> Login success!"
-echo "==> Storing credentials in $DALMATIAN_CREDENTIALS_FILE" 
+if "$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"; then
+  echo "==> Login success!"
+  echo "==> Storing credentials in $DALMATIAN_CREDENTIALS_FILE"
 
-CREDENTIALS_JSON_STRING=$(
-  jq -n \
-  --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
-  --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
-  --arg aws_mfa_secret "$AWS_MFA_SECRET" \
-  '{
-    aws_access_key_id: $aws_access_key_id,
-    aws_secret_access_key: $aws_secret_access_key,
-    aws_mfa_secret: $aws_mfa_secret
-  }'
-)
+  CREDENTIALS_JSON_STRING=$(
+    jq -n \
+      --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
+      --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
+      --arg aws_mfa_secret "$AWS_MFA_SECRET" \
+      '{
+      aws_access_key_id: $aws_access_key_id,
+      aws_secret_access_key: $aws_secret_access_key,
+      aws_mfa_secret: $aws_mfa_secret
+    }'
+  )
 
-echo "$CREDENTIALS_JSON_STRING" | gpg \
-  --quiet \
-  --batch --yes \
-  --encrypt \
-  -r "$GPG_ENCRYPT_EMAIL" \
-  --out "$DALMATIAN_CREDENTIALS_FILE"
-chmod 600 "$DALMATIAN_CREDENTIALS_FILE"
+  echo "$CREDENTIALS_JSON_STRING" | gpg \
+    --quiet \
+    --batch --yes \
+    --encrypt \
+    -r "$GPG_ENCRYPT_EMAIL" \
+    --out "$DALMATIAN_CREDENTIALS_FILE"
+  chmod 600 "$DALMATIAN_CREDENTIALS_FILE"
 else
   echo "==> Login failed"
   exit 1

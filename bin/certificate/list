@@ -16,13 +16,13 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
 
 DOMAIN_NAME=""
 OUTPUT_DNS_VALIDATION_RECORDS=""
+
 while getopts "i:d:s:Dh" opt; do
   case $opt in
     i)
@@ -43,15 +43,11 @@ while getopts "i:d:s:Dh" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" ]]; then
   usage
 fi
 
-if [ -n "$DOMAIN_NAME" ]
-then
+if [ -n "$DOMAIN_NAME" ]; then
   LB_CERTIFICATE_ARNS=$(aws acm list-certificates | jq -r --arg d "$DOMAIN_NAME" '.CertificateSummaryList[] | select(.DomainName == $d) | .CertificateArn')
   CLOUDFRONT_CERTIFICATE_ARNS=$(aws acm list-certificates --region us-east-1 | jq -r --arg d "$DOMAIN_NAME" '.CertificateSummaryList[] | select(.DomainName == $d) | .CertificateArn')
 else
@@ -60,37 +56,32 @@ else
 fi
 
 LB_CERTIFICATES=()
-while IFS='' read -r cert
-do
+CLOUDFRONT_CERTIFICATES=()
+
+while IFS='' read -r cert; do
   LB_CERTIFICATES+=("$cert")
 done < <(echo "$LB_CERTIFICATE_ARNS")
 
-CLOUDFRONT_CERTIFICATES=()
-while IFS='' read -r cert
-do
+while IFS='' read -r cert; do
   CLOUDFRONT_CERTIFICATES+=("$cert")
 done < <(echo "$CLOUDFRONT_CERTIFICATE_ARNS")
 
 ALL_CERTIFICATES=("${LB_CERTIFICATES[@]}" "${CLOUDFRONT_CERTIFICATES[@]}")
 
-for cert_arn in "${ALL_CERTIFICATES[@]}"
-do
-  if [[ "${cert_arn}" == "arn:aws:acm:us-east-1"* ]]
-  then
+for cert_arn in "${ALL_CERTIFICATES[@]}"; do
+  if [[ "${cert_arn}" == "arn:aws:acm:us-east-1"* ]]; then
     CERT_REGION="us-east-1"
   else
     CERT_REGION="$AWS_DEFAULT_REGION"
   fi
+
   CERTIFICATE=$(aws acm describe-certificate --certificate-arn "$cert_arn" --region "$CERT_REGION")
 
   echo "$CERTIFICATE" | jq -r '.Certificate | .CertificateArn + " " + .DomainName + " " + .Status'
 
-  if [ -n "$OUTPUT_DNS_VALIDATION_RECORDS" ]
-  then
-    while IFS='' read -r r
-    do
-      if [ "$r" != "null" ]
-      then
+  if [ -n "$OUTPUT_DNS_VALIDATION_RECORDS" ]; then
+    while IFS='' read -r r; do
+      if [ "$r" != "null" ]; then
         echo "$r" | jq -r '.Name + " " + .Type + " " + .Value'
       else
         echo "Validation records unavailable"

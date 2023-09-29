@@ -16,8 +16,7 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -lt 1 ]
-then
+if [ $# -lt 1 ]; then
   usage
 fi
 
@@ -55,29 +54,20 @@ ACTION="$(echo "$ACTION" | awk '{print toupper(substr($0,0,1))tolower(substr($0,
 
 echo "[!] Target IP: $SOURCE_IP"
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$WAF_NAME"
-  || -z "$ENVIRONMENT"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$WAF_NAME" || -z "$ENVIRONMENT" ]]; then
   usage
 fi
 
-if [[ -n "$SOURCE_IP" ]]
-then
-  if ! [[ "$SOURCE_IP" =~ /[0-9]{1,2}$ ]]
-  then
+if [[ -n "$SOURCE_IP" ]]; then
+  if ! [[ "$SOURCE_IP" =~ /[0-9]{1,2}$ ]]; then
     echo "Error: Please specify a subnet mask with your IP address (e.g. '1.2.3.4/32')"
     usage
   fi
 
-  if [[ -z "$SOURCE_IP" ]]
-  then
+  if [[ -z "$SOURCE_IP" ]]; then
     usage
   fi
 fi
-
 
 # Convert . and / chars to - char for use in a label
 SOURCE_IP_LABEL=$(echo "$SOURCE_IP" | tr ./ -)
@@ -107,13 +97,14 @@ echo "==> Removing rule $ACL_RULE_NAME from Web ACL..."
 
 RULES=$(echo "$ACL_RULES" | jq -r --arg name "$ACL_RULE_NAME" 'del(.[] | select(.Name == $name))' | jq -c)
 
-ACL=$(aws wafv2 update-web-acl --scope "REGIONAL" \
-  --name "$WAF_WEB_ACL_NAME" \
-  --id "$ACL_ID" \
-  --default-action "$ACL_DEFAULT_ACTION" \
-  --visibility-config "$ACL_VISIBILITY_CONFIG" \
-  --lock-token "$ACL_LOCK_TOKEN" \
-  --rules "$RULES"
+ACL=$(
+  aws wafv2 update-web-acl --scope "REGIONAL" \
+    --name "$WAF_WEB_ACL_NAME" \
+    --id "$ACL_ID" \
+    --default-action "$ACL_DEFAULT_ACTION" \
+    --visibility-config "$ACL_VISIBILITY_CONFIG" \
+    --lock-token "$ACL_LOCK_TOKEN" \
+    --rules "$RULES"
 )
 
 echo "==> Getting IP Sets..."

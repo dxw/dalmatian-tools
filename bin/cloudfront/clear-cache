@@ -15,9 +15,8 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
 
 PATHS="/*"
@@ -45,12 +44,7 @@ while getopts "i:e:s:P:h" opt; do
   esac
 done
 
-if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$ENVIRONMENT"
-  || -z "$SERVICE_NAME"
-]]
-then
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$SERVICE_NAME" ]]; then
   usage
 fi
 
@@ -68,8 +62,8 @@ DISTRIBUTION_INVALIDATION=$(aws cloudfront create-invalidation --distribution-id
 DISTRIBUTION_INVALIDATION_ID=$(echo "$DISTRIBUTION_INVALIDATION" | jq -r '.Invalidation.Id')
 
 DISTRIBUTION_INVALIDATION_CURRENT_STATUS=""
-while [ "$DISTRIBUTION_INVALIDATION_CURRENT_STATUS" != "Completed" ]
-do
+
+while [ "$DISTRIBUTION_INVALIDATION_CURRENT_STATUS" != "Completed" ]; do
   DISTRIBUTION_INVALIDATION_CURRENT=$(aws cloudfront get-invalidation --distribution-id "$DISTRIBUTION_ID" --id "$DISTRIBUTION_INVALIDATION_ID")
   DISTRIBUTION_INVALIDATION_CURRENT_STATUS=$(echo "$DISTRIBUTION_INVALIDATION_CURRENT" | jq -r ".Invalidation.Status")
   echo "Invalidation $DISTRIBUTION_INVALIDATION_CURRENT_STATUS ..."
