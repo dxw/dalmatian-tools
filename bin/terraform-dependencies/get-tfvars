@@ -1,0 +1,103 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+DALMATIAN_ACCOUNT_DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME_HASH="$(echo -n "$PROJECT_NAME" | sha1sum | head -c 6)"
+TFVARS_BUCKET_NAME="$PROJECT_NAME_HASH-tfvars"
+TFVARS_BUCKET_EXISTS=0
+TFVARS_PATHS_JSON="{}"
+
+echo "==> Checking existance of tfvars bucket $TFVARS_BUCKET_NAME"
+if aws s3api head-bucket --bucket "$TFVARS_BUCKET_NAME" > /dev/null 2>&1
+then
+  echo "==> $TFVARS_BUCKET_NAME bucket exists ..."
+  TFVARS_BUCKET_EXISTS=1
+else
+  echo "==> $TFVARS_BUCKET_NAME bucket doesn't exist. Bucket will be created on first deployment."
+  TFVARS_BUCKET_EXISTS=0
+fi
+
+mkdir -p "$CONFIG_TFVARS_DIR"
+DEAFULT_TFAVRS_FILE_NAME="000-terraform.tfvars"
+
+if [ "$TFVARS_BUCKET_EXISTS" == 1 ]
+then
+  echo "==> Downloading tfvars ..."
+
+  if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$DEAFULT_TFAVRS_FILE_NAME" > /dev/null 2>&1
+  then
+    aws s3 cp "s3://$TFVARS_BUCKET_NAME/$DEAFULT_TFAVRS_FILE_NAME" "$CONFIG_TFVARS_DIR/."
+    DEFAULT_TFVARS_EXISTS=1
+  else
+    DEFAULT_TFVARS_EXISTS=0
+  fi
+fi
+
+if [[ "$TFVARS_BUCKET_EXISTS" == 0 || "$DEFAULT_TFVARS_EXISTS" == 0 ]]
+then
+  echo "==> $DEAFULT_TFAVRS_FILE_NAME doesn't exist in tfvars S3 bucket."
+  echo "project_name=\"$PROJECT_NAME\"" > "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
+  echo "aws_region=\"$DALMATIAN_ACCOUNT_DEFAULT_REGION\"" >> "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
+  echo "==> Created $CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
+fi
+
+TFVARS_DIR="${CONFIG_TFVARS_DIR/$HOME/~}"
+TFVARS_PATHS_JSON=$(echo "$TFVARS_PATHS_JSON" | jq -c \
+  --arg workspace_name "$workspace" \
+  --arg default_tfvars_file "$DEAFULT_TFAVRS_FILE_NAME" \
+  --arg default_tfvars_path "$TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" \
+  '. += { "terraform": { "path": $default_tfvars_path, "key": $default_tfvars_file } }')
+
+while IFS='' read -r workspace <&9
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [[
+    "$workspace" != "default" &&
+    -n "$workspace"
+  ]]
+  then
+    WORKSPACE_TFVARS_FILE="100-$workspace.tfvars"
+    WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=0
+    WORKSPACE_TFVARS_FILE_EXISTS=0
+    if [ "$TFVARS_BUCKET_EXISTS" == 1 ]
+    then
+      if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$WORKSPACE_TFVARS_FILE" > /dev/null 2>&1
+      then
+        aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+        WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
+        WORKSPACE_TFVARS_FILE_EXISTS=1
+      fi
+    fi
+    if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" ]
+    then
+      echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
+      read -rp "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]: " CREATE_WORKSPACE_TFVARS_FILE
+      if [[
+        "$CREATE_WORKSPACE_TFVARS_FILE" == "y" ||
+        "$CREATE_WORKSPACE_TFVARS_FILE" == "Y" ||
+        "$CREATE_WORKSPACE_TFVARS_FILE" == "yes" ||
+        "$CREATE_WORKSPACE_TFVARS_FILE" == "YES"
+      ]]
+      then
+        cp "$APP_ROOT/data/tfvars-templates/account-bootstrap.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+        $EDITOR "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+        WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
+      fi
+    fi
+    if [ "$WORKSPACE_TFVARS_ADD_TO_PATHS_JSON" == "1" ]
+    then
+      TFVARS_PATHS_JSON=$(echo "$TFVARS_PATHS_JSON" | jq -c \
+        --arg workspace_name "$workspace" \
+        --arg workspace_tfvars_file "$WORKSPACE_TFVARS_FILE" \
+        --arg workspace_tfvars_path "$TFVARS_DIR/$WORKSPACE_TFVARS_FILE" \
+        '. += { "\($workspace_name)": { "path": $workspace_tfvars_path, "key": $workspace_tfvars_file } }')
+    fi
+  fi
+done 9< <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)
+
+echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"

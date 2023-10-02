@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -p <aws_sso_profile>   - AWS SSO Profile"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+while getopts "p:h" opt; do
+  case $opt in
+    p)
+      AWS_SSO_PROFILE=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+echo "==> Checking AWS SSO registration expiry ..."
+START_URL="$(aws configure get sso_start_url --profile dalmatian-login)"
+AWS_SSO_CACHE_JSON="$(grep -h -e "$START_URL" ~/.aws/sso/cache/*.json || true)"
+EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
+if [ -n "$EXPIRES_AT" ]
+then
+  EXPIRES_AT_SEC="$(TZ="UTC" date -j -f "%Y-%m-%dT%H:%M:%SZ" "+%s" "$EXPIRES_AT")"
+  EPOCH="$(date +%s)"
+fi
+if [[
+  "$EPOCH" -gt "$EXPIRES_AT_SEC" ||
+  -z "$EXPIRES_AT" ||
+  "$FORCE_RELOG" == "1"
+  ]]
+then
+  echo "==> Attempting AWS SSO login ..."
+  aws sso login --profile "$AWS_SSO_PROFILE"
+fi
