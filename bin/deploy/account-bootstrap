@@ -8,16 +8,21 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -a <dalmatian-account> - AWS Account ID (Optional - By default all accounts will be cycled through)"
+  echo "  -p <plan>              - Run terraform plan rather than apply"
   echo "  -N                     - Non-interactive mode (auto-approves terraform apply)"
   exit 1
 }
 
 DALMATIAN_ACCOUNT=""
 NON_INTERACTIVE_MODE=0
-while getopts "a:Nh" opt; do
+PLAN=0
+while getopts "a:Nph" opt; do
   case $opt in
     a)
       DALMATIAN_ACCOUNT=$OPTARG
+      ;;
+    p)
+      PLAN=1
       ;;
     N)
       NON_INTERACTIVE_MODE=1
@@ -31,10 +36,17 @@ while getopts "a:Nh" opt; do
   esac
 done
 
-AUTO_APPROVE=""
+OPTIONS=()
+APPLY_OR_PLAN="apply"
+if [ "$PLAN" == "1" ]
+then
+  APPLY_OR_PLAN="plan"
+fi
+OPTIONS+=("$APPLY_OR_PLAN")
+
 if [ "$NON_INTERACTIVE_MODE" == "1" ]
 then
-  AUTO_APPROVE="--auto-approve"
+  OPTIONS+=("--auto-approve")
 fi
 
 if [ -z "$DALMATIAN_ACCOUNT" ]
@@ -70,10 +82,9 @@ do
     export TF_VAR_enable_s3_tfvars
     export TF_VAR_tfvars_s3_tfvars_files
     export AWS_PROFILE="$ACCOUNT_NAME"
-    terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" apply \
+    terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" "${OPTIONS[@]}" \
       -var-file="$CONFIG_TFVARS_DIR/000-terraform.tfvars" \
-      -var-file="$CONFIG_TFVARS_DIR/100-$workspace.tfvars" \
-      "$AUTO_APPROVE"
+      -var-file="$CONFIG_TFVARS_DIR/100-$workspace.tfvars"
   fi
 done 9< <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)
 
