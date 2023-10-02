@@ -1,0 +1,145 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -a <dalmatian-account> - AWS Account ID (Optional - By default all accounts will shown to be selected)"
+  exit 1
+}
+
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME_HASH="$(echo -n "$PROJECT_NAME" | sha1sum | head -c 6)"
+TFVARS_BUCKET_NAME="$PROJECT_NAME_HASH-tfvars"
+TFVARS_PATHS_JSON="$(jq -r < "$CONFIG_TFVARS_PATHS_FILE")"
+TFVARS_DIR="${CONFIG_TFVARS_DIR/$HOME/~}"
+
+while getopts "a:h" opt; do
+  case $opt in
+    a)
+      DALMATIAN_ACCOUNT=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+WORKSPACES=()
+if [ -z "$DALMATIAN_ACCOUNT" ]
+then
+  WORKSPACE_INDEX=0
+  while IFS='' read -r workspace
+  do
+    workspace=${workspace/\*/ }
+    workspace=$(echo "$workspace" | xargs)
+    if [[
+      "$workspace" != "default" &&
+      -n "$workspace"
+    ]]
+    then
+      WORKSPACE_INDEX=$(( WORKSPACE_INDEX+1 ))
+      WORKSPACES+=("$workspace")
+      echo "$WORKSPACE_INDEX) $workspace"
+    fi
+  done < <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)
+
+  while true
+  do
+    read -rp "Select account: " ACCOUNT_INDEX
+
+    if [[
+      "$ACCOUNT_INDEX" -eq "$ACCOUNT_INDEX" &&
+      "$ACCOUNT_INDEX" -gt 0 &&
+      "$ACCOUNT_INDEX" -le "$WORKSPACE_INDEX"
+    ]]
+    then
+      break
+    else
+      echo "Invalid selection"
+    fi
+  done
+
+  DALMATIAN_ACCOUNT="${WORKSPACES[((ACCOUNT_INDEX-1))]}"
+fi
+
+WORKSPACE_TFVARS_FILE="100-$DALMATIAN_ACCOUNT.tfvars"
+WORKSPACE_TFVARS_FILE_EXISTS=0
+
+echo "==> Checking $WORKSPACE_TFVARS_FILE file ..."
+
+if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$WORKSPACE_TFVARS_FILE" > /dev/null 2>&1
+then
+  aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" > /dev/null
+  if ! diff "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > /dev/null
+  then
+    echo "The remote $WORKSPACE_TFVARS_FILE file is different than your local cached copy."
+    echo "This is either because the remote copy has been updated, or you have already edited your local copy"
+    echo "What do you want to do?"
+    echo "1) Edit my local copy"
+    echo "2) Use the remote copy and edit"
+    echo "3) Show the diff"
+    read -rp "?: " DIFF_OPTION
+    if [ "$DIFF_OPTION" == "2" ]
+    then
+      mv "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+    fi
+    if [ "$DIFF_OPTION" == "3" ]
+    then
+      diff "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+      rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
+      exit 0
+    fi
+    rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
+  fi
+  rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
+  WORKSPACE_TFVARS_FILE_EXISTS=1
+fi
+
+WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=0
+if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" ]
+then
+  echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
+  read -rp "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]: " CREATE_WORKSPACE_TFVARS_FILE
+  if [[
+    "$CREATE_WORKSPACE_TFVARS_FILE" == "y"
+  ]]
+  then
+    cp "$APP_ROOT/data/tfvars-templates/account-bootstrap.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+    $EDITOR "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+    WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
+  fi
+fi
+
+if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "1" ]
+then
+  $EDITOR "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+fi
+
+if [ "$WORKSPACE_TFVARS_ADD_TO_PATHS_JSON" == "1" ]
+then
+  TFVARS_PATHS_JSON=$(echo "$TFVARS_PATHS_JSON" | jq -c \
+    --arg workspace_name "$workspace" \
+    --arg workspace_tfvars_file "$WORKSPACE_TFVARS_FILE" \
+    --arg workspace_tfvars_path "$TFVARS_DIR/$WORKSPACE_TFVARS_FILE" \
+    '. += { "\($workspace_name)": { "path": $workspace_tfvars_path, "key": $workspace_tfvars_file } }')
+fi
+
+echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"
+
+echo "==> $WORKSPACE_TFVARS_FILE edited!"
+echo "==> Running terraform plan for $DALMATIAN_ACCOUNT .."
+"$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$DALMATIAN_ACCOUNT" -p
+
+read -rp "Do you want to run the deploy for $DALMATIAN_ACCOUNT now? [y/n]: " RUN_APPLY
+
+if [ "$RUN_APPLY" == "y" ]
+then
+  "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$DALMATIAN_ACCOUNT"
+fi
