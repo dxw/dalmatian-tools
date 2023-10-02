@@ -153,7 +153,7 @@ echo ""
 
 echo "-- AWS SSO configration --"
 read_prompt_with_setup_default -p "AWS SSO start URL" -d "aws_sso.start_url" -s
-read_prompt_with_setup_default -p "AWS SSO Region" -d "aws_sso.region" > -s
+read_prompt_with_setup_default -p "AWS SSO Region" -d "aws_sso.region" -s
 read_prompt_with_setup_default -p "AWS SSO Default administrative role name" -d "aws_sso.default_admin_role_name" -s
 read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.registration_scopes" -s
 echo ""
