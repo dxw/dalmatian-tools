@@ -16,11 +16,14 @@ if [ $# -eq 0 ]
 then
  usage
 fi
-
-while getopts "p:h" opt; do
+FORCE_RELOG=0
+while getopts "p:fh" opt; do
   case $opt in
     p)
       AWS_SSO_PROFILE=$OPTARG
+      ;;
+    f)
+      FORCE_RELOG=1
       ;;
     h)
       usage
