@@ -60,15 +60,15 @@ do
     WORKSPACE_EXISTS=1
     terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace select "$workspace"
     ACCOUNT_NAME=$(echo "$workspace" | cut -d'-' -f5-)
-    echo "Account Name: $ACCOUNT_NAME"
     if [[ "$ACCOUNT_NAME" == "dalmatian-main" ]]; then
-      export TF_VAR_enable_s3_tfvars=true
+      TF_VAR_enable_s3_tfvars=true
       TF_VAR_tfvars_s3_tfvars_files="$(cat "$CONFIG_TFVARS_PATHS_FILE")"
-      export TF_VAR_tfvars_s3_tfvars_files
     else
       TF_VAR_enable_s3_tfvars=false
       TF_VAR_tfvars_s3_tfvars_files="{}"
     fi
+    export TF_VAR_enable_s3_tfvars
+    export TF_VAR_tfvars_s3_tfvars_files
     export AWS_PROFILE="$ACCOUNT_NAME"
     terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" apply \
       -var-file="$CONFIG_TFVARS_DIR/000-terraform.tfvars" \
