@@ -322,5 +322,19 @@ then
   . "$APP_ROOT/bin/aws/assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME"
 fi
 
+# If no COMMAND was specified, and SUBCOMMAND isn't an executable script
+if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]] || [[ ! -f "$APP_ROOT/bin/$SUBCOMMAND/$COMMAND" ]]; then
+  err "Command not found: $(basename "${0}") ${SUBCOMMAND} ${COMMAND:=""}"
+
+  echo
+  echo "Usage:"
+
+  while IFS=  read -r -d $'\0'; do
+    echo "  $(basename "${0}") ${SUBCOMMAND} $(basename "${REPLY}")"
+  done < <(find "${APP_ROOT}/bin/$SUBCOMMAND" -maxdepth 1 -type f -print0)
+
+  exit 1
+fi
+
 # Run specified command with args
 "$APP_ROOT/bin/$SUBCOMMAND/$COMMAND" "${COMMAND_ARGS[@]}"
