@@ -2,12 +2,6 @@
 set -e
 set -o pipefail
 
-# Prompt the user with a binary question
-#
-# @usage yes_no "Continue with setup? (Y/n)" "Y"
-# @param $1 Message to prompt the user with
-# @param $2 The default value if the user does not specify
-
 APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
 export APP_ROOT
 
@@ -51,6 +45,7 @@ if ! is_installed "session-manager-plugin"; then
     echo
     echo "    softwareupdate --install-rosetta"
     echo
+
     if yes_no "Alternatively, install it now? (Y/n)" "Y"; then
       softwareupdate --install-rosetta
       echo
