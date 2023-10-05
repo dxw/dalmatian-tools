@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Starts a SQL backup to S3 for a given RDS instance."
+  echo "This replicates the nightly backup process, but can be run manually."
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+while getopts "i:r:e:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$RDS_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+# Remove dashes from the variables to create the RDS identifier, because dashes
+# aren't allowed in RDS identifiers. Dalmatian removes them on deployment, so we
+# need to remove them here to get the correct identifier.
+RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
+
+TASK_NAME="$INFRASTRUCTURE_NAME-$RDS_IDENTIFIER-sb-st"
+CLUSTER_NAME="$INFRASTRUCTURE_NAME-$ENVIRONMENT"
+
+# Work out the account ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+# run the backup task
+aws ecs run-task --no-cli-pager --cluster "$CLUSTER_NAME" --task-definition "arn:aws:ecs:eu-west-2:$ACCOUNT_ID:task-definition/$TASK_NAME"
+echo "==> Started backup task $TASK_NAME for RDS instance $RDS_IDENTIFIER"
