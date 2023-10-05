@@ -5,7 +5,7 @@ usage() {
   echo "useful for bootstrapping new accounts or getting AWS env vars"
   echo 'e.g dalmatian util exec bundle exec rake dalmatian:bootstrap_account'
   echo 'dalmatian util exec env | grep AWS'
-  echo "Usage: $(basename "$0") [OPTIONS] <command>" 1>&2
+  echo "Usage: $(basename "$0") [options...] <command>" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name OPTIONAL defaults to main dalmatian account"
   exit 1

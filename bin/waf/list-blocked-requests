@@ -5,7 +5,7 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
@@ -134,7 +134,7 @@ if [ "$VERBOSE" == "1" ]
 then
   echo "$BLOCKED_REQUESTS_JSON_STRING"
 else
-  echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r '.[] | .Timestamp + " - " + 
+  echo "$BLOCKED_REQUESTS_JSON_STRING" | jq -r '.[] | .Timestamp + " - " +
     .RuleNameWithinRuleGroup + " - " +
     .Request.Method + " - " +
     .Request.URI'

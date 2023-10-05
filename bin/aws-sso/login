@@ -5,7 +5,7 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                     - help"
   echo "  -p <aws_sso_profile>   - AWS SSO Profile"
   exit 1

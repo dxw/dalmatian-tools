@@ -5,10 +5,10 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -r <aurora_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -r <aurora_name>       - RDS name (as defined in the Dalmatian config)"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -d <date>              - date (optional e.g %Y-%m-%d)"
   exit 1
@@ -17,7 +17,7 @@ usage() {
 # if there are no arguments passed exit with usage
 if [ $# -lt 1 ]
 then
- usage
+  usage
 fi
 
 while getopts "i:r:e:d:h" opt; do

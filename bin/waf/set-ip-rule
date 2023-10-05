@@ -6,7 +6,7 @@ set -o pipefail
 # set -x
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"

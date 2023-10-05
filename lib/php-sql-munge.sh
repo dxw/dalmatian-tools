@@ -5,7 +5,7 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                     - help"
   echo "  -i <input_file>        - Input File"
   echo "  -r <replace_file>      - Replace File"

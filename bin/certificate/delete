@@ -7,7 +7,7 @@ usage() {
   echo "Delete an unused CloudFront certifcate"
   echo 'e.g.    dalmatian certificate delete -i infra -D example.com'
   echo '        dalmatian certificate delete -i infra -c arn:aws:acm:region:account:certificate/12345678-1234-1234-1234-123456789012'
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                         - help"
   echo "  -i <infrastructure>        - infrastructure name"
   echo "  -c <certificate arn>       - remove a single certificate with a given ARN"

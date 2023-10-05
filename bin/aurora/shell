@@ -5,7 +5,7 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: dalmatian $(basename "$(dirname "${BASH_SOURCE[0]}")") $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: dalmatian $(basename "$(dirname "${BASH_SOURCE[0]}")") $(basename "$0") [options...]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -r <aurora_name>          - RDS name (as defined in the Dalmatian config)"
@@ -99,7 +99,7 @@ fi
 echo "ECS instance ID: $ECS_INSTANCE_ID"
 
 echo "==> Starting $RDS_ENGINE session on $RDS_IDENTIFIER..."
-set -x 
+set -x
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \
   --document-name "$RDS_IDENTIFIER-aurora-shell" \

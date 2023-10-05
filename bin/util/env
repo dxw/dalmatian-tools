@@ -2,11 +2,11 @@
 
 usage() {
   echo 'Get AWS credentials for an infrastructure'
-  echo "Usage: $(basename "$0") [OPTIONS] <command>" 1>&2
+  echo "Usage: $(basename "$0") [options...] <command>" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name OPTIONAL defaults to main dalmatian account"
   echo "  -r                     -  output without export prepended OPTIONAL"
-  
+
   exit 1
 }
 

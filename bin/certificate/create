@@ -7,7 +7,7 @@ set -o pipefail
 usage() {
   echo "Create certifcates for use by CloudFront and ALBs"
   echo 'e.g dalmatian -i <infrastructure> -d test.cert.tld -s www.test.cert.tld'
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                         - help"
   echo "  -i <infrastructure>        - infrastructure name"
   echo "  -d <domain>                - domain name"
@@ -51,16 +51,16 @@ then
 fi
 
 if [[
-  -z "$SAN"  
+  -z "$SAN"
 ]]
 then
   SAN="$DOMAIN"
 fi
 
 # $SAN needs to not be quoted so that the values don't become one long string
-#shellcheck disable=SC2086 
+#shellcheck disable=SC2086
 EUW2_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region eu-west-2 | jq -r '.CertificateArn')
-#shellcheck disable=SC2086 
+#shellcheck disable=SC2086
 USE1_ARN=$(aws acm request-certificate --domain-name "$DOMAIN" --subject-alternative-names $SAN --validation-method DNS --region us-east-1 | jq -r '.CertificateArn')
 
 # Apply a linear back-off before reporting back to the user. Allow the user

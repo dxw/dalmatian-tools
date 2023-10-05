@@ -5,9 +5,9 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                     - help"
-  echo "  -w <watch>             - watch"       
+  echo "  -w <watch>             - watch"
   exit 1
 }
 

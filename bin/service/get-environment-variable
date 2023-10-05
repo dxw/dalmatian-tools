@@ -5,7 +5,7 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "This command can set environment variables for a service"
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
@@ -52,7 +52,7 @@ if [[
 then
   usage
 fi
-  
+
 echo "==> getting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT"
 
 aws ssm get-parameter --with-decryption \

@@ -5,7 +5,7 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                     - help"
   echo "  -a <dalmatian-account> - AWS Account ID (Optional - By default all accounts will be cycled through)"
   echo "  -p <plan>              - Run terraform plan rather than apply"
@@ -63,7 +63,7 @@ while IFS='' read -r workspace <&9
 do
   workspace=${workspace/\*/ }
   workspace=$(echo "$workspace" | xargs)
-  if [[ ( "$DALMATIAN_ACCOUNT" == "$workspace" || 
+  if [[ ( "$DALMATIAN_ACCOUNT" == "$workspace" ||
     -z "$DALMATIAN_ACCOUNT" ) &&
     "$workspace" != "default" &&
     -n "$workspace"

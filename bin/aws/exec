@@ -7,7 +7,7 @@ set -o pipefail
 usage() {
   echo "Run any aws cli command in an infrastructure"
   echo 'e.g dalmatian aws exec -i <infrastructure> s3 ls'
-  echo "Usage: $(basename "$0") [OPTIONS] <aws sub command>" 1>&2
+  echo "Usage: $(basename "$0") [options...] <aws sub command>" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
   exit 1

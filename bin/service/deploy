@@ -5,7 +5,7 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -s <service>           - service name "
@@ -51,4 +51,3 @@ fi
 echo "==> deploying $SERVICE_NAME in $ENVIRONMENT"
 
 aws codepipeline start-pipeline-execution --name "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-build-and-deploy"
-

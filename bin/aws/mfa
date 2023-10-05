@@ -7,7 +7,7 @@ set -o pipefail
 DALMATIAN_MFA_CREDENTIALS_FILE="$HOME/.config/dalmatian/mfa_credentials.json"
 
 usage() {
-  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "Usage: $(basename "$0") [options...]" 1>&2
   echo "  -h                  - help"
   echo "  -m <mfa_code>       - MFA code (required)"
   echo "  -e                  - export to stdout instead of writing the mfa"

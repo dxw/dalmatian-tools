@@ -7,7 +7,7 @@ DICT="$( dirname -- "$0")/../../data/common-short-words.txt"
 usage() {
   echo 'Generate a password that is suitable for use in basic auth'
   echo 'e.g. penguin-maps-thoughts-pencil'
-  echo "Usage: $(basename "$0") [OPTIONS] <command>" 1>&2
+  echo "Usage: $(basename "$0") [options...] <command>" 1>&2
   echo "  -q                     - quiet"
   echo "  -h                     - help"
 
