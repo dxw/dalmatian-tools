@@ -23,6 +23,12 @@ fi
 APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
 export APP_ROOT
 
+source "$APP_ROOT/lib/bash-functions.sh"
+while IFS='' read -r function_name
+do
+  export -f "${function_name?}"
+done < <(grep "^function" "$APP_ROOT/lib/bash-functions.sh" | cut -d" " -f2)
+
 if [ "${1:0:1}" == "-" ]
 then
   while getopts "lh" opt; do

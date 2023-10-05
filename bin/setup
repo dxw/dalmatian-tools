@@ -7,52 +7,11 @@ set -o pipefail
 # @usage yes_no "Continue with setup? (Y/n)" "Y"
 # @param $1 Message to prompt the user with
 # @param $2 The default value if the user does not specify
-yes_no() {
-  local MESSAGE
-  local DEFAULT
 
-  MESSAGE="${1-"Continue? (Y/n)"}"
-  DEFAULT="${2-"Y"}"
+APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
+export APP_ROOT
 
-  while true; do
-    read -rep "${MESSAGE} [$DEFAULT]: " CHOICE
-    CHOICE=${CHOICE:-$DEFAULT}
-    echo
-    case "${CHOICE:0:1}" in
-      [yY] )
-        return 0 # true
-        ;;
-      [nN] )
-        return 1 # false
-        ;;
-      * )
-        echo "Please answer Y or N"
-        ;;
-    esac
-  done
-}
-
-# Set up a handy repeatable error output function that uses `stderr`
-#
-# @usage err "A problem happened!"
-# @param $* Any information to pass into stderr
-err() {
-  echo "[!] Error: $*" >&2
-}
-
-# Check to see if a binary is installed on the system
-#
-# @usage  is_installed "oathtool"
-# @param  $1 binary name
-# @export $IS_INSTALLED boolean Whether the binary was found
-is_installed() {
-  if ! which -s "$1" || ! type -p "$1" > /dev/null; then
-    err "$1 was not detected in your \$PATH"
-    return 1 # false
-  fi
-
-  return 0 # true
-}
+source "$APP_ROOT/lib/bash-functions.sh"
 
 # Check to see if Homebrew is installed, and prompt to install it if it isn't
 if ! is_installed "brew"; then
