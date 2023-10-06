@@ -27,6 +27,10 @@ _dalmatian_completions() {
   bindir=$(dirname "$dir")
 
   case "$compline" in
+    'aurora'*)
+      while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "$(find "$bindir/aurora" -type f -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
+      ;;
+
     'certificate'*)
       while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "$(find "$bindir/certificate" -type f -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
       ;;
