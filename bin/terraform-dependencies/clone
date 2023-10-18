@@ -11,7 +11,7 @@ usage() {
   exit 1
 }
 
-ACCOUNT_BOOTSTRAP_VERSION="v0.1.0"
+ACCOUNT_BOOTSTRAP_VERSION="v0.2.0"
 while getopts "a:h" opt; do
   case $opt in
     a)
