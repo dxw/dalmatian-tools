@@ -35,6 +35,14 @@ then
   else
     DEFAULT_TFVARS_EXISTS=0
   fi
+
+  if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" > /dev/null 2>&1
+  then
+    aws s3 cp "s3://$TFVARS_BUCKET_NAME/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+    GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS=1
+  else
+    GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS=0
+  fi
 fi
 
 if [[ "$TFVARS_BUCKET_EXISTS" == 0 || "$DEFAULT_TFVARS_EXISTS" == 0 ]]
@@ -45,12 +53,21 @@ then
   echo "==> Created $CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
 fi
 
+if [ "$GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS" == "0" ]
+then
+  cp "$APP_ROOT/data/tfvars-templates/account-bootstrap.tfvars" "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE"
+fi
+
 TFVARS_DIR="${CONFIG_TFVARS_DIR/$HOME/~}"
 TFVARS_PATHS_JSON=$(echo "$TFVARS_PATHS_JSON" | jq -c \
-  --arg workspace_name "$workspace" \
   --arg default_tfvars_file "$DEAFULT_TFAVRS_FILE_NAME" \
   --arg default_tfvars_path "$TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" \
   '. += { "terraform": { "path": $default_tfvars_path, "key": $default_tfvars_file } }')
+
+TFVARS_PATHS_JSON=$(echo "$TFVARS_PATHS_JSON" | jq -c \
+    --arg global_account_bootstrap_tfvars_file "$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" \
+    --arg global_account_bootstrap_tfvars_path "$TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" \
+    '. += { "global-account-bootstrap": { "path": $global_account_bootstrap_tfvars_path, "key": $global_account_bootstrap_tfvars_file } }')
 
 while IFS='' read -r workspace <&9
 do
