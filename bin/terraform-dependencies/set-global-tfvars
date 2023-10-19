@@ -1,0 +1,105 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  exit 1
+}
+
+while getopts "a:h" opt; do
+  case $opt in
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME_HASH="$(echo -n "$PROJECT_NAME" | sha1sum | head -c 6)"
+TFVARS_BUCKET_NAME="$PROJECT_NAME_HASH-tfvars"
+TFVARS_PATHS_JSON="$(jq -r < "$CONFIG_TFVARS_PATHS_FILE")"
+TFVARS_DIR="${CONFIG_TFVARS_DIR/$HOME/~}"
+CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE_EXISTS=0
+
+echo "==> Checking $CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE file ..."
+
+if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE" > /dev/null 2>&1
+then
+  aws s3 cp "s3://$TFVARS_BUCKET_NAME/$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE" "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" > /dev/null
+  if ! diff "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE" > /dev/null
+  then
+    echo "The remote $CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE file is different than your local cached copy."
+    echo "This is either because the remote copy has been updated, or you have already edited your local copy"
+    echo "What do you want to do?"
+    echo "1) Edit my local copy"
+    echo "2) Use the remote copy and edit"
+    echo "3) Show the diff"
+    read -rp "?: " DIFF_OPTION
+    if [ "$DIFF_OPTION" == "2" ]
+    then
+      mv "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE"
+    fi
+    if [ "$DIFF_OPTION" == "3" ]
+    then
+      diff "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE"
+      rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
+      exit 0
+    fi
+    rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
+  fi
+  rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
+  CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE_EXISTS=1
+fi
+
+GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_ADD_TO_PATHS_JSON=0
+if [ "$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE_EXISTS" == "0" ]
+then
+  echo "==> $CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE doesn't exist ..."
+  read -rp "Do you want to create the $CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE file now? [y/n]: " CREATE_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE
+  if [[
+    "$CREATE_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" == "y"
+  ]]
+  then
+    cp "$APP_ROOT/data/tfvars-templates/account-bootstrap.tfvars" "$CONFIG_TFVARS_DIR/$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE"
+    $EDITOR "$CONFIG_TFVARS_DIR/$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE"
+    GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_ADD_TO_PATHS_JSON=1
+  fi
+fi
+
+if [ "$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE_EXISTS" == "1" ]
+then
+  $EDITOR "$CONFIG_TFVARS_DIR/$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE"
+fi
+
+if [ "$GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_ADD_TO_PATHS_JSON" == "1" ]
+then
+  TFVARS_PATHS_JSON=$(echo "$TFVARS_PATHS_JSON" | jq -c \
+    --arg global_account_bootstrap_tfvars_file "$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE" \
+    --arg global_account_bootstrap_tfvars_path "$TFVARS_DIR/$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE" \
+    '. += { "global-account-bootstrap": { "path": $global_account_bootstrap_tfvars_path, "key": $global_account_bootstrap_tfvars_file } }')
+fi
+
+echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"
+
+echo "==> $CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE edited!"
+
+MAIN_DALMATIAN_ACCOUNT_ID="$(jq -r '.main_dalmatian_account_id' < "$CONFIG_SETUP_JSON_FILE")"
+DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
+MAIN_DALMATIAN_ACCOUNT="$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main"
+
+echo "==> Running account bootstrap on the main Dalmatian account to upload tfvars ..."
+"$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT" -N
+
+read -rp "Do you want to run the account bootstrap deployment for all accounts now? [y/n]: " RUN_APPLY
+
+if [ "$RUN_APPLY" == "y" ]
+then
+  "$APP_ROOT/bin/dalmatian" deploy account-bootstrap
+fi

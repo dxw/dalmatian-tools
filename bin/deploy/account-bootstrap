@@ -84,6 +84,7 @@ do
     export AWS_PROFILE="$ACCOUNT_NAME"
     terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" "${OPTIONS[@]}" \
       -var-file="$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE" \
+      -var-file="$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" \
       -var-file="$CONFIG_TFVARS_DIR/000-terraform.tfvars" \
       -var-file="$CONFIG_TFVARS_DIR/100-$workspace.tfvars"
   fi
