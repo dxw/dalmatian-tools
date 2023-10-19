@@ -142,4 +142,16 @@ read -rp "Do you want to run the deploy for $DALMATIAN_ACCOUNT now? [y/n]: " RUN
 if [ "$RUN_APPLY" == "y" ]
 then
   "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$DALMATIAN_ACCOUNT"
+else
+  exit 0
+fi
+
+MAIN_DALMATIAN_ACCOUNT_ID="$(jq -r '.main_dalmatian_account_id' < "$CONFIG_SETUP_JSON_FILE")"
+DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
+MAIN_DALMATIAN_ACCOUNT="$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main"
+
+if [ "$DALMATIAN_ACCOUNT" != "$MAIN_DALMATIAN_ACCOUNT" ]
+then
+  echo "==> Running account bootstrap on the main Dalmatian account to upload tfvars ..."
+  "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main" -N
 fi
