@@ -86,19 +86,19 @@ then
     echo "2) Use the remote copy and edit"
     echo "3) Show the diff"
     read -rp "?: " DIFF_OPTION
-    if [ "$DIFF_OPTION" == "2" ]
+    if [ "$DIFF_OPTION" == "1" ]
+    then
+      rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
+    elif [ "$DIFF_OPTION" == "2" ]
     then
       mv "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
-    fi
-    if [ "$DIFF_OPTION" == "3" ]
+    elif [ "$DIFF_OPTION" == "3" ]
     then
       diff "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
       rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
       exit 0
     fi
-    rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
   fi
-  rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
   WORKSPACE_TFVARS_FILE_EXISTS=1
 fi
 
