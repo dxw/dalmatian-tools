@@ -83,6 +83,7 @@ do
     export TF_VAR_tfvars_s3_tfvars_files
     export AWS_PROFILE="$ACCOUNT_NAME"
     terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" "${OPTIONS[@]}" \
+      -var-file="$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE" \
       -var-file="$CONFIG_TFVARS_DIR/000-terraform.tfvars" \
       -var-file="$CONFIG_TFVARS_DIR/100-$workspace.tfvars"
   fi
