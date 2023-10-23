@@ -4,6 +4,34 @@
 set -e
 set -o pipefail
 
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h              - help"
+  echo "  -r              - Run terraform init with the -reconfigure flag"
+  echo "  -u              - Run terraform init with the -upgrade flag"
+  exit 1
+}
+
+OPTIONS=(
+  "-backend-config=$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
+)
+while getopts "ruh" opt; do
+  case $opt in
+    r)
+      OPTIONS+=("-reconfigure")
+      ;;
+    u)
+      OPTIONS+=("-upgrade")
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
 echo "==> Attempting Terraform init ..."
 export AWS_PROFILE="dalmatian-main"
-terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" init -backend-config="$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
+terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" init "${OPTIONS[@]}"
