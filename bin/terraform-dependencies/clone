@@ -11,7 +11,7 @@ usage() {
   exit 1
 }
 
-ACCOUNT_BOOTSTRAP_VERSION="v0.2.0"
+ACCOUNT_BOOTSTRAP_VERSION="v0.2.1"
 while getopts "a:h" opt; do
   case $opt in
     a)
@@ -33,6 +33,7 @@ then
   rm -rf "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR"
 fi
 
+echo "==> Cloning dxw/terraform-dxw-dalmatian-account-bootstrap $ACCOUNT_BOOTSTRAP_VERSION ..."
 git clone \
   --depth 1 \
   --branch "$ACCOUNT_BOOTSTRAP_VERSION" \
