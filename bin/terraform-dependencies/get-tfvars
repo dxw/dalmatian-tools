@@ -101,8 +101,41 @@ do
         "$CREATE_WORKSPACE_TFVARS_FILE" == "YES"
       ]]
       then
-        cp "$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+        WORKSPACE_TFVARS_HEADER=(
+          "############################################################"
+          "# Copied from the Global TFvars file                       #"
+          "#                                                          #"
+          "# To overwrite the global variable, uncomment the variable #"
+          "# and change it's value                                    #"
+          "#                                                          #"
+          "# All unchanged variables will be deleted from this file   #"
+          "# once it is saved                                         #"
+          "############################################################"
+        )
+        printf '%s\n' "${WORKSPACE_TFVARS_HEADER[@]}" > "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+        GLOBAL_CONFIG_LINES=()
+        while IFS='' read -r global_config_line
+        do
+          GLOBAL_CONFIG_LINES+=("$global_config_line")
+        done < "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE"
+        printf '#%s\n' "${GLOBAL_CONFIG_LINES[@]}" >> "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
         $EDITOR "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+        for workspace_tfvars_header_line in "${WORKSPACE_TFVARS_HEADER[@]}"
+        do
+          grep -v "^$workspace_tfvars_header_line$" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > "/tmp/$WORKSPACE_TFVARS_FILE"
+          mv "/tmp/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+        done
+        for global_config_line in "${GLOBAL_CONFIG_LINES[@]}"
+        do
+          sed -i '' "s/^\#$//g" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+          if [[ ! "$global_config_line" =~ ^\#.* ]]
+          then
+            grep -v "^#$global_config_line$" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > "/tmp/$WORKSPACE_TFVARS_FILE"
+            mv "/tmp/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+          else
+            sed -i '' "s/^\#$global_config_line$/$global_config_line/g" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+          fi
+        done
         WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
       fi
     fi
