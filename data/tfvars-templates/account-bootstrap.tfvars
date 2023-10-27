@@ -1,12 +1,19 @@
+# Logging
+logging_bucket_retention = 30
+
 # Cloudtrail
-enable_cloudtrail        = true
-cloudtrail_log_retention = 30
-cloudtrail_log_prefix    = "cloudtrail"
+enable_cloudtrail         = true
+cloudtrail_log_retention  = 30
+cloudtrail_log_prefix     = "cloudtrail"
+cloudtrail_kms_encryption = false
+cloudtrail_s3_access_logs = false
 
 # Cloudwatch Slack Alerts
-enable_cloudwatch_slack_alerts   = false
-cloudwatch_slack_alerts_hook_url = ""
-cloudwatch_slack_alerts_channel  = ""
+enable_cloudwatch_slack_alerts         = false
+cloudwatch_slack_alerts_hook_url       = ""
+cloudwatch_slack_alerts_channel        = ""
+cloudwatch_slack_alerts_kms_encryption = false
+cloudwatch_slack_alerts_log_retention  = 30
 
 # Cloudwatch OpsGenie Alerts
 enable_cloudwatch_opsgenie_alerts             = false
