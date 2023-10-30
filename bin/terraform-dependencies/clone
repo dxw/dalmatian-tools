@@ -8,14 +8,19 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                                  - help"
   echo "  -a <account-bootstrap-repo-version> - Account bootstrap repo version (Optional)"
+  echo "  -I                                  - Initialise the terraform dependencies after cloning"
   exit 1
 }
 
+INITIALISE=0
 ACCOUNT_BOOTSTRAP_VERSION="v0.3.0"
-while getopts "a:h" opt; do
+while getopts "a:Ih" opt; do
   case $opt in
     a)
       ACCOUNT_BOOTSTRAP_VERSION=$OPTARG
+      ;;
+    I)
+      INITIALISE=1
       ;;
     h)
       usage
@@ -40,5 +45,10 @@ git clone \
   -c advice.detachedHead=false \
   git@github.com:dxw/terraform-dxw-dalmatian-account-bootstrap \
   "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR"
+
+if [ "$INITIALISE" == "1" ]
+then
+  "$APP_ROOT/bin/dalmatian" terraform-dependencies initialise
+fi
 
 echo ""
