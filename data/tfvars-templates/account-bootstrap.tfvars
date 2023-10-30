@@ -2,11 +2,14 @@
 logging_bucket_retention = 30
 
 # Cloudtrail
-enable_cloudtrail         = true
-cloudtrail_log_retention  = 30
-cloudtrail_log_prefix     = "cloudtrail"
-cloudtrail_kms_encryption = false
-cloudtrail_s3_access_logs = false
+enable_cloudtrail                          = true
+cloudtrail_log_retention                   = 30
+cloudtrail_log_prefix                      = "cloudtrail"
+cloudtrail_kms_encryption                  = false
+cloudtrail_s3_access_logs                  = false
+cloudtrail_athena_glue_tables              = false
+cloudtrail_athena_s3_output_retention      = 30
+cloudtrail_athena_s3_output_kms_encryption = false
 
 # Cloudwatch Slack Alerts
 enable_cloudwatch_slack_alerts         = false
