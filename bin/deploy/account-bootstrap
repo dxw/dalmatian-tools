@@ -7,6 +7,7 @@ set -o pipefail
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
+  echo "  -l                     - List accounts (shortcut to \`deploy list-accounts\`)"
   echo "  -a <dalmatian-account> - AWS Account ID (Optional - By default all accounts will be cycled through)"
   echo "  -p <plan>              - Run terraform plan rather than apply"
   echo "  -N                     - Non-interactive mode (auto-approves terraform apply)"
@@ -16,8 +17,12 @@ usage() {
 DALMATIAN_ACCOUNT=""
 NON_INTERACTIVE_MODE=0
 PLAN=0
-while getopts "a:Nph" opt; do
+LIST_ACCOUNTS=0
+while getopts "la:Nph" opt; do
   case $opt in
+    l)
+      LIST_ACCOUNTS=1
+      ;;
     a)
       DALMATIAN_ACCOUNT=$OPTARG
       ;;
@@ -35,6 +40,12 @@ while getopts "a:Nph" opt; do
       ;;
   esac
 done
+
+if [ "$LIST_ACCOUNTS" == "1" ]
+then
+  "$APP_ROOT/bin/dalmatian" deploy list-accounts
+  exit 0
+fi
 
 OPTIONS=()
 APPLY_OR_PLAN="apply"
