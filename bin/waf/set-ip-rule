@@ -117,7 +117,7 @@ ACL_RULES_COUNT=$(echo "$ACL_RULES" | jq length)
 echo "[!] Found $ACL_RULES_COUNT existing rules in this ACL"
 
 # Rule priorities must be unique so simply +1 to the number of existing rules
-PRIORITY_COUNT=$ACL_RULES_COUNT
+PRIORITY_COUNT=$((ACL_RULES_COUNT + 1))
 
 echo "[!] New rule will be given Priority $PRIORITY_COUNT"
 
