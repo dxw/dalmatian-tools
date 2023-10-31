@@ -11,11 +11,7 @@ usage() {
   exit 1
 }
 
-# if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
-fi
+AWS_SSO_PROFILE="dalmatian-login"
 FORCE_RELOG=0
 while getopts "p:fh" opt; do
   case $opt in
