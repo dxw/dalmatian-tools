@@ -22,3 +22,7 @@ cloudwatch_slack_alerts_log_retention  = 30
 enable_cloudwatch_opsgenie_alerts             = false
 cloudwatch_opsgenie_alerts_sns_endpoint       = ""
 cloudwatch_opsgenie_alerts_sns_kms_encryption = false
+
+# CodeStar connections
+# eg. codestar_connections ={ github = { provider_type = "GitHub" } }
+codestar_connections = {}
