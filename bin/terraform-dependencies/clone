@@ -13,7 +13,7 @@ usage() {
 }
 
 INITIALISE=0
-ACCOUNT_BOOTSTRAP_VERSION="v0.4.0"
+ACCOUNT_BOOTSTRAP_VERSION="v0.5.0"
 while getopts "a:Ih" opt; do
   case $opt in
     a)
