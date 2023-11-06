@@ -60,14 +60,14 @@ do
   then
     WORKSPACE_EXISTS=1
   fi
-done < <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)
+done < <(terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" workspace list)
 
 if [ "$WORKSPACE_EXISTS" == "1" ]
 then
   echo "==> $NEW_WORKSPACE_NAME workspace exists"
-  terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace select "$NEW_WORKSPACE_NAME"
+  terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" workspace select "$NEW_WORKSPACE_NAME"
 else
-  terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace new "$NEW_WORKSPACE_NAME"
+  terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" workspace new "$NEW_WORKSPACE_NAME"
 fi
 
 "$APP_ROOT/bin/dalmatian" aws-sso generate-config

@@ -1,3 +1,4 @@
+brew "coreutils"
 brew "awscli"
 brew "jq"
 brew "yq"
