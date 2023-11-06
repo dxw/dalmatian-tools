@@ -60,4 +60,4 @@ do
       "$DALMATIAN_ACCOUNT_ADMIN_ROLE_NAME" \
       "$SSO_CONFIG_REGION"
   fi
-done < <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)
+done < <(terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" workspace list)

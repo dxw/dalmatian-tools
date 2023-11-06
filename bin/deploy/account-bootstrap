@@ -81,7 +81,7 @@ do
   ]]
   then
     WORKSPACE_EXISTS=1
-    terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace select "$workspace"
+    terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" workspace select "$workspace"
     ACCOUNT_NAME=$(echo "$workspace" | cut -d'-' -f5-)
     if [[ "$ACCOUNT_NAME" == "dalmatian-main" ]]; then
       TF_VAR_enable_s3_tfvars=true
@@ -93,13 +93,13 @@ do
     export TF_VAR_enable_s3_tfvars
     export TF_VAR_tfvars_s3_tfvars_files
     export AWS_PROFILE="$ACCOUNT_NAME"
-    terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" "${OPTIONS[@]}" \
+    terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" "${OPTIONS[@]}" \
       -var-file="$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE" \
       -var-file="$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" \
       -var-file="$CONFIG_TFVARS_DIR/000-terraform.tfvars" \
       -var-file="$CONFIG_TFVARS_DIR/100-$workspace.tfvars"
   fi
-done 9< <(terraform -chdir="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR" workspace list)
+done 9< <(terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" workspace list)
 
 if [ "$WORKSPACE_EXISTS" == "0" ]
 then
