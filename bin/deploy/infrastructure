@@ -1,0 +1,174 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                       - help"
+  echo "  -l                       - List infrastructures (shortcut to \`deploy list-infrastructures\`)"
+  echo "  -a <dalmatian_account>   - Dalmatian account name (Optional - By default all accounts will be cycled through)"
+  echo "  -i <infrastructure_name> - Infrastructure name (Optional - By default all infrastructures will be cycled through)"
+  echo "  -e <environment_name>    - Environment name (Optional - By default all environments will be cycled through)"
+  echo "  -p                       - Run terraform plan rather than apply"
+  echo "  -N                       - Non-interactive mode (auto-approves terraform apply)"
+  exit 1
+}
+
+DALMATIAN_ACCOUNT=""
+ENVIRONMENT_NAME=""
+INFRASTRUCTURE_NAME=""
+NON_INTERACTIVE_MODE=0
+PLAN=0
+LIST_INFRASTRUCTURES=0
+while getopts "la:i:e:Nph" opt; do
+  case $opt in
+    l)
+      LIST_INFRASTRUCTURES=1
+      ;;
+    a)
+      DALMATIAN_ACCOUNT=$OPTARG
+      ;;
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT_NAME=$OPTARG
+      ;;
+    p)
+      PLAN=1
+      ;;
+    N)
+      NON_INTERACTIVE_MODE=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ "$LIST_INFRASTRUCTURES" == "1" ]
+then
+  "$APP_ROOT/bin/dalmatian" deploy list-infrastructures
+  exit 0
+fi
+
+if [[ ! "$INFRASTRUCTURE_NAME" =~ ^[a-z]+$ ]]
+then
+  err "$INFRASTRUCTURE_NAME can only contain lowercase letters"
+  exit 1
+fi
+
+if [[ ! "$ENVIRONMENT_NAME" =~ ^[a-z]+$ ]]
+then
+  err "$ENVIRONMENT_NAME can only contain lowercase letters"
+  exit 1
+fi
+
+OPTIONS=()
+APPLY_OR_PLAN="apply"
+if [ "$PLAN" == "1" ]
+then
+  APPLY_OR_PLAN="plan"
+fi
+OPTIONS+=("$APPLY_OR_PLAN")
+
+if [ "$NON_INTERACTIVE_MODE" == "1" ]
+then
+  OPTIONS+=("--auto-approve")
+fi
+
+WORKSPACE_EXISTS=0
+while IFS='' read -r workspace
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [[
+    -n "$workspace" &&
+    "$workspace" == "$DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME"
+  ]]
+  then
+    WORKSPACE_EXISTS=1
+  fi
+done < <(terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" workspace list)
+
+if [[
+  "$WORKSPACE_EXISTS" == "0" &&
+  -n "$DALMATIAN_ACCOUNT" &&
+  -n "$ENVIRONMENT_NAME"
+]]
+then
+  echo "The infrastructure $DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME does not exist."
+  read -rp "Do you want to create it now? [y/n]: " CREATE_INFRASTRUCTURE
+  if [ "$CREATE_INFRASTRUCTURE" != "y" ]
+  then
+    exit 0
+  fi
+  terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" workspace new "$DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME"
+fi
+
+DEPLOY_ALL="y"
+if [[
+  -z "$DALMATIAN_ACCOUNT" ||
+  -z "$ENVIRONMENT_NAME" ||
+  -z "$INFRASTRUCTURE_NAME"
+]]
+then
+  MATCH_STRING=""
+  if [ -z "$DALMATIAN_ACCOUNT" ]
+  then
+    MATCH_STRING="*"
+  else
+    MATCH_STRING="$DALMATIAN_ACCOUNT"
+  fi
+  if [ -z "$INFRASTRUCTURE_NAME" ]
+  then
+    MATCH_STRING="$MATCH_STRING-*"
+  else
+    MATCH_STRING="$MATCH_STRING-$INFRASTRUCTURE_NAME"
+  fi
+  if [ -z "$ENVIRONMENT_NAME" ]
+  then
+    MATCH_STRING="$MATCH_STRING-*"
+  else
+    MATCH_STRING="$MATCH_STRING-$ENVIRONMENT_NAME"
+  fi
+  read -rp "Either an account, infrastructure or environment has not been provided. Do you wish to deploy all matching infrastructures '$MATCH_STRING'? [y/n]: " DEPLOY_ALL
+fi
+
+if [[
+  "$DEPLOY_ALL" != "y"
+]]
+then
+  exit 0
+fi
+
+while IFS='' read -r workspace <&9
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [[ ( "$DALMATIAN_ACCOUNT" == "$(echo "$workspace" | rev | cut -d'-' -f3- | rev)" || 
+    -z "$DALMATIAN_ACCOUNT" ) &&
+    ( "$INFRASTRUCTURE_NAME" == "$(echo "$workspace" | rev | cut -d'-' -f2 | rev)" ||
+    -z "$INFRASTRUCTURE_NAME" ) &&
+    ( "$ENVIRONMENT_NAME" == "$(echo "$workspace" | rev | cut -d'-' -f1 | rev)" ||
+    -z "$ENVIRONMENT_NAME" ) &&
+    "$workspace" != "default" &&
+    -n "$workspace"
+  ]]
+  then
+    terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" workspace select "$workspace"
+    ACCOUNT_NAME=$(echo "$workspace" | cut -d'-' -f5- | rev | cut -d'-' -f3- | rev)
+    export AWS_PROFILE="$ACCOUNT_NAME"
+    TF_VAR_infrastructure_name="$(echo "$workspace" | rev | cut -d'-' -f1 | rev)"
+    TF_VAR_environment="$(echo "$workspace" | rev | cut -d'-' -f1 | rev)"
+    export TF_VAR_infrastructure_name
+    export TF_VAR_environment
+    terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" "${OPTIONS[@]}" \
+      -var-file="$CONFIG_TFVARS_DIR/000-terraform.tfvars"
+  fi
+done 9< <(terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" workspace list)

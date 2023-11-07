@@ -15,13 +15,18 @@ usage() {
 ACCOUNT_BOOTSTRAP_OPTIONS=(
   "-backend-config=$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
 )
+INFRASTRUCTURE_OPTIONS=(
+  "-backend-config=$CONFIG_INFRASTRUCTURE_BACKEND_VARS_FILE"
+)
 while getopts "ruh" opt; do
   case $opt in
     r)
       ACCOUNT_BOOTSTRAP_OPTIONS+=("-reconfigure")
+      INFRASTRUCTURE_OPTIONS+=("-reconfigure")
       ;;
     u)
       ACCOUNT_BOOTSTRAP_OPTIONS+=("-upgrade")
+      INFRASTRUCTURE_OPTIONS+=("-upgrade")
       ;;
     h)
       usage
@@ -35,3 +40,4 @@ done
 echo "==> Attempting Terraform init ..."
 export AWS_PROFILE="dalmatian-main"
 terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" init "${ACCOUNT_BOOTSTRAP_OPTIONS[@]}"
+terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" init "${INFRASTRUCTURE_OPTIONS[@]}"

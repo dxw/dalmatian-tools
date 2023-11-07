@@ -8,8 +8,8 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -l                     - List accounts (shortcut to \`deploy list-accounts\`)"
-  echo "  -a <dalmatian-account> - AWS Account ID (Optional - By default all accounts will be cycled through)"
-  echo "  -p <plan>              - Run terraform plan rather than apply"
+  echo "  -a <dalmatian-account> - Dalmatian account name (Optional - By default all accounts will be cycled through)"
+  echo "  -p                     - Run terraform plan rather than apply"
   echo "  -N                     - Non-interactive mode (auto-approves terraform apply)"
   exit 1
 }
