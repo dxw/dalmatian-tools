@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -c <command>     - Terraform command to run (Quoted)"
+  echo "  -a               - Run against the account bootstrap terraform project"
+  echo "  -i               - Run against the infrastructure terraform project"
+  echo "  -h               - help"
+  exit 1
+}
+
+RUN_DIR=""
+while getopts "c:aih" opt; do
+  case $opt in
+    c)
+      COMMAND=$OPTARG
+      ;;
+    a)
+      TERRAFORM_PROJECT="account-bootstrap"
+      RUN_DIR="$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR"
+      BACKEND_CONFIG="$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
+      ;;
+    i)
+      TERRAFORM_PROJECT="infrastructure"
+      RUN_DIR="$TMP_INFRASTRUCTURE_TERRAFORM_DIR"
+      BACKEND_CONFIG="$CONFIG_INFRASTRUCTURE_BACKEND_VARS_FILE"
+      ;;
+    h)
+      usage
+      ;;
+    ?)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ "$(echo "$COMMAND" | cut -d' ' -f1)" == "terraform" ]
+then
+  COMMAND="$(echo "$COMMAND" | cut -d' ' -f2-)"
+fi
+
+if [ -z "$COMMAND" ]
+then
+  usage
+fi
+
+if [ -z "$RUN_DIR" ]
+then
+  usage
+fi
+
+while read -r command
+do
+  OPTIONS+=("$command")
+done <<< "$COMMAND"
+
+if [ "${OPTIONS[0]}" == "init" ]
+then
+  OPTIONS+=("$BACKEND_CONFIG")
+fi
+
+CURRENT_WORKSPACE="$(terraform -chdir="$(grealpath --relative-to="$PWD" "$RUN_DIR")" workspace show)"
+CHECK_COMMANDS=(
+  "plan"
+  "apply"
+  "console"
+)
+if [[
+  "${CHECK_COMMANDS[*]}" =~ ${OPTIONS[0]} &&
+  -n "$CURRENT_WORKSPACE" &&
+  "$CURRENT_WORKSPACE" != "default"
+]]
+then
+  if [ "$TERRAFORM_PROJECT" == "account-bootstrap" ]
+  then
+    ACCOUNT_NAME=$(echo "$CURRENT_WORKSPACE" | cut -d'-' -f5-)
+    echo "$ACCOUNT_NAME"
+    if [[ "$ACCOUNT_NAME" == "dalmatian-main" ]]
+    then
+      TF_VAR_enable_s3_tfvars=true
+      TF_VAR_tfvars_s3_tfvars_files="$(cat "$CONFIG_TFVARS_PATHS_FILE")"
+    else
+      TF_VAR_enable_s3_tfvars=false
+      TF_VAR_tfvars_s3_tfvars_files="{}"
+    fi
+    export TF_VAR_enable_s3_tfvars
+    export TF_VAR_tfvars_s3_tfvars_files
+    export AWS_PROFILE="$ACCOUNT_NAME"
+    OPTIONS+=("-var-file=$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE")
+    OPTIONS+=("-var-file=$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE")
+    OPTIONS+=("-var-file=$CONFIG_TFVARS_DIR/000-terraform.tfvars")
+    OPTIONS+=("-var-file=$CONFIG_TFVARS_DIR/100-$CURRENT_WORKSPACE.tfvars")
+  fi
+  if [ "$TERRAFORM_PROJECT" == "infrastructure" ]
+  then
+    ACCOUNT_NAME=$(echo "$CURRENT_WORKSPACE" | cut -d'-' -f5- | rev | cut -d'-' -f3- | rev)
+    TF_VAR_infrastructure_name="$(echo "$CURRENT_WORKSPACE" | rev | cut -d'-' -f1 | rev)"
+    TF_VAR_environment="$(echo "$CURRENT_WORKSPACE" | rev | cut -d'-' -f1 | rev)"
+    export TF_VAR_infrastructure_name
+    export TF_VAR_environment
+    export AWS_PROFILE="$ACCOUNT_NAME"
+    OPTIONS+=("-var-file=$CONFIG_TFVARS_DIR/000-terraform.tfvars")
+  fi
+fi
+
+echo "==> Running command:"
+echo "terraform -chdir=$(grealpath --relative-to="$PWD" "$RUN_DIR")"
+echo "${OPTIONS[@]}" | sed "s/ / \\\ \n/g" | sed "s/^/  /g"
+echo ""
+
+# shellcheck disable=SC2068
+terraform -chdir="$(grealpath --relative-to="$PWD" "$RUN_DIR")" ${OPTIONS[@]}
