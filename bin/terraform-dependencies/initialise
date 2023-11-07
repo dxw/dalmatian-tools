@@ -33,5 +33,4 @@ while getopts "ruh" opt; do
 done
 
 echo "==> Attempting Terraform init ..."
-export AWS_PROFILE="dalmatian-main"
 terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" init "${ACCOUNT_BOOTSTRAP_OPTIONS[@]}"
