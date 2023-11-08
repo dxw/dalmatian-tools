@@ -12,4 +12,4 @@ do
   then
     echo "$workspace"
   fi
-done < <(terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" workspace list)
+done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)

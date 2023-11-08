@@ -148,6 +148,6 @@ do
         '. += { "\($workspace_name)": { "path": $workspace_tfvars_path, "key": $workspace_tfvars_file } }')
     fi
   fi
-done 9< <(terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" workspace list)
+done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)
 
 echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"
