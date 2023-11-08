@@ -94,7 +94,7 @@ do
   then
     WORKSPACE_EXISTS=1
   fi
-done < <(terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" workspace list)
+done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -i -q)
 
 if [[
   "$WORKSPACE_EXISTS" == "0" &&
@@ -108,7 +108,7 @@ then
   then
     exit 0
   fi
-  terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" workspace new "$DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME"
+  "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace new $DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME" -i -q
 fi
 
 DEPLOY_ALL="y"
@@ -161,14 +161,7 @@ do
     -n "$workspace"
   ]]
   then
-    terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" workspace select "$workspace"
-    ACCOUNT_NAME=$(echo "$workspace" | cut -d'-' -f5- | rev | cut -d'-' -f3- | rev)
-    export AWS_PROFILE="$ACCOUNT_NAME"
-    TF_VAR_infrastructure_name="$(echo "$workspace" | rev | cut -d'-' -f1 | rev)"
-    TF_VAR_environment="$(echo "$workspace" | rev | cut -d'-' -f1 | rev)"
-    export TF_VAR_infrastructure_name
-    export TF_VAR_environment
-    terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" "${OPTIONS[@]}" \
-      -var-file="$CONFIG_TFVARS_DIR/000-terraform.tfvars"
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace select $workspace" -i -q
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "${OPTIONS[@]}" -i -q
   fi
-done 9< <(terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" workspace list)
+done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -i -q)

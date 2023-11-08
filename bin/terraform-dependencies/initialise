@@ -38,5 +38,5 @@ while getopts "ruh" opt; do
 done
 
 echo "==> Attempting Terraform init ..."
-terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR")" init "${ACCOUNT_BOOTSTRAP_OPTIONS[@]}"
-terraform -chdir="$(grealpath --relative-to="$PWD" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR")" init "${INFRASTRUCTURE_OPTIONS[@]}"
+"$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "init" -a -q
+"$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "init" -i -q
