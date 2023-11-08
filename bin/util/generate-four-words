@@ -8,17 +8,14 @@ usage() {
   echo 'Generate a password that is suitable for use in basic auth'
   echo 'e.g. penguin-maps-thoughts-pencil'
   echo "Usage: $(basename "$0") [OPTIONS] <command>" 1>&2
-  echo "  -q                     - quiet"
+  echo "  -q                     - Quiet mode"
   echo "  -h                     - help"
 
   exit 1
 }
 
-while getopts "qh" opt; do
+while getopts "h" opt; do
   case $opt in
-    q)
-      QUIET=true
-      ;;
     h)
       usage
       ;;
@@ -28,7 +25,7 @@ while getopts "qh" opt; do
   esac
 done
 
-if [ ! "$QUIET" == "true" ]
+if [ "$QUIET_MODE" == "0" ]
 then
   echo "Please note that the phrases generated here should not be used as login"
   echo "passwords or to hide secrets. Please use 1Password in those cicumstances."

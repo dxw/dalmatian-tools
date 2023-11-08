@@ -9,6 +9,7 @@ usage() {
   echo "  -c <command>     - Terraform command to run (Quoted)"
   echo "  -a               - Run against the account bootstrap terraform project"
   echo "  -i               - Run against the infrastructure terraform project"
+  echo "  -q               - Quiet mode (Only outputs the terraform command output)"
   echo "  -h               - help"
   exit 1
 }
@@ -81,7 +82,6 @@ then
   if [ "$TERRAFORM_PROJECT" == "account-bootstrap" ]
   then
     ACCOUNT_NAME=$(echo "$CURRENT_WORKSPACE" | cut -d'-' -f5-)
-    echo "$ACCOUNT_NAME"
     if [[ "$ACCOUNT_NAME" == "dalmatian-main" ]]
     then
       TF_VAR_enable_s3_tfvars=true
@@ -110,10 +110,13 @@ then
   fi
 fi
 
-echo "==> Running command:"
-echo "terraform -chdir=$(grealpath --relative-to="$PWD" "$RUN_DIR")"
-echo "${OPTIONS[@]}" | sed "s/ / \\\ \n/g" | sed "s/^/  /g"
-echo ""
+if [ "$QUIET_MODE" == 0 ]
+then
+  echo "==> Running command:"
+  echo "terraform -chdir=$(grealpath --relative-to="$PWD" "$RUN_DIR")"
+  echo "${OPTIONS[@]}" | sed "s/ / \\\ \n/g" | sed "s/^/  /g"
+  echo ""
+fi
 
 # shellcheck disable=SC2068
 terraform -chdir="$(grealpath --relative-to="$PWD" "$RUN_DIR")" ${OPTIONS[@]}
