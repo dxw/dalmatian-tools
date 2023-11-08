@@ -137,9 +137,6 @@ if [[
   "$SUBCOMMAND" == "deploy"
 ]]
 then
-  echo "-- WARNING: Experimental commands under development --"
-  echo ""
-
   export CONFIG_DIR="$HOME/.config/dalmatian"
   export CONFIG_SETUP_JSON_FILE="$CONFIG_DIR/setup.json"
   export CONFIG_CACHE_DIR="$CONFIG_DIR/.cache"
