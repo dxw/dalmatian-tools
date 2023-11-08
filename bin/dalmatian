@@ -112,6 +112,16 @@ fi
 SUBCOMMAND="$1"
 COMMAND="$2"
 COMMAND_ARGS=( "${@:3}" )
+QUIET_MODE=0
+for i in "${!COMMAND_ARGS[@]}"
+do
+  if [ "${COMMAND_ARGS[i]}" == "-q" ]
+  then
+    QUIET_MODE=1
+    unset "COMMAND_ARGS[i]"
+  fi
+done
+export QUIET_MODE
 
 if [[ -z "$SUBCOMMAND" && -z "$COMMAND" ]]
 then
