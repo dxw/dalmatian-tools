@@ -114,6 +114,8 @@ if [ "$QUIET_MODE" == 0 ]
 then
   echo "==> Running command:"
   echo "terraform -chdir=$(grealpath --relative-to="$PWD" "$RUN_DIR")"
+  env | { grep "^AWS_" || true; }
+  env | { grep  "^TF_" || true; }
   echo "${OPTIONS[@]}" | sed "s/ / \\\ \n/g" | sed "s/^/  /g"
   echo ""
 fi
