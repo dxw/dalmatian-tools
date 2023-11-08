@@ -8,16 +8,21 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                                  - help"
   echo "  -a <account-bootstrap-repo-version> - Account bootstrap repo version (Optional)"
+  echo "  -i <infrastructure-repo-version>    - Infrastructure repo version (Optional)"
   echo "  -I                                  - Initialise the terraform dependencies after cloning"
   exit 1
 }
 
 INITIALISE=0
 ACCOUNT_BOOTSTRAP_VERSION="v0.5.0"
-while getopts "a:Ih" opt; do
+INFRASTRUCTURE_VERSION="v0.2.0"
+while getopts "a:i:Ih" opt; do
   case $opt in
     a)
       ACCOUNT_BOOTSTRAP_VERSION=$OPTARG
+      ;;
+    i)
+      INFRASTRUCTURE_VERSION=$OPTARG
       ;;
     I)
       INITIALISE=1
@@ -38,6 +43,11 @@ then
   rm -rf "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR"
 fi
 
+if [ -d "$TMP_INFRASTRUCTURE_TERRAFORM_DIR" ]
+then
+  rm -rf "$TMP_INFRASTRUCTURE_TERRAFORM_DIR"
+fi
+
 echo "==> Cloning dxw/terraform-dxw-dalmatian-account-bootstrap $ACCOUNT_BOOTSTRAP_VERSION ..."
 git clone \
   --depth 1 \
@@ -45,6 +55,14 @@ git clone \
   -c advice.detachedHead=false \
   git@github.com:dxw/terraform-dxw-dalmatian-account-bootstrap \
   "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR"
+
+echo "==> Cloning dxw/terraform-dxw-dalmatian-account-bootstrap $INFRASTRUCTURE_VERSION ..."
+git clone \
+  --depth 1 \
+  --branch "$INFRASTRUCTURE_VERSION" \
+  -c advice.detachedHead=false \
+  git@github.com:dxw/terraform-dxw-dalmatian-infrastructure \
+  "$TMP_INFRASTRUCTURE_TERRAFORM_DIR"
 
 if [ "$INITIALISE" == "1" ]
 then

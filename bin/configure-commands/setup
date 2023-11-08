@@ -121,6 +121,15 @@ profile              = "dalmatian-main"
 encrypt              = true
 EOT
 
+cat <<EOT > "$CONFIG_INFRASTRUCTURE_BACKEND_VARS_FILE"
+bucket               = "$BACKEND_S3_BUCKET_NAME"
+workspace_key_prefix = "infrastructure"
+key                  = "terraform.tfstate"
+region               = "$BACKEND_S3_BUCKET_REGION"
+profile              = "dalmatian-main"
+encrypt              = true
+EOT
+
 echo "--- Dalmatian account configuration ---"
 MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
 echo ""
