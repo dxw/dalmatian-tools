@@ -82,7 +82,8 @@ do
   then
     WORKSPACE_EXISTS=1
     "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace select $workspace" -a -q
-    "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "${OPTIONS[@]}" -a -q
+    STRING_OPTIONS="${OPTIONS[*]}"
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "$STRING_OPTIONS" -a -q
   fi
 done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)
 

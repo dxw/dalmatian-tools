@@ -74,7 +74,7 @@ CHECK_COMMANDS=(
   "console"
 )
 if [[
-  "${CHECK_COMMANDS[*]}" =~ ${OPTIONS[0]} &&
+  "${CHECK_COMMANDS[*]}" =~ $(echo "${OPTIONS[0]}" | cut -d' ' -f1 ) &&
   -n "$CURRENT_WORKSPACE" &&
   "$CURRENT_WORKSPACE" != "default"
 ]]
