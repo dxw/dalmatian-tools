@@ -17,8 +17,11 @@ usage() {
 # if there are no arguments passed exit with usage
 if [ $# -lt 1 ]
 then
- usage
+  usage
 fi
+
+TODAY=$(date +%Y-%m-%d)
+DATE=$TODAY
 
 while getopts "i:r:e:d:h" opt; do
   case $opt in
@@ -58,17 +61,9 @@ fi
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
 S3_BUCKET_NAME="$INFRASTRUCTURE_NAME-$RDS_IDENTIFIER-sql-backup"
-TODAY=$(date +%Y-%m-%d)
 
 echo "==> Counting SQL backups in $INFRASTRUCTURE_NAME $RDS_NAME $ENVIRONMENT..."
 
-if [ -n "$DATE" ]
-then
- aws s3api list-objects-v2 \
-   --bucket "$S3_BUCKET_NAME" \
-   --query "Contents[?contains(LastModified,\`${DATE}\`)].Key" | jq -r 'length'
-else
- aws s3api list-objects-v2 \
-   --bucket "$S3_BUCKET_NAME" \
-   --query "Contents[?contains(LastModified,\`${TODAY}\`)].Key" | jq -r 'length'
-fi
+aws s3api list-objects-v2 \
+  --bucket "$S3_BUCKET_NAME" \
+  --query "Contents[?contains(LastModified,\`${DATE}\`)].Key" | jq -r 'length'
