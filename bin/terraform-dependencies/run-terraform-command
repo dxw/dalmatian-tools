@@ -64,7 +64,7 @@ done <<< "$COMMAND"
 
 if [ "${OPTIONS[0]}" == "init" ]
 then
-  OPTIONS+=("$BACKEND_CONFIG")
+  OPTIONS+=("-backend-config=$BACKEND_CONFIG")
 fi
 
 CURRENT_WORKSPACE="$(terraform -chdir="$(grealpath --relative-to="$PWD" "$RUN_DIR")" workspace show)"
@@ -113,9 +113,9 @@ fi
 if [ "$QUIET_MODE" == 0 ]
 then
   echo "==> Running command:"
-  echo "terraform -chdir=$(grealpath --relative-to="$PWD" "$RUN_DIR")"
   env | { grep "^AWS_" || true; }
   env | { grep  "^TF_" || true; }
+  echo "terraform -chdir=$(grealpath --relative-to="$PWD" "$RUN_DIR")"
   echo "${OPTIONS[@]}" | sed "s/ / \\\ \n/g" | sed "s/^/  /g"
   echo ""
 fi
