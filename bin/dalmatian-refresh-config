@@ -22,7 +22,7 @@ set -e
 
 if [ -n "$CLONE_RESULT" ]
 then
-  echo "==> Error: Could not clone $DALMATIAN_CONFIG_REPO" 1>&2
+  err "Could not clone $DALMATIAN_CONFIG_REPO"
   echo "$CLONE_RESULT" 1>&2
   exit 1
 fi

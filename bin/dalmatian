@@ -197,8 +197,7 @@ ASSUME_MAIN_ROLE_CONFIGURED=0
 
 if [ ! -f "$DALMATIAN_CONFIG_FILE" ]
 then
-  echo "Error: You are not logged into Dalmatian"
-  echo "       Run \`dalmatian login\` to continue"
+  err "You are not logged into Dalmatian. Run \`dalmatian login\` to continue"
   exit 1
 fi
 
@@ -223,7 +222,7 @@ then
   EPOCH=$(date +%s)
   if [ "$DALMATIAN_MFA_EXPIRATION_SECONDS" -lt "$EPOCH" ]
   then
-    echo "==> MFA credentials expired, requesting new credentials ..."
+    err "MFA credentials have expired"
   else
     MFA_CONFIGURED=1
   fi
@@ -245,11 +244,15 @@ then
 
   AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
   AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
-  AWS_MFA_SECRET=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_mfa_secret')
   export AWS_ACCESS_KEY_ID
   export AWS_SECRET_ACCESS_KEY
+
+  AWS_MFA_SECRET=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_mfa_secret')
   MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
+
+  echo "==> Requesting new MFA credentials..."
   "$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
+
   if [ -n "$RUN_AWS_MFA" ]
   then
     exit 0
@@ -278,7 +281,7 @@ then
   EPOCH=$(date +%s)
   if [ "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS" -lt "$EPOCH" ]
   then
-    echo "==> Assume role credentials expired ..."
+    err "'Assume role' credentials have expired"
   else
     ASSUME_MAIN_ROLE_CONFIGURED=1
   fi
@@ -287,7 +290,7 @@ fi
 # Update assume role credentials if needed
 if [ "$ASSUME_MAIN_ROLE_CONFIGURED" == "0" ]
 then
-  echo "==> Requesting Assume Role credentials ..."
+  echo "==> Requesting 'Assume Role' credentials ..."
   ASSUME_ROLE_RESULT=$(
     aws sts assume-role \
     --role-arn "arn:aws:iam::$ACCOUNT_ID:role/$DALMATIAN_ROLE" \

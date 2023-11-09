@@ -92,7 +92,7 @@ if [[ -n "$ENV_FILE" ]]
 then
   if [ ! -f "$ENV_FILE" ]
   then
-    echo "Error: $ENV_FILE does not exist"
+    err "'$ENV_FILE' does not exist"
     exit 1
   fi
 

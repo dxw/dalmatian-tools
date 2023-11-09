@@ -83,8 +83,8 @@ else
   INSTANCE_NAME=$(echo "$INSTANCES" | jq -r --arg i "$INSTANCE_ID" '.Reservations[].Instances[] | select(.InstanceId == $i) | .Tags[] | select(.Key == "Name") | .Value')
   if [ -z "$INSTANCE_NAME" ];
   then
-    echo "Error: Instance ID $INSTANCE_ID not found"
-    echo "Available isntances:"
+    err "Instance ID '$INSTANCE_ID' was not found"
+    echo "Available instances:"
     echo "$AVAILABLE_INSTANCES"
     exit 1
   fi

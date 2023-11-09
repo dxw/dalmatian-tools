@@ -23,8 +23,8 @@ done
 # Check if awscli is installed
 if ! command -v aws &> /dev/null
 then
-    echo "awscli is not installed"
-    exit 1
+  err "awscli is not installed"
+  exit 1
 fi
 
 # Check awscli version
@@ -32,8 +32,8 @@ version=$(aws --version 2>&1 | cut -d' ' -f1 | cut -d'/' -f2)
 
 if [[ $version == "2"* ]]
 then
-    echo "awscli version 2 is installed"
+  echo "awscli version 2 is installed"
 else
-    echo "awscli version 2 is not installed which is required for dalmatian-tools"
-    exit 1
+  err "awscli version 2 is not installed which is required for dalmatian-tools"
+  exit 1
 fi

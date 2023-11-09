@@ -52,7 +52,7 @@ then
   then
     SETUP_JSON=$(jq -r < "$SETUP_FILE_PATH")
   else
-    echo "Error: '$SETUP_FILE_PATH' doesn't exist!"
+    err "'$SETUP_FILE_PATH' doesn't exist!"
     exit 1
   fi
 elif [ -n "$SETUP_FILE_URL" ]
