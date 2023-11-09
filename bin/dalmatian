@@ -164,6 +164,14 @@ then
   export AWS_CONFIG_FILE="$CONFIG_AWS_SSO_FILE"
   export AWS_PROFILE="dalmatian-main"
 
+  if [[
+    "$SUBCOMMAND" != "setup" &&
+    ( "$SUBCOMMAND" != "aws-sso" && "$COMMAND" != "login" )
+  ]]
+  then
+    "$APP_ROOT/bin/dalmatian" aws-sso login
+  fi
+
   if [[ -f "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" ]]
   then
     COMMAND_ARGS=( "${@:2}" )
