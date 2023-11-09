@@ -57,13 +57,19 @@ then
   exit 0
 fi
 
-if [[ ! "$INFRASTRUCTURE_NAME" =~ ^[a-z]+$ ]]
+if [[
+  ! "$INFRASTRUCTURE_NAME" =~ ^[a-z]+$ &&
+  -n "$INFRASTRUCTURE_NAME"
+]]
 then
   err "$INFRASTRUCTURE_NAME can only contain lowercase letters"
   exit 1
 fi
 
-if [[ ! "$ENVIRONMENT_NAME" =~ ^[a-z]+$ ]]
+if [[
+  ! "$ENVIRONMENT_NAME" =~ ^[a-z]+$ &&
+  -n "$ENVIRONMENT_NAME"
+]]
 then
   err "$ENVIRONMENT_NAME can only contain lowercase letters"
   exit 1
