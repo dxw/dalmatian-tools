@@ -2,5 +2,5 @@
 
 # Redirect command
 COMMAND_ARGS=( "${@:2}" )
-"$APP_ROOT/bin/rds/$COMMAND" "${COMMAND_ARGS[@]}"
+"$APP_ROOT/bin/dalmatian" rds count-sql-backups "${COMMAND_ARGS[@]}"
 exit 0
