@@ -154,7 +154,7 @@ echo "Continue (Yes/No)"
 read -r -p " > " choice
 case "$choice" in
   Yes ) echo "==> Importing ...";;
-  * ) echo "Aborting!"
+  * ) err "You must specify 'Yes' to continue. The import has been cancelled."
     exit 1
     ;;
 esac

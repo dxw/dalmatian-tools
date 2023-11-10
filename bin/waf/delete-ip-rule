@@ -53,7 +53,7 @@ ACTION="${ACTION:-Block}"
 # Enforce titlecase for the 'Action' (converts CAPTCHA to Captcha)
 ACTION="$(echo "$ACTION" | awk '{print toupper(substr($0,0,1))tolower(substr($0,2))}')"
 
-echo "[!] Target IP: $SOURCE_IP"
+echo "Target IP: $SOURCE_IP"
 
 if [[
   -z "$INFRASTRUCTURE_NAME"
@@ -68,7 +68,7 @@ if [[ -n "$SOURCE_IP" ]]
 then
   if ! [[ "$SOURCE_IP" =~ /[0-9]{1,2}$ ]]
   then
-    echo "Error: Please specify a subnet mask with your IP address (e.g. '1.2.3.4/32')"
+    err "Please include a subnet mask when specifying your source IP address (e.g. '1.2.3.4/32')"
     usage
   fi
 
@@ -98,7 +98,7 @@ ACL=$(aws wafv2 get-web-acl --scope "REGIONAL" \
 ACL_VISIBILITY_CONFIG=$(echo "$ACL" | jq -cr '.WebACL.VisibilityConfig')
 ACL_DEFAULT_ACTION=$(echo "$ACL" | jq -cr '.WebACL.DefaultAction')
 
-echo "[!] Found target Web ACL $ACL_ID"
+echo "Found target Web ACL $ACL_ID"
 
 ACL_RULES=$(echo "$ACL" | jq -r '.WebACL.Rules')
 
@@ -122,7 +122,7 @@ IP_SET_SUMMARY=$(echo "$IP_SETS" | jq -r --arg ipset_name "$WAF_IP_SET_NAME" '.I
 IP_SET_ID=$(echo "$IP_SET_SUMMARY" | jq -r '.Id')
 IP_SET_LOCK_TOKEN=$(echo "$IP_SET_SUMMARY" | jq -r '.LockToken')
 
-echo "[!] Found target IP Set $IP_SET_ID"
+echo "Found target IP Set $IP_SET_ID"
 
 echo "==> Deleting IP Set '$WAF_IP_SET_NAME'..."
 aws wafv2 delete-ip-set --scope "REGIONAL" \

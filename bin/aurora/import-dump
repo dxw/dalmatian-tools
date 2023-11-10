@@ -117,8 +117,8 @@ echo "ECS instance ID: $ECS_INSTANCE_ID"
 
 if [ ! -f "$DB_DUMP_FILE" ];
 then
-    echo "$DB_DUMP_FILE not found ..."
-    exit 1
+  err "'$DB_DUMP_FILE' not found ..."
+  exit 1
 fi
 
 if [ -n "$REWRITE_FILE" ];
@@ -153,7 +153,7 @@ echo "Continue (Yes/No)"
 read -r -p " > " choice
 case "$choice" in
   Yes ) echo "==> Importing ...";;
-  * ) echo "Aborting!"
+  * ) err "You must specify 'Yes' to continue. The import has been cancelled."
     exit 1
     ;;
 esac

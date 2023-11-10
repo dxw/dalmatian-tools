@@ -46,14 +46,14 @@ done
 
 if [[ -z "$INFRASTRUCTURE_NAME" ]];
 then
-  echo "ERROR: -i must be specified."
+  err "Infrastructure name is a required option. -i must be specified."
   echo
   usage
 fi
 
 if [[ -z "$CERTIFICATE_ARN" ]] && [[ -z "$DOMAIN_NAME" ]] ;
 then
-  echo "ERROR: either -c or -D must be specified."
+  err "At least one Certificate ARN (-c) or Domain Name (-D) must be specified."
   echo
   usage
 fi

@@ -3,7 +3,6 @@
 # exit on failures
 set -e
 set -o pipefail
-# set -x
 
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
@@ -54,8 +53,8 @@ ACTION="${ACTION:-Block}"
 # Enforce titlecase for the 'Action' (converts CAPTCHA to Captcha)
 ACTION="$(echo "$ACTION" | awk '{print toupper(substr($0,0,1))tolower(substr($0,2))}')"
 
-echo "[!] Target IP: $SOURCE_IP"
-echo "[!] Action to be taken: $ACTION"
+echo "Target IP: $SOURCE_IP"
+echo "Action to be taken: $ACTION"
 
 if [[
   -z "$INFRASTRUCTURE_NAME"
@@ -70,7 +69,7 @@ if [[ -n "$SOURCE_IP" ]]
 then
   if ! [[ "$SOURCE_IP" =~ /[0-9]{1,2}$ ]]
   then
-    echo "Error: Please specify a subnet mask with your IP address (e.g. '1.2.3.4/32')"
+    err "Please include a subnet mask when specifying your source IP address (e.g. '1.2.3.4/32')"
     usage
   fi
 
@@ -93,7 +92,7 @@ IP_SET_SUMMARY=$(aws wafv2 create-ip-set --scope "REGIONAL" \
   --addresses "$SOURCE_IP" | jq -r '.Summary')
 IP_SET_ARN=$(echo "$IP_SET_SUMMARY" | jq -r '.ARN')
 IP_SET_ID=$(echo "$IP_SET_SUMMARY" | jq -r '.Id')
-echo "[!] Created IP Set $IP_SET_ID"
+echo "Created IP Set $IP_SET_ID"
 
 WAF_WEB_ACL_NAME="$INFRASTRUCTURE_NAME-$WAF_NAME-waf-$ENVIRONMENT-$WAF_NAME-acl"
 echo "==> Getting Web ACL '$WAF_WEB_ACL_NAME'..."
@@ -109,17 +108,17 @@ ACL=$(aws wafv2 get-web-acl --scope "REGIONAL" \
 ACL_VISIBILITY_CONFIG=$(echo "$ACL" | jq -cr '.WebACL.VisibilityConfig')
 ACL_DEFAULT_ACTION=$(echo "$ACL" | jq -cr '.WebACL.DefaultAction')
 
-echo "[!] Found target Web ACL $ACL_ID"
+echo "Found target Web ACL $ACL_ID"
 
 ACL_RULES=$(echo "$ACL" | jq -r '.WebACL.Rules')
 ACL_RULES_COUNT=$(echo "$ACL_RULES" | jq length)
 
-echo "[!] Found $ACL_RULES_COUNT existing rules in this ACL"
+echo "Found $ACL_RULES_COUNT existing rules in this ACL"
 
 # Rule priorities must be unique so simply +1 to the number of existing rules
 PRIORITY_COUNT=$((ACL_RULES_COUNT + 1))
 
-echo "[!] New rule will be given Priority $PRIORITY_COUNT"
+echo "New rule will be given Priority $PRIORITY_COUNT"
 
 echo "==> Generating new ACL Rule..."
 ACL_RULE_NAME="Custom$WAF_IP_SET_NAME"
@@ -149,7 +148,7 @@ JSON_ACL_RULE=$(jq -n \
     }
   }')
 
-echo "[!] Created ACL Rule $ACL_RULE_NAME"
+echo "Created ACL Rule $ACL_RULE_NAME"
 
 RULES=$(echo "$ACL_RULES" | jq --argjson json "$JSON_ACL_RULE" -r '. += [$json]' | jq -c)
 
