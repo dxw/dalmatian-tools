@@ -106,6 +106,8 @@ then
     export TF_VAR_infrastructure_name
     export TF_VAR_environment
     export AWS_PROFILE="$ACCOUNT_NAME"
+    OPTIONS+=("-var-file=$CONFIG_TFVARS_DEFAULT_INFRASTRUCTURE_FILE")
+    OPTIONS+=("-var-file=$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE")
     OPTIONS+=("-var-file=$CONFIG_TFVARS_DIR/000-terraform.tfvars")
   fi
 fi
