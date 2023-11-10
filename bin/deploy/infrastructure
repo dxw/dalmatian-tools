@@ -11,6 +11,7 @@ usage() {
   echo "  -a <dalmatian_account>   - Dalmatian account name (Optional - By default all accounts will be cycled through)"
   echo "  -i <infrastructure_name> - Infrastructure name (Optional - By default all infrastructures will be cycled through)"
   echo "  -e <environment_name>    - Environment name (Optional - By default all environments will be cycled through)"
+  echo "  -w <workspace_name>      - Workspace name (Optional - Rather than providing account, infrastructure and environment)"
   echo "  -p                       - Run terraform plan rather than apply"
   echo "  -N                       - Non-interactive mode (auto-approves terraform apply)"
   exit 1
@@ -19,10 +20,11 @@ usage() {
 DALMATIAN_ACCOUNT=""
 ENVIRONMENT_NAME=""
 INFRASTRUCTURE_NAME=""
+WORKSPACE_NAME=""
 NON_INTERACTIVE_MODE=0
 PLAN=0
 LIST_INFRASTRUCTURES=0
-while getopts "la:i:e:Nph" opt; do
+while getopts "la:i:e:w:Nph" opt; do
   case $opt in
     l)
       LIST_INFRASTRUCTURES=1
@@ -35,6 +37,9 @@ while getopts "la:i:e:Nph" opt; do
       ;;
     e)
       ENVIRONMENT_NAME=$OPTARG
+      ;;
+    w)
+      WORKSPACE_NAME=$OPTARG
       ;;
     p)
       PLAN=1
@@ -95,12 +100,22 @@ do
   workspace=$(echo "$workspace" | xargs)
   if [[
     -n "$workspace" &&
-    "$workspace" == "$DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME"
+    ( "$workspace" == "$DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME" ||
+    "$workspace" == "$WORKSPACE_NAME" )
   ]]
   then
     WORKSPACE_EXISTS=1
   fi
 done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -i -q)
+
+if [ -n "$WORKSPACE_NAME" ]
+then
+  if [ "$WORKSPACE_EXISTS" == "0" ]
+  then
+    err "$WORKSPACE_NAME does not exist"
+    exit 1
+  fi
+fi
 
 if [[
   "$WORKSPACE_EXISTS" == "0" &&
@@ -115,13 +130,15 @@ then
     exit 0
   fi
   "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace new $DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME" -i -q
+  "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
 fi
 
 DEPLOY_ALL="y"
 if [[
-  -z "$DALMATIAN_ACCOUNT" ||
+  -z "$WORKSPACE_NAME" &&
+  ( -z "$DALMATIAN_ACCOUNT" ||
   -z "$ENVIRONMENT_NAME" ||
-  -z "$INFRASTRUCTURE_NAME"
+  -z "$INFRASTRUCTURE_NAME" )
 ]]
 then
   MATCH_STRING=""
@@ -157,14 +174,15 @@ while IFS='' read -r workspace <&9
 do
   workspace=${workspace/\*/ }
   workspace=$(echo "$workspace" | xargs)
-  if [[ ( "$DALMATIAN_ACCOUNT" == "$(echo "$workspace" | rev | cut -d'-' -f3- | rev)" || 
+  if [[ ( ( "$DALMATIAN_ACCOUNT" == "$(echo "$workspace" | rev | cut -d'-' -f3- | rev)" ||
     -z "$DALMATIAN_ACCOUNT" ) &&
     ( "$INFRASTRUCTURE_NAME" == "$(echo "$workspace" | rev | cut -d'-' -f2 | rev)" ||
     -z "$INFRASTRUCTURE_NAME" ) &&
     ( "$ENVIRONMENT_NAME" == "$(echo "$workspace" | rev | cut -d'-' -f1 | rev)" ||
     -z "$ENVIRONMENT_NAME" ) &&
     "$workspace" != "default" &&
-    -n "$workspace"
+    -n "$workspace" ) ||
+    "$WORKSPACE_NAME" == "$workspace"
   ]]
   then
     "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace select $workspace" -i -q
