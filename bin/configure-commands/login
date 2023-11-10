@@ -1,14 +1,19 @@
 #!/bin/bash
 
-echo "Note: You must have a Dalmatian Admin account to use Dalmatian Tools"
-echo ""
+source "$APP_ROOT/lib/bash-functions.sh"
 
-if ! command -v oathtool > /dev/null
-then
-  echo "Error: oathtool is not installed on this system"
-  echo "This can be installed with homebrew:"
-  echo "brew install oath-toolkit"
-  exit 1
+echo "Note: You must have a Dalmatian Admin account to use Dalmatian Tools"
+echo
+
+# Check to see if oathtool is installed, and prompt to install it if it isn't
+if ! is_installed "oathtool"; then
+  if yes_no "Install oathtool now? (Y/n)" "Y"; then
+    BREW_BIN=$(command -v "brew")
+    $BREW_BIN install oath-toolkit
+  else
+    echo "Please run \`brew install oath-toolkit\` before trying again"
+    exit 1
+  fi
 fi
 
 if ! "$APP_ROOT/bin/aws/awscli-version"
