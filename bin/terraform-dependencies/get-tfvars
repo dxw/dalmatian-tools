@@ -111,13 +111,8 @@ do
     if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" ]
     then
       echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
-      read -rp "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]: " CREATE_WORKSPACE_TFVARS_FILE
-      if [[
-        "$CREATE_WORKSPACE_TFVARS_FILE" == "y" ||
-        "$CREATE_WORKSPACE_TFVARS_FILE" == "Y" ||
-        "$CREATE_WORKSPACE_TFVARS_FILE" == "yes" ||
-        "$CREATE_WORKSPACE_TFVARS_FILE" == "YES"
-      ]]
+
+      if yes_no "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]: " "y"
       then
         WORKSPACE_TFVARS_HEADER=(
           "############################################################"
@@ -131,18 +126,22 @@ do
           "############################################################"
         )
         printf '%s\n' "${WORKSPACE_TFVARS_HEADER[@]}" > "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+
         GLOBAL_CONFIG_LINES=()
         while IFS='' read -r global_config_line
         do
           GLOBAL_CONFIG_LINES+=("$global_config_line")
         done < "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE"
         printf '#%s\n' "${GLOBAL_CONFIG_LINES[@]}" >> "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+
         $EDITOR "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+
         for workspace_tfvars_header_line in "${WORKSPACE_TFVARS_HEADER[@]}"
         do
           grep -v "^$workspace_tfvars_header_line$" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > "/tmp/$WORKSPACE_TFVARS_FILE"
           mv "/tmp/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
         done
+
         for global_config_line in "${GLOBAL_CONFIG_LINES[@]}"
         do
           sed -i '' "s/^\#$//g" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
@@ -154,9 +153,11 @@ do
             sed -i '' "s/^\#$global_config_line$/$global_config_line/g" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
           fi
         done
+
         WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
       fi
     fi
+
     if [ "$WORKSPACE_TFVARS_ADD_TO_PATHS_JSON" == "1" ]
     then
       TFVARS_PATHS_JSON=$(echo "$TFVARS_PATHS_JSON" | jq -c \
@@ -167,5 +168,86 @@ do
     fi
   fi
 done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)
+
+while IFS='' read -r workspace <&9
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [[
+    "$workspace" != "default" &&
+    -n "$workspace"
+  ]]
+  then
+    WORKSPACE_TFVARS_FILE="200-$workspace.tfvars"
+    WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=0
+    WORKSPACE_TFVARS_FILE_EXISTS=0
+    if [ "$TFVARS_BUCKET_EXISTS" == 1 ]
+    then
+      if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$WORKSPACE_TFVARS_FILE" > /dev/null 2>&1
+      then
+        aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+        WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
+        WORKSPACE_TFVARS_FILE_EXISTS=1
+      fi
+    fi
+    if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" ]
+    then
+      echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
+      if yes_no "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]:" "y"
+      then
+        WORKSPACE_TFVARS_HEADER=(
+          "############################################################"
+          "# Copied from the Global TFvars file                       #"
+          "#                                                          #"
+          "# To overwrite the global variable, uncomment the variable #"
+          "# and change it's value                                    #"
+          "#                                                          #"
+          "# All unchanged variables will be deleted from this file   #"
+          "# once it is saved                                         #"
+          "############################################################"
+        )
+        printf '%s\n' "${WORKSPACE_TFVARS_HEADER[@]}" > "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+
+        GLOBAL_CONFIG_LINES=()
+        while IFS='' read -r global_config_line
+        do
+          GLOBAL_CONFIG_LINES+=("$global_config_line")
+        done < "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE"
+        printf '#%s\n' "${GLOBAL_CONFIG_LINES[@]}" >> "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+
+        $EDITOR "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+
+        for workspace_tfvars_header_line in "${WORKSPACE_TFVARS_HEADER[@]}"
+        do
+          grep -v "^$workspace_tfvars_header_line$" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > "/tmp/$WORKSPACE_TFVARS_FILE"
+          mv "/tmp/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+        done
+
+        for global_config_line in "${GLOBAL_CONFIG_LINES[@]}"
+        do
+          sed -i '' "s/^\#$//g" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+          if [[ ! "$global_config_line" =~ ^\#.* ]]
+          then
+            grep -v "^#$global_config_line$" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > "/tmp/$WORKSPACE_TFVARS_FILE"
+            mv "/tmp/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+          else
+            sed -i '' "s/^\#$global_config_line$/$global_config_line/g" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+          fi
+        done
+
+        WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
+      fi
+    fi
+
+    if [ "$WORKSPACE_TFVARS_ADD_TO_PATHS_JSON" == "1" ]
+    then
+      TFVARS_PATHS_JSON=$(echo "$TFVARS_PATHS_JSON" | jq -c \
+        --arg workspace_name "$workspace" \
+        --arg workspace_tfvars_file "$WORKSPACE_TFVARS_FILE" \
+        --arg workspace_tfvars_path "$TFVARS_DIR/$WORKSPACE_TFVARS_FILE" \
+        '. += { "\($workspace_name)": { "path": $workspace_tfvars_path, "key": $workspace_tfvars_file } }')
+    fi
+  fi
+done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -i -q)
 
 echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"

@@ -6,8 +6,11 @@ set -o pipefail
 
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -a <dalmatian-account> - AWS Account ID (Optional - By default all accounts will shown to be selected)"
+  echo "  -h                          - help"
+  echo "  -a <dalmatian_account>      - Dalmatian Account (Optional)"
+  echo "  -i <infrastructure_account> - Infrastructure account (Optional)"
+  echo "                                Note: If neither is specified, a list of accounts"
+  echo "                                      and infrastructures will be shown for selection"
   exit 1
 }
 
@@ -17,10 +20,13 @@ TFVARS_BUCKET_NAME="$PROJECT_NAME_HASH-tfvars"
 TFVARS_PATHS_JSON="$(jq -r < "$CONFIG_TFVARS_PATHS_FILE")"
 TFVARS_DIR="${CONFIG_TFVARS_DIR/$HOME/~}"
 
-while getopts "a:h" opt; do
+while getopts "a:i:h" opt; do
   case $opt in
     a)
       DALMATIAN_ACCOUNT=$OPTARG
+      ;;
+    i)
+      INFRASTRUCTURE_ACCOUNT=$OPTARG
       ;;
     h)
       usage
@@ -32,8 +38,32 @@ while getopts "a:h" opt; do
 done
 
 WORKSPACES=()
-if [ -z "$DALMATIAN_ACCOUNT" ]
+if [[
+  -z "$DALMATIAN_ACCOUNT" &&
+  -z "$INFRASTRUCTURE_ACCOUNT"
+]]
 then
+  echo "1) Account Bootstrap"
+  echo "2) Infrastructure"
+  read -rp "Select project: " PROJECT
+
+  if [ "$PROJECT" == "1" ]
+  then
+    WORKSPACE_LIST_FLAG="-a"
+    DEPLOY_FLAG="-a"
+    DEPLOY_PROJECT="account-bootstrap"
+    TFVARS_FILE_NUMBER="100"
+  elif [ "$PROJECT" == "2" ]
+  then
+    WORKSPACE_LIST_FLAG="-i"
+    DEPLOY_FLAG="-w"
+    DEPLOY_PROJECT="infrastructure"
+    TFVARS_FILE_NUMBER="200"
+  else
+    err "Invalid selection. Please enter either 1 or 2 to make your choice"
+    exit 1
+  fi
+
   WORKSPACE_INDEX=0
   while IFS='' read -r workspace
   do
@@ -48,11 +78,11 @@ then
       WORKSPACES+=("$workspace")
       echo "$WORKSPACE_INDEX) $workspace"
     fi
-  done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)
+  done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" "$WORKSPACE_LIST_FLAG" -q)
 
   while true
   do
-    read -rp "Select account: " ACCOUNT_INDEX
+    read -rp "Select workspace: " ACCOUNT_INDEX
 
     if [[
       "$ACCOUNT_INDEX" -eq "$ACCOUNT_INDEX" &&
@@ -66,10 +96,10 @@ then
     fi
   done
 
-  DALMATIAN_ACCOUNT="${WORKSPACES[((ACCOUNT_INDEX-1))]}"
+  SELECTED_WORKSPACE="${WORKSPACES[((ACCOUNT_INDEX-1))]}"
 fi
 
-WORKSPACE_TFVARS_FILE="100-$DALMATIAN_ACCOUNT.tfvars"
+WORKSPACE_TFVARS_FILE="$TFVARS_FILE_NUMBER-$SELECTED_WORKSPACE.tfvars"
 WORKSPACE_TFVARS_FILE_EXISTS=0
 
 echo "==> Checking $WORKSPACE_TFVARS_FILE file ..."
@@ -106,12 +136,9 @@ WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=0
 if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" ]
 then
   echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
-  read -rp "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]: " CREATE_WORKSPACE_TFVARS_FILE
-  if [[
-    "$CREATE_WORKSPACE_TFVARS_FILE" == "y"
-  ]]
+  if yes_no "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]: " "y"
   then
-    cp "$APP_ROOT/data/tfvars-templates/account-bootstrap.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+    cp "$APP_ROOT/data/tfvars-templates/$DEPLOY_PROJECT.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
     $EDITOR "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
     WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
   fi
@@ -125,7 +152,7 @@ fi
 if [ "$WORKSPACE_TFVARS_ADD_TO_PATHS_JSON" == "1" ]
 then
   TFVARS_PATHS_JSON=$(echo "$TFVARS_PATHS_JSON" | jq -c \
-    --arg workspace_name "$workspace" \
+    --arg workspace_name "$SELECTED_WORKSPACE" \
     --arg workspace_tfvars_file "$WORKSPACE_TFVARS_FILE" \
     --arg workspace_tfvars_path "$TFVARS_DIR/$WORKSPACE_TFVARS_FILE" \
     '. += { "\($workspace_name)": { "path": $workspace_tfvars_path, "key": $workspace_tfvars_file } }')
@@ -134,14 +161,12 @@ fi
 echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"
 
 echo "==> $WORKSPACE_TFVARS_FILE edited!"
-echo "==> Running terraform plan for $DALMATIAN_ACCOUNT .."
-"$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$DALMATIAN_ACCOUNT" -p
+echo "==> Running terraform plan for $SELECTED_WORKSPACE .."
+"$APP_ROOT/bin/dalmatian" deploy "$DEPLOY_PROJECT" "$DEPLOY_FLAG" "$SELECTED_WORKSPACE" -p
 
-read -rp "Do you want to run the deploy for $DALMATIAN_ACCOUNT now? [y/n]: " RUN_APPLY
-
-if [ "$RUN_APPLY" == "y" ]
+if yes_no "Do you want to run the deploy for $SELECTED_WORKSPACE now? [y/n]: " "y"
 then
-  "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$DALMATIAN_ACCOUNT"
+  "$APP_ROOT/bin/dalmatian" deploy "$DEPLOY_PROJECT" "$DEPLOY_FLAG" "$SELECTED_WORKSPACE"
 else
   exit 0
 fi
