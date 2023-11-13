@@ -182,7 +182,8 @@ do
     -z "$ENVIRONMENT_NAME" ) &&
     "$workspace" != "default" &&
     -n "$workspace" ) ||
-    "$WORKSPACE_NAME" == "$workspace"
+    ( "$WORKSPACE_NAME" == "$workspace" &&
+    -n "$WORKSPACE_NAME" )
   ]]
   then
     "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace select $workspace" -i -q
