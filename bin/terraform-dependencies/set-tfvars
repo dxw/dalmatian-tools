@@ -50,15 +50,9 @@ then
   if [ "$PROJECT" == "1" ]
   then
     WORKSPACE_LIST_FLAG="-a"
-    DEPLOY_FLAG="-a"
-    DEPLOY_PROJECT="account-bootstrap"
-    TFVARS_FILE_NUMBER="100"
   elif [ "$PROJECT" == "2" ]
   then
     WORKSPACE_LIST_FLAG="-i"
-    DEPLOY_FLAG="-w"
-    DEPLOY_PROJECT="infrastructure"
-    TFVARS_FILE_NUMBER="200"
   else
     err "Invalid selection. Please enter either 1 or 2 to make your choice"
     exit 1
@@ -97,6 +91,32 @@ then
   done
 
   SELECTED_WORKSPACE="${WORKSPACES[((ACCOUNT_INDEX-1))]}"
+fi
+
+if [[
+  "$PROJECT" == "1" ||
+  -n "$DALMATIAN_ACCOUNT"
+]]
+then
+  DEPLOY_FLAG="-a"
+  DEPLOY_PROJECT="account-bootstrap"
+  TFVARS_FILE_NUMBER="100"
+  if [ -z "$SELECTED_WORKSPACE" ]
+  then
+    SELECTED_WORKSPACE="$DALMATIAN_ACCOUNT"
+  fi
+elif [[
+  "$PROJECT" == "2" ||
+  -n "$INFRASTRUCTURE_ACCOUNT"
+]]
+then
+  DEPLOY_FLAG="-w"
+  DEPLOY_PROJECT="infrastructure"
+  TFVARS_FILE_NUMBER="200"
+  if [ -z "$SELECTED_WORKSPACE" ]
+  then
+    SELECTED_WORKSPACE="$INFRASTRUCTURE_ACCOUNT"
+  fi
 fi
 
 WORKSPACE_TFVARS_FILE="$TFVARS_FILE_NUMBER-$SELECTED_WORKSPACE.tfvars"
