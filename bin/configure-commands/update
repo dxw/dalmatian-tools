@@ -56,7 +56,7 @@ then
   git -C "$APP_ROOT" pull
   git -C "$APP_ROOT" checkout "$LATEST_REMOTE_TAG"
   log_info -l "Updating brew packages ..." -q "$QUIET_MODE"
-  brew bundle -d "$APP_ROOT"
+  brew bundle --file="$APP_ROOT/Brewfile"
   "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
   "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
 else
