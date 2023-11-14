@@ -46,20 +46,20 @@ then
   rm -rf "$TMP_INFRASTRUCTURE_TERRAFORM_DIR"
 fi
 
-echo "==> Cloning dxw/terraform-dxw-dalmatian-account-bootstrap $TERRAFORM_PROJECT_ACCOUNT_BOOTSTRAP_VERSION ..."
+echo "==> Cloning $GIT_DALMATIAN_ACCOUNT_BOOTSTRAP_OWNER/$GIT_DALMATIAN_ACCOUNT_BOOTSTRAP_REPO $TERRAFORM_PROJECT_ACCOUNT_BOOTSTRAP_VERSION ..."
 git clone \
   --depth 1 \
   --branch "$TERRAFORM_PROJECT_ACCOUNT_BOOTSTRAP_VERSION" \
   -c advice.detachedHead=false \
-  git@github.com:dxw/terraform-dxw-dalmatian-account-bootstrap \
+  "git@github.com:$GIT_DALMATIAN_ACCOUNT_BOOTSTRAP_OWNER/$GIT_DALMATIAN_ACCOUNT_BOOTSTRAP_REPO" \
   "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR"
 
-echo "==> Cloning dxw/terraform-dxw-dalmatian-account-bootstrap $TERRAFORM_PROJECT_INFRASTRUCTURE_VERSION ..."
+echo "==> Cloning $GIT_DALMATIAN_INFRASTRUCTURE_OWNER/$GIT_DALMATIAN_INFRASTRUCTURE_REPO $TERRAFORM_PROJECT_INFRASTRUCTURE_VERSION ..."
 git clone \
   --depth 1 \
   --branch "$TERRAFORM_PROJECT_INFRASTRUCTURE_VERSION" \
   -c advice.detachedHead=false \
-  git@github.com:dxw/terraform-dxw-dalmatian-infrastructure \
+  "git@github.com:$GIT_DALMATIAN_INFRASTRUCTURE_OWNER/$GIT_DALMATIAN_INFRASTRUCTURE_REPO" \
   "$TMP_INFRASTRUCTURE_TERRAFORM_DIR"
 
 if [ "$INITIALISE" == "1" ]
