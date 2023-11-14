@@ -180,6 +180,16 @@ then
   if [[ -f "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" ]]
   then
     COMMAND_ARGS=( "${@:2}" )
+    QUIET_MODE=0
+    for i in "${!COMMAND_ARGS[@]}"
+    do
+      if [ "${COMMAND_ARGS[i]}" == "-q" ]
+      then
+        QUIET_MODE=1
+        unset "COMMAND_ARGS[i]"
+      fi
+    done
+    export QUIET_MODE
     "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" "${COMMAND_ARGS[@]}"
     exit 0
   fi
