@@ -130,7 +130,8 @@ fi
 
 if [[
   -f "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" &&
-  "$SUBCOMMAND" != "setup" # Ignore setup for now, this requires different prerequists
+  "$SUBCOMMAND" != "setup" && # Ignore setup for now, this requires different prerequists
+  "$SUBCOMMAND" != "update"
 ]]
 then
   "$APP_ROOT/bin/configure-commands/$SUBCOMMAND"
@@ -142,6 +143,7 @@ fi
 # authentication methods
 if [[
   "$SUBCOMMAND" == "setup" ||
+  "$SUBCOMMAND" == "update" ||
   "$SUBCOMMAND" == "aws-sso" ||
   "$SUBCOMMAND" == "terraform-dependencies" ||
   "$SUBCOMMAND" == "deploy"
@@ -162,6 +164,13 @@ then
   export TMP_DIR="$APP_ROOT/tmp"
   export TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-account-bootstrap"
   export TMP_INFRASTRUCTURE_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-infrastructure"
+
+  export GIT_DALMATIAN_TOOLS_HOST="github.com"
+  export GIT_DALMATIAN_TOOLS_OWNER="dxw"
+  export GIT_DALMATIAN_TOOLS_REPO="dalmatian-tools"
+  export GIT_DALMATIAN_TOOLS_API_URL="https://api.$GIT_DALMATIAN_TOOLS_HOST"
+  export GIT_DALMATIAN_TOOLS_API_REPOS_URL="$GIT_DALMATIAN_TOOLS_API_URL/repos/$GIT_DALMATIAN_TOOLS_OWNER/$GIT_DALMATIAN_TOOLS_REPO"
+  export GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL="$GIT_DALMATIAN_TOOLS_API_REPOS_URL/releases/latest"
 
   export TERRAFORM_PROJECT_ACCOUNT_BOOTSTRAP_VERSION="v0.5.0"
   export TERRAFORM_PROJECT_INFRASTRUCTURE_VERSION="v0.3.0"

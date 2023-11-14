@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -g <git_auth_token>    - Git Auth token (Optional - only required if dalmatian tools repo is private)"
+  echo "  -h                     - help"
+  exit 1
+}
+
+GIT_AUTH_TOKEN=""
+while getopts "g:h" opt; do
+  case $opt in
+    g)
+      GIT_AUTH_TOKEN=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+log_info -l "Checking for newer version ..." -q "$QUIET_MODE"
+if [ -n "$GIT_AUTH_TOKEN" ]
+then
+  RELEASE_JSON=$(curl -s -H "Authorization: Bearer $GIT_AUTH_TOKEN" "$GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL" | jq -r)
+else
+  RELEASE_JSON=$(curl -s "$GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL" | jq -r)
+fi
+
+GITHUB_MESSAGE=$(echo "$RELEASE_JSON" | jq -r '.message')
+
+if [ "$GITHUB_MESSAGE" != "null" ]
+then
+  err "Github: $GITHUB_MESSAGE"
+  exit 1
+fi
+
+LATEST_REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.name')
+CURRENT_LOCAL_TAG=$(git -C "$APP_ROOT" describe --tags)
+LOCAL_CHANGES=$(git -C "$APP_ROOT" status --porcelain)
+if [ "$LATEST_REMOTE_TAG" != "$CURRENT_LOCAL_TAG" ]
+then
+  if [ -n "$LOCAL_CHANGES" ]
+  then
+    err "There is a newer version of $GIT_DALMATIAN_TOOLS_OWNER/$GIT_DALMATIAN_TOOLS_REPO ($CURRENT_LOCAL_TAG -> $LATEST_REMOTE_TAG) but cant update! You have local changes in $APP_ROOT"
+    exit 1
+  fi
+  log_info -l "Updating ..." -q "$QUIET_MODE"
+  git -C "$APP_ROOT" pull
+  git -C "$APP_ROOT" checkout "$LATEST_REMOTE_TAG"
+  log_info -l "Updating brew packages ..." -q "$QUIET_MODE"
+  brew bundle -d "$APP_ROOT"
+  "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
+  "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
+else
+  log_info -l "You are on the latest version ($LATEST_REMOTE_TAG) 👍" -q "$QUIET_MODE"
+fi
