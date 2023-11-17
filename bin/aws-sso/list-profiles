@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+while IFS='' read -r workspace
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [[
+    "$workspace" != "$MAIN_WORKSPACE_NAME" &&
+    "$workspace" != "default" &&
+    -n "$workspace"
+  ]]
+  then
+    SSO_CONFIG_ACCOUNT_NAME="$(echo "$workspace" | cut -d"-" -f5-)"
+    echo "$SSO_CONFIG_ACCOUNT_NAME"
+  fi
+done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)
