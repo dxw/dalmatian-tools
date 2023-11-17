@@ -184,7 +184,7 @@ then
 
   if [[
     "$SUBCOMMAND" != "setup" &&
-    ( "$SUBCOMMAND" != "aws-sso" && "$COMMAND" != "login" )
+    ( "$SUBCOMMAND" != "aws-sso" && "$COMMAND" != "login" && "$COMMAND" != "generate-config" )
   ]]
   then
     "$APP_ROOT/bin/dalmatian" aws-sso login
