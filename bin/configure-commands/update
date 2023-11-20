@@ -53,6 +53,7 @@ then
     exit 1
   fi
   log_info -l "Updating ..." -q "$QUIET_MODE"
+  git -C "$APP_ROOT" checkout main
   git -C "$APP_ROOT" pull
   git -C "$APP_ROOT" checkout "$LATEST_REMOTE_TAG"
   log_info -l "Updating brew packages ..." -q "$QUIET_MODE"
