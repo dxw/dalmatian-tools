@@ -101,7 +101,7 @@ then
   if [ "$TERRAFORM_PROJECT" == "infrastructure" ]
   then
     ACCOUNT_NAME=$(echo "$CURRENT_WORKSPACE" | cut -d'-' -f5- | rev | cut -d'-' -f3- | rev)
-    TF_VAR_infrastructure_name="$(echo "$CURRENT_WORKSPACE" | rev | cut -d'-' -f1 | rev)"
+    TF_VAR_infrastructure_name="$(echo "$CURRENT_WORKSPACE" | rev | cut -d'-' -f2 | rev)"
     TF_VAR_environment="$(echo "$CURRENT_WORKSPACE" | rev | cut -d'-' -f1 | rev)"
     export TF_VAR_infrastructure_name
     export TF_VAR_environment
