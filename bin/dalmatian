@@ -31,11 +31,11 @@ do
     continue
   fi
   # shellcheck source=/dev/null
-  source "$BASH_FUNCTION_DIR/$bash_function_file"
+  source "$bash_function_file"
   while IFS='' read -r function_name
   do
     export -f "${function_name?}"
-  done < <(grep "^function" "$BASH_FUNCTION_DIR/$bash_function_file" | cut -d" " -f2)
+  done < <(grep "^function" "$bash_function_file" | cut -d" " -f2)
 done
 
 if [ "${1:0:1}" == "-" ]
