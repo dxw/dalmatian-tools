@@ -12,7 +12,7 @@ do
     continue
   fi
   # shellcheck source=/dev/null
-  source "$APP_ROOT/lib/bash-functions/$bash_function_file"
+  source "$bash_function_file"
 done
 
 # Check to see if Homebrew is installed, and prompt to install it if it isn't
