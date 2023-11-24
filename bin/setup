@@ -5,7 +5,15 @@ set -o pipefail
 APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
 export APP_ROOT
 
-source "$APP_ROOT/lib/bash-functions.sh"
+for bash_function_file in "$BASH_FUNCTION_DIR"/*
+do
+  if [[ ! -f "$bash_function_file" ]]
+  then
+    continue
+  fi
+  # shellcheck source=/dev/null
+  source "$APP_ROOT/lib/bash-functions/$bash_function_file"
+done
 
 # Check to see if Homebrew is installed, and prompt to install it if it isn't
 if ! is_installed "brew"; then

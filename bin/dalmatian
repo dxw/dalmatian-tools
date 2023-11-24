@@ -23,11 +23,20 @@ fi
 APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
 export APP_ROOT
 
-source "$APP_ROOT/lib/bash-functions.sh"
-while IFS='' read -r function_name
+BASH_FUNCTION_DIR="$APP_ROOT/lib/bash-functions"
+for bash_function_file in "$BASH_FUNCTION_DIR"/*
 do
-  export -f "${function_name?}"
-done < <(grep "^function" "$APP_ROOT/lib/bash-functions.sh" | cut -d" " -f2)
+  if [[ ! -f "$bash_function_file" ]]
+  then
+    continue
+  fi
+  # shellcheck source=/dev/null
+  source "$BASH_FUNCTION_DIR/$bash_function_file"
+  while IFS='' read -r function_name
+  do
+    export -f "${function_name?}"
+  done < <(grep "^function" "$BASH_FUNCTION_DIR/$bash_function_file" | cut -d" " -f2)
+done
 
 if [ "${1:0:1}" == "-" ]
 then
