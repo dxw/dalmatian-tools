@@ -1,6 +1,9 @@
 # Logging
 logging_bucket_retention = 30
 
+# Route53
+route53_root_hosted_zone_domain_name = ""
+
 # Cloudtrail
 enable_cloudtrail                          = true
 cloudtrail_log_retention                   = 30
