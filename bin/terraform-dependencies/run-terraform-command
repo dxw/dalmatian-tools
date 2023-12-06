@@ -86,12 +86,15 @@ then
     then
       TF_VAR_enable_s3_tfvars=true
       TF_VAR_tfvars_s3_tfvars_files="$(cat "$CONFIG_TFVARS_PATHS_FILE")"
+      TF_VAR_enable_route53_root_hosted_zone=true
     else
       TF_VAR_enable_s3_tfvars=false
       TF_VAR_tfvars_s3_tfvars_files="{}"
+      TF_VAR_enable_route53_root_hosted_zone=false
     fi
     export TF_VAR_enable_s3_tfvars
     export TF_VAR_tfvars_s3_tfvars_files
+    export TF_VAR_enable_route53_root_hosted_zone
     export AWS_PROFILE="$ACCOUNT_NAME"
     OPTIONS+=("-var-file=$CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE")
     OPTIONS+=("-var-file=$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE")

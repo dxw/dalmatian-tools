@@ -2,6 +2,11 @@
 infrastructure_kms_encryption           = false
 infrastructure_logging_bucket_retention = 30
 
+# Route53
+route53_root_hosted_zone_domain_name      = ""
+aws_profile_name_route53_root             = "dalmatian-main"
+enable_infrastructure_route53_hosted_zone = false
+
 # Infrastructure VPC
 infrastructure_vpc                                          = false
 infrastructure_vpc_cidr_block                               = "10.0.0.0/16"
