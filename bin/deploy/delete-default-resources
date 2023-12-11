@@ -9,14 +9,10 @@ usage() {
   echo "  -h                     - help"
   echo "  -l                     - List accounts (shortcut to \`deploy list-accounts\`)"
   echo "  -a <dalmatian-account> - Dalmatian account name (Optional - By default all accounts will be cycled through)"
-  echo "  -p                     - Run terraform plan rather than apply"
-  echo "  -N                     - Non-interactive mode (auto-approves terraform apply)"
   exit 1
 }
 
 DALMATIAN_ACCOUNT=""
-NON_INTERACTIVE_MODE=0
-PLAN=0
 LIST_ACCOUNTS=0
 while getopts "la:Nph" opt; do
   case $opt in
@@ -25,12 +21,6 @@ while getopts "la:Nph" opt; do
       ;;
     a)
       DALMATIAN_ACCOUNT=$OPTARG
-      ;;
-    p)
-      PLAN=1
-      ;;
-    N)
-      NON_INTERACTIVE_MODE=1
       ;;
     h)
       usage
@@ -47,23 +37,9 @@ then
   exit 0
 fi
 
-OPTIONS=()
-APPLY_OR_PLAN="apply"
-if [ "$PLAN" == "1" ]
-then
-  APPLY_OR_PLAN="plan"
-fi
-OPTIONS+=("$APPLY_OR_PLAN")
-
-if [ "$NON_INTERACTIVE_MODE" == "1" ]
-then
-  OPTIONS+=("--auto-approve")
-fi
-
 if [ -z "$DALMATIAN_ACCOUNT" ]
 then
-  read -rp "No account has been provided. Do you wish to boostrap all initialised accounts? [y/n]: " BOOTSTRAP_ALL
-  if [ "$BOOTSTRAP_ALL" != "y" ]
+  if ! yes_no "No account has been provided. Do you wish to delete default resources across all initialised accounts? [y/n]: " "n"
   then
     exit 0
   fi
@@ -80,18 +56,16 @@ do
     -n "$workspace"
   ]]
   then
+    log_info -l "Deleting default VPCs for $workspace ..." -q "$QUIET_MODE"
     WORKSPACE_EXISTS=1
-    "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace select $workspace" -a -q
-    STRING_OPTIONS="${OPTIONS[*]}"
-    "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "$STRING_OPTIONS" -a -q
-    TERRAFORM_RESOURCES=$("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -a -c "terraform state list" -q)
-    if echo "$TERRAFORM_RESOURCES" | grep -q "aws_lambda_function.delete_default_resources\[0\]"
-    then
-      if yes_no "Do you want to delete all the Default resources in the AWS account? [y/n]" "y"
-      then
-        "$APP_ROOT/bin/dalmatian" deploy delete-default-resources -a "$workspace"
-      fi
-    fi
+    LAMBDA_OUTPUT_PATH="/tmp/$workspace-delete-default-resources-output"
+    PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+    ACCOUNT_NAME=$(echo "$workspace" | cut -d'-' -f5-)
+    export AWS_PROFILE="$ACCOUNT_NAME"
+    aws lambda invoke \
+      --function-name "$PROJECT_NAME-delete-default-resources" \
+      --qualifier "\$LATEST" \
+      "$LAMBDA_OUTPUT_PATH"
   fi
 done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)
 

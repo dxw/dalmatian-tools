@@ -1,6 +1,11 @@
 # Logging
 logging_bucket_retention = 30
 
+# Delete Default Resources Lambda
+enable_delete_default_resources                = false
+delete_default_resources_lambda_kms_encryption = false
+delete_default_resources_log_retention         = 30
+
 # Route53
 route53_root_hosted_zone_domain_name = ""
 
