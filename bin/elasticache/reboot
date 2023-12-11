@@ -1,0 +1,78 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Reboot all nodes in a given Elasticache cluster."
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -c <cluster_name>      - Elasticache cluster name (as defined in the Dalmatian config)"
+  echo "  -v                     - verbose mode"
+  # shellcheck disable=SC2086
+  exit $1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage 1
+fi
+
+while getopts "i:c:e:avh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    c)
+      CLUSTER_NAME=$OPTARG
+      ;;
+    v)
+      VERBOSE="true"
+      ;;
+    h)
+      usage 0
+      ;;
+    *)
+      usage 1
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE_NAME" ]] || [[ -z "$ENVIRONMENT" ]] || [[ -z "$CLUSTER_NAME" ]];
+then
+  usage 1
+fi
+
+CLUSTERS=$(aws elasticache describe-cache-clusters --show-cache-node-info)
+CLUSTER_IDS=$(echo "$CLUSTERS" | jq -r '.CacheClusters[].CacheClusterId')
+
+for CLUSTER in $CLUSTER_IDS;
+do
+  ARN=$(echo "$CLUSTERS" |  jq --arg "cluster_id" "$CLUSTER" -r '.CacheClusters[] | select(.CacheClusterId == $cluster_id).ARN')
+  TAGS=$(aws elasticache list-tags-for-resource --resource-name "$ARN")
+  ENV=$(echo "$TAGS" | jq -r '.TagList[] | select(.Key == "Environment") | .Value')
+  NAME=$(echo "$TAGS" | jq -r '.TagList[] | select(.Key == "Name") | .Value')
+  # infra-name-environment e.g. dxw-govpress-rdscache-staging.
+  NICE_NAME=$(echo "$TAGS" | jq -r '.TagList | map(select(.Key == "Infrastructure" or .Key == "Name" or .Key == "Environment") | .Value) | join("-")')
+  if [[ "$ENV" == "$ENVIRONMENT" ]] && [[ "$NAME" == "$CLUSTER_NAME" ]];
+  then
+    NODES=$(echo "$CLUSTERS" |  jq --arg "cluster_id" "$CLUSTER" -r '.CacheClusters[] | select(.CacheClusterId == $cluster_id).CacheNodes[].CacheNodeId')
+    if [[ -n "$VERBOSE" ]];
+    then
+      echo "Rebooting node(s) $(echo "$NODES" | tr ' ' ',') in Elasticache cluster $NICE_NAME (id: $CLUSTER)..."
+    else
+      echo "Rebooting all nodes in Elasticache cluster $NICE_NAME..."
+    fi
+    aws elasticache reboot-cache-cluster --cache-cluster-id "$CLUSTER" --cache-node-ids-to-reboot "$NODES"
+  elif [[ -n "$VERBOSE" ]];
+  then
+    echo "Skipping $NICE_NAME."
+  fi
+done

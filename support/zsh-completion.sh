@@ -71,6 +71,10 @@ _dalmatian_completions() {
       while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "$(find "$bindir/ci" -type f -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
       ;;
 
+    'elasticache'*)
+      while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "$(find "$bindir/elasticache" -type f -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
+      ;;
+
     *)
       while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "-h -l $(find "$bindir" -type d -not -path "$bindir"/configure-commands -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
       ;;
