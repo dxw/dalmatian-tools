@@ -20,6 +20,12 @@ then
  usage
 fi
 
+IS_PARENT_SCRIPT=0
+if [ "$(ps -o stat= -p $PPID | tr -d ' ')" == "S" ]
+then
+  IS_PARENT_SCRIPT=1
+fi
+
 APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
 export APP_ROOT
 
@@ -190,6 +196,14 @@ then
 
   export AWS_CONFIG_FILE="$CONFIG_AWS_SSO_FILE"
   export AWS_PROFILE="dalmatian-main"
+
+  if [ "$SUBCOMMAND" != "update" ]
+  then
+    if [ "$IS_PARENT_SCRIPT" == 1 ]
+    then
+      "$APP_ROOT/bin/dalmatian" update -q
+    fi
+  fi
 
   if [[
     "$SUBCOMMAND" != "setup" &&

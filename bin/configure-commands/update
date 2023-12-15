@@ -11,7 +11,13 @@ usage() {
   exit 1
 }
 
-GIT_AUTH_TOKEN=""
+log_info -l "Updating dalmatian requires elevated permissions"
+log_info -l "Attempting sudo ..."
+sudo -v
+log_info -l "Elevated permissions are available, continuing ..."
+
+GIT_AUTH_TOKEN="$(jq -r '.dalmatian_update_github_token' < "$CONFIG_SETUP_JSON_FILE")"
+
 while getopts "g:h" opt; do
   case $opt in
     g)
@@ -39,6 +45,11 @@ GITHUB_MESSAGE=$(echo "$RELEASE_JSON" | jq -r '.message')
 if [ "$GITHUB_MESSAGE" != "null" ]
 then
   err "Github: $GITHUB_MESSAGE"
+  log_info -l "This error may have occured, because the dxw/dalmatian-tools repo is private."
+  log_info -l "To use a GitHub token, manually add \`dalmatian_update_github_token\` to the"
+  log_info -l "setup file: $CONFIG_SETUP_JSON_FILE"
+  log_info -l "Note: Redact your GitHub token before sharing this setup file with anyone"
+  log_info -l "This is only a temporary measure whilst the repo is private"
   exit 1
 fi
 
@@ -49,8 +60,13 @@ if [ "$LATEST_REMOTE_TAG" != "$CURRENT_LOCAL_TAG" ]
 then
   if [ -n "$LOCAL_CHANGES" ]
   then
-    err "There is a newer version of $GIT_DALMATIAN_TOOLS_OWNER/$GIT_DALMATIAN_TOOLS_REPO ($CURRENT_LOCAL_TAG -> $LATEST_REMOTE_TAG) but cant update! You have local changes in $APP_ROOT"
-    exit 1
+    err "There may be a newer version of $GIT_DALMATIAN_TOOLS_OWNER/$GIT_DALMATIAN_TOOLS_REPO ($CURRENT_LOCAL_TAG -> $LATEST_REMOTE_TAG) but cant update!"
+    err "This is because you have local changes in $APP_ROOT"
+    if ! yes_no "Do you want to continue without updating? (Y/N)" "N" 
+    then
+      exit 1
+    fi
+    exit 0
   fi
   log_info -l "Updating ..." -q "$QUIET_MODE"
   git -C "$APP_ROOT" checkout main
