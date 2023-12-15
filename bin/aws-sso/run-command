@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -p <aws_sso_profile>   - AWS SSO Profile"
+  exit 1
+}
+
+while getopts "p:h" opt; do
+  case $opt in
+    p)
+      AWS_SSO_PROFILE=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$AWS_SSO_PROFILE" ]
+then
+  usage
+fi
+shift $((OPTIND-1))
+
+export AWS_PROFILE="$AWS_SSO_PROFILE"
+aws "$@"
