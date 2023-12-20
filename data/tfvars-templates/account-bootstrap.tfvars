@@ -10,7 +10,7 @@ delete_default_resources_log_retention         = 30
 route53_root_hosted_zone_domain_name = ""
 
 # Cloudtrail
-enable_cloudtrail                          = true
+enable_cloudtrail                          = false
 cloudtrail_log_retention                   = 30
 cloudtrail_log_prefix                      = "cloudtrail"
 cloudtrail_kms_encryption                  = false
