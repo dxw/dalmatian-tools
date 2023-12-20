@@ -36,7 +36,7 @@ EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
 if [ -n "$EXPIRES_AT" ]
 then
   EXPIRES_AT_SEC="$(TZ="UTC" date -j -f "%Y-%m-%dT%H:%M:%SZ" "+%s" "$EXPIRES_AT")"
-  EPOCH="$(date +%s)"
+  EPOCH="$(aws_epoch)"
 fi
 if [[
   "$EPOCH" -gt "$EXPIRES_AT_SEC" ||
