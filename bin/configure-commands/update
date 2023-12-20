@@ -71,7 +71,7 @@ then
   log_info -l "Updating ..." -q "$QUIET_MODE"
   git -C "$APP_ROOT" checkout main
   git -C "$APP_ROOT" pull
-  git -C "$APP_ROOT" checkout "$LATEST_REMOTE_TAG"
+  git -C "$APP_ROOT" checkout "$LATEST_REMOTE_TAG" -c advice.detachedHead=false
   log_info -l "Updating brew packages ..." -q "$QUIET_MODE"
   brew bundle --file="$APP_ROOT/Brewfile"
   "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
