@@ -85,11 +85,14 @@ do
     STRING_OPTIONS="${OPTIONS[*]}"
     "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "$STRING_OPTIONS" -a -q
     TERRAFORM_RESOURCES=$("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -a -c "terraform state list" -q)
-    if echo "$TERRAFORM_RESOURCES" | grep -q "aws_lambda_function.delete_default_resources\[0\]"
+    if [ "$NON_INTERACTIVE_MODE" == "0" ]
     then
-      if yes_no "Do you want to delete all the Default resources in the AWS account? [y/n]" "y"
+      if echo "$TERRAFORM_RESOURCES" | grep -q "aws_lambda_function.delete_default_resources\[0\]"
       then
-        "$APP_ROOT/bin/dalmatian" deploy delete-default-resources -a "$workspace"
+        if yes_no "Do you want to delete all the Default resources in the AWS account? [y/n]" "y"
+        then
+          "$APP_ROOT/bin/dalmatian" deploy delete-default-resources -a "$workspace"
+        fi
       fi
     fi
   fi
