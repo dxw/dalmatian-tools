@@ -187,6 +187,7 @@ do
   ]]
   then
     "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace select $workspace" -i -q
-    "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "${OPTIONS[@]}" -i -q
+    STRING_OPTIONS="${OPTIONS[*]}"
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "$STRING_OPTIONS" -i -q
   fi
 done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -i -q)
