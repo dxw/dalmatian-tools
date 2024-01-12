@@ -49,3 +49,17 @@ infrastructure_ecs_cluster_draining_lambda_log_retention  = 30
 infrastructure_ecs_cluster_min_size                       = 2
 infrastructure_ecs_cluster_max_size                       = 2
 infrastructure_ecs_cluster_max_instance_lifetime          = 86400
+infrastructure_ecs_cluster_autoscaling_time_based_max     = []
+infrastructure_ecs_cluster_autoscaling_time_based_min     = []
+infrastructure_ecs_cluster_autoscaling_time_based_custom  = []
+
+# Infrastructure ECS Cluster Services
+infrastructure_ecs_cluster_service_defaults = {}
+infrastructure_ecs_cluster_services         = {}
+
+# Infrastructure ECS Cluster EFS
+enable_infrastructure_ecs_cluster_efs        = false
+ecs_cluster_efs_performance_mode             = "generalPurpose"
+ecs_cluster_efs_throughput_mode              = "elastic"
+ecs_cluster_efs_infrequent_access_transition = 0
+ecs_cluster_efs_directories                  = []
