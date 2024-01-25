@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Redirect command
-COMMAND_ARGS=( "${@:2}" )
-"$APP_ROOT/bin/dalmatian" rds download-sql-backup "${COMMAND_ARGS[@]}"
+# Redirect command. Pass on all arguments except "aurora download-sql-backup"
+"$APP_ROOT/bin/dalmatian" rds download-sql-backup "${@:1}"
 exit 0
