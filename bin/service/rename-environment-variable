@@ -22,8 +22,7 @@ usage() {
 # if there are no arguments passed exit with usage
 if [ $# -lt 1 ]
 then
-  echo "ERROR: No arguments passed"
-  echo
+  err "No arguments passed"
   usage 1
 fi
 
@@ -59,8 +58,7 @@ if [[
   || -z "$ENVIRONMENT"
 ]]
 then
-  echo "ERROR: Missing -i, -e or -s parameters"
-  echo
+  err "Missing -i, -e or -s parameters"
   usage 1
 fi
 
@@ -68,8 +66,7 @@ if [[
   ( -z "$KEY" || -z "$NEW_KEY" )
 ]]
 then
-  echo "ERROR: Missing -k or -n parameters"
-  echo
+  err "Missing -k or -n parameters"
   usage 1
 fi
 
