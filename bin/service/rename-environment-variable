@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "This command can rename environment variables for a service"
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service>           - service name "
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -k <key>               - key e.g SMTP_HOST"
+  echo "  -n <new-key>           - new key e.g. SMTP_PORT"
+  # shellcheck disable=SC2086
+  exit $1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  echo "ERROR: No arguments passed"
+  echo
+  usage 1
+fi
+
+while getopts "i:e:s:k:n:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    k)
+      KEY=$OPTARG
+      ;;
+    n)
+      NEW_KEY=$OPTARG
+      ;;
+    h)
+      usage 0
+      ;;
+    *)
+      usage 1
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$SERVICE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  echo "ERROR: Missing -i, -e or -s parameters"
+  echo
+  usage 1
+fi
+
+if [[
+  ( -z "$KEY" || -z "$NEW_KEY" )
+]]
+then
+  echo "ERROR: Missing -k or -n parameters"
+  echo
+  usage 1
+fi
+
+VALUE=$(aws ssm get-parameter --with-decryption \
+  --name "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/$KEY" \
+ | jq -r '.Parameter.Value')
+"$DIR/set-environment-variable" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$SERVICE_NAME" -k "$NEW_KEY" -v "$VALUE"
+"$DIR/delete-environment-variable" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$SERVICE_NAME" -k "$KEY"
