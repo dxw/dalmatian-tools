@@ -1,0 +1,26 @@
+#!/bin/bash
+#
+
+usage() {
+  echo "List all the open ports in all security groups in the account"
+  echo "Usage: $(basename "$0") [OPTIONS] <command>" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name OPTIONAL defaults to main dalmatian account"
+  exit 1
+}
+
+while getopts "ih" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+log_info -l "Open Ports in the ${INFRASTRUCTURE_NAME} account"
+aws ec2 describe-security-groups | jq -r '.SecurityGroups[] | .GroupName as $group | .IpPermissions[] | .FromPort as $fromPort | .ToPort as $toPort | ([.IpRanges[]?.CidrIp, .UserIdGroupPairs[]?.GroupId, .Ipv6Ranges[]?.CidrIpv6] | map(select(. != null)) | .[] | "\($group),\($fromPort)-\($toPort),\(.)")'
