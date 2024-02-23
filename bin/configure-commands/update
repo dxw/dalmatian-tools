@@ -7,16 +7,20 @@ set -o pipefail
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -g <git_auth_token>    - Git Auth token (Optional - only required if dalmatian tools repo is private)"
+  echo "  -f <force_update>      - Force update (Runs through the upate process even if dalmatian-tools is on the latest version)"
   echo "  -h                     - help"
   exit 1
 }
 
 GIT_AUTH_TOKEN="$(jq -r '.dalmatian_update_github_token' < "$CONFIG_SETUP_JSON_FILE")"
-
-while getopts "g:h" opt; do
+FORCE_UPDATE=0
+while getopts "g:fh" opt; do
   case $opt in
     g)
       GIT_AUTH_TOKEN=$OPTARG
+      ;;
+    f)
+      FORCE_UPDATE=1
       ;;
     h)
       usage
@@ -51,7 +55,10 @@ fi
 LATEST_REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.name')
 CURRENT_LOCAL_TAG=$(git -C "$APP_ROOT" describe --tags)
 LOCAL_CHANGES=$(git -C "$APP_ROOT" status --porcelain)
-if [ "$LATEST_REMOTE_TAG" != "$CURRENT_LOCAL_TAG" ]
+if [[
+  "$LATEST_REMOTE_TAG" != "$CURRENT_LOCAL_TAG" ||
+  "$FORCE_UPDATE" == 1
+]]
 then
   if [ -n "$LOCAL_CHANGES" ]
   then
