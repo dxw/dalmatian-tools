@@ -70,3 +70,6 @@ ecs_cluster_efs_directories                  = []
 # Infrastructure RDS
 infrastructure_rds_defaults = {}
 infrastructure_rds          = {}
+
+# Custom Hosted Zones
+custom_route53_hosted_zones = {}
