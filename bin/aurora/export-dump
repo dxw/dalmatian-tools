@@ -8,11 +8,11 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -r <aurora_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -r <aurora_name>       - RDS name (as defined in the Dalmatian config)"
   echo "  -d <database_name>     - database name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -o <output_file_path>  - output file path"
-  echo "  -I <ecs_instance_id>   - ECS insatnce ID to connect through (optional)"
+  echo "  -I <ecs_instance_id>   - ECS instance ID to connect through (optional)"
   exit 1
 }
 

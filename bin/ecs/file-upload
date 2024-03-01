@@ -15,7 +15,7 @@ usage() {
   echo "  -s <source>            - Source"
   echo "  -t <host_target>       - Host target"
   echo "  -r <recursive>         - Recursive"
-  echo "  -I <ecs_insatnce_id>   - ECS instance ID (optional)"
+  echo "  -I <ecs_instance_id>   - ECS instance ID (optional)"
   exit 1
 }
 

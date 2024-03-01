@@ -12,7 +12,7 @@ usage() {
   echo "  -d <database_name>     - database name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -o <output_file_path>  - output file path"
-  echo "  -I <ecs_instance_id>   - ECS insatnce ID to connect through (optional)"
+  echo "  -I <ecs_instance_id>   - ECS instance ID to connect through (optional)"
   exit 1
 }
 
