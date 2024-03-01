@@ -94,13 +94,7 @@ fi
 # shellcheck disable=2086
 aws s3 cp "$SOURCE" s3://"$BUCKET_NAME"/"$PREFIX_DIR"/"$(basename "$SOURCE")" $S3_RECURSIVE
 
-if [ -z "$ECS_INSTANCE_ID" ]
-then
-  echo "==> Finding ECS instance..."
-
-  ECS_INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
-  ECS_INSTANCE_ID=$(echo "$ECS_INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
-fi
+ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
 
 echo "==> Downloading from S3 to $ECS_INSTANCE_ID..."
 
