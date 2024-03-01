@@ -8,9 +8,10 @@ usage() {
   echo "Usage: dalmatian $(basename "$(dirname "${BASH_SOURCE[0]}")") $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -r <aurora_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -r <aurora_name>       - RDS name (as defined in the Dalmatian config)"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -I <ecs_insatnce_id>   - ECS instance ID to connect through (optional)"
+  echo "  -l                     - list available ec2 instance ids (optional)"
+  echo "  -I <ecs_instance_id>   - ECS instance ID to connect through (optional)"
   exit 1
 }
 
@@ -20,7 +21,7 @@ then
  usage
 fi
 
-while getopts "i:e:r:I:h" opt; do
+while getopts "i:e:r:I:lh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -33,6 +34,9 @@ while getopts "i:e:r:I:h" opt; do
       ;;
     I)
       ECS_INSTANCE_ID=$OPTARG
+      ;;
+    l)
+      LIST=1
       ;;
     h)
       usage
@@ -49,6 +53,16 @@ if [[
   || -z "$ENVIRONMENT"
 ]]; then
   usage
+fi
+
+if [ -n "$LIST" ];
+then
+  echo "==> Finding ECS instances..."
+  INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
+
+  AVAILABLE_INSTANCES=$(echo "$INSTANCES" | jq -r '.Reservations[].Instances[] | (.InstanceId) + " | " + (.Tags[] | select(.Key == "Name") | .Value) + " | " + (.LaunchTime)')
+  echo "$AVAILABLE_INSTANCES"
+  exit 0
 fi
 
 # Remove dashes from the variables to create the RDS identifier, because dashes
@@ -68,8 +82,6 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-
-
 echo "==> Getting RDS info..."
 
 RDS_INFO=$(
@@ -82,24 +94,12 @@ RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBClusters[0].MasterUsername)
 echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 
-if [ -z "$ECS_INSTANCE_ID" ]
-then
-  echo "==> Finding ECS instance..."
-
-  ECS_INSTANCES=$(
-    aws ec2 describe-instances \
-      --filters "Name=instance-state-code,Values=16" Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*"
-  )
-  ECS_INSTANCE_ID=$(
-    echo "$ECS_INSTANCES" \
-      | jq -r .Reservations[0].Instances[0].InstanceId
-  )
-fi
+ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
 
 echo "ECS instance ID: $ECS_INSTANCE_ID"
 
 echo "==> Starting $RDS_ENGINE session on $RDS_IDENTIFIER..."
-set -x 
+set -x
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \
   --document-name "$RDS_IDENTIFIER-aurora-shell" \

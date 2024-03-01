@@ -11,7 +11,7 @@ usage() {
   echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -l                     - list available ec2 instance ids (optional)"
-  echo "  -I <ecs_insatnce_id>   - ECS instance ID to connect through (optional)"
+  echo "  -I <ecs_instance_id>   - ECS instance ID to connect through (optional)"
   exit 1
 }
 
@@ -57,7 +57,7 @@ fi
 
 if [ -n "$LIST" ];
 then
-  echo "==> Finding ECS instance..."
+  echo "==> Finding ECS instances..."
   INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
 
   AVAILABLE_INSTANCES=$(echo "$INSTANCES" | jq -r '.Reservations[].Instances[] | (.InstanceId) + " | " + (.Tags[] | select(.Key == "Name") | .Value) + " | " + (.LaunchTime)')
@@ -96,19 +96,7 @@ echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 echo "VPC ID: $RDS_VPC"
 
-if [ -z "$ECS_INSTANCE_ID" ]
-then
-  echo "==> Finding ECS instance..."
-
-  ECS_INSTANCES=$(
-    aws ec2 describe-instances \
-      --filters "Name=vpc-id,Values=$RDS_VPC" "Name=instance-state-code,Values=16" Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*"
-  )
-  ECS_INSTANCE_ID=$(
-    echo "$ECS_INSTANCES" \
-      | jq -r .Reservations[0].Instances[0].InstanceId
-  )
-fi
+ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
 
 echo "ECS instance ID: $ECS_INSTANCE_ID"
 

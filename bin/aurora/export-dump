@@ -8,11 +8,11 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
-  echo "  -r <aurora_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -r <aurora_name>       - RDS name (as defined in the Dalmatian config)"
   echo "  -d <database_name>     - database name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -o <output_file_path>  - output file path"
-  echo "  -I <ecs_instance_id>   - ECS insatnce ID to connect through (optional)"
+  echo "  -I <ecs_instance_id>   - ECS instance ID to connect through (optional)"
   exit 1
 }
 
@@ -97,19 +97,7 @@ RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBClusters[0].MasterUsername)
 echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 
-if [ -z "$ECS_INSTANCE_ID" ]
-then
-  echo "==> Finding ECS instance..."
-
-  ECS_INSTANCES=$(
-    aws ec2 describe-instances \
-      --filters "Name=instance-state-code,Values=16" Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*"
-  )
-  ECS_INSTANCE_ID=$(
-    echo "$ECS_INSTANCES" \
-      | jq -r .Reservations[0].Instances[0].InstanceId
-  )
-fi
+ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
 
 echo "ECS instance ID: $ECS_INSTANCE_ID"
 
