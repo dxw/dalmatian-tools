@@ -11,6 +11,7 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -I <instance>          - instance id"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -s <source>            - Source"
   echo "  -t <local target>      - local target"
@@ -35,10 +36,13 @@ fi
 
 RECURSIVE=0
 
-while getopts "i:e:s:t:rh" opt; do
+while getopts "i:I:e:s:t:rh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    I)
+      INSTANCE_ID=$OPTARG
       ;;
     e)
       ENVIRONMENT=$OPTARG
@@ -91,11 +95,10 @@ fi
 echo "==> Finding ECS instance..."
 
 INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
-INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
+INSTANCE_ID=${INSTANCE_ID:-$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )}
 INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
 
 echo "==> uploading from '$INSTANCE_NAME' (id: $INSTANCE_ID) to S3.."
-
 
 aws ssm start-session \
   --target "$INSTANCE_ID" \
