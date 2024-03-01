@@ -197,6 +197,17 @@ then
   export AWS_CONFIG_FILE="$CONFIG_AWS_SSO_FILE"
   export AWS_PROFILE="dalmatian-main"
 
+  # These AWS environment variables take precedence when authenticating, which
+  # can cause errors if they are not related to Dalmatian
+  unset AWS_SESSION_TOKEN
+  unset AWS_SECRET_ACCESS_KEY
+  unset AWS_ACCESS_KEY_ID
+  unset AWS_DEFAULT_REGION
+  unset AWS_DEFAULT_OUTPUT
+  unset AWS_REGION
+  unset AWS_ROLE_ARN
+  unset AWS_ROLE_SESSION_NAME
+
   if [ "$SUBCOMMAND" != "update" ]
   then
     if [ "$IS_PARENT_SCRIPT" == 1 ]
