@@ -17,4 +17,5 @@ while getopts "h" opt; do
       ;;
   esac
 done
-yq e '.infrastructures | keys()' "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml" | sed 's/^- *//g'
+CONFIG_FILE="${DALMATIAN_CONFIG_PATH:-$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml}"
+yq e '.infrastructures | keys()' "$CONFIG_FILE" | sed 's/^- *//g'
