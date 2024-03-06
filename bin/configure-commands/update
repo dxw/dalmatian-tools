@@ -8,19 +8,24 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -g <git_auth_token>    - Git Auth token (Optional - only required if dalmatian tools repo is private)"
   echo "  -f <force_update>      - Force update (Runs through the upate process even if dalmatian-tools is on the latest version)"
+  echo "  -U <unauthenticated>   - Runs the update process, without running commands that require intial Dalmatian setup"
   echo "  -h                     - help"
   exit 1
 }
 
 GIT_AUTH_TOKEN="$(jq -r '.dalmatian_update_github_token' < "$CONFIG_SETUP_JSON_FILE")"
 FORCE_UPDATE=0
-while getopts "g:fh" opt; do
+UNAUTHENTICATED=0
+while getopts "g:fUh" opt; do
   case $opt in
     g)
       GIT_AUTH_TOKEN=$OPTARG
       ;;
     f)
       FORCE_UPDATE=1
+      ;;
+    U)
+      UNAUTHENTICATED=1
       ;;
     h)
       usage
@@ -80,8 +85,11 @@ then
   git -C "$APP_ROOT" -c advice.detachedHead=false checkout "$LATEST_REMOTE_TAG"
   log_info -l "Updating brew packages ..." -q "$QUIET_MODE"
   brew bundle --file="$APP_ROOT/Brewfile"
-  "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
-  "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
+  if [ "$UNAUTHENTICATED" == 0 ]
+  then
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
+  fi
 else
   log_info -l "You are on the latest version ($LATEST_REMOTE_TAG) 👍" -q "$QUIET_MODE"
 fi
