@@ -212,13 +212,19 @@ then
   then
     if [ "$IS_PARENT_SCRIPT" == 1 ]
     then
-      "$APP_ROOT/bin/dalmatian" update -q
+      if [ "$SUBCOMMAND" == "setup" ]
+      then
+        "$APP_ROOT/bin/dalmatian" update -q -U
+      else
+        "$APP_ROOT/bin/dalmatian" update -q
+      fi
     fi
   fi
 
   if [[
     "$SUBCOMMAND" != "setup" &&
-    ( "$SUBCOMMAND" != "aws-sso" && "$COMMAND" != "login" && "$COMMAND" != "generate-config" )
+    ( "$SUBCOMMAND" != "aws-sso" && "$COMMAND" != "login" && "$COMMAND" != "generate-config" ) &&
+    "$SUBCOMMAND" != "update"
   ]]
   then
     "$APP_ROOT/bin/dalmatian" aws-sso login
