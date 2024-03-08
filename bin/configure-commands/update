@@ -13,9 +13,9 @@ usage() {
   exit 1
 }
 
-GIT_AUTH_TOKEN="$(jq -r '.dalmatian_update_github_token' < "$CONFIG_SETUP_JSON_FILE")"
 FORCE_UPDATE=0
 UNAUTHENTICATED=0
+GIT_AUTH_TOKEN=""
 while getopts "g:fUh" opt; do
   case $opt in
     g)
@@ -35,6 +35,14 @@ while getopts "g:fUh" opt; do
       ;;
   esac
 done
+
+if [[
+  "$UNAUTHENTICATED" == 0 &&
+  -z "$GIT_AUTH_TOKEN"
+]]
+then
+  GIT_AUTH_TOKEN="$(jq -r '.dalmatian_update_github_token' < "$CONFIG_SETUP_JSON_FILE")"
+fi
 
 log_info -l "Checking for newer version ..." -q "$QUIET_MODE"
 if [ -n "$GIT_AUTH_TOKEN" ]
