@@ -208,16 +208,14 @@ then
   unset AWS_ROLE_ARN
   unset AWS_ROLE_SESSION_NAME
 
-  if [ "$SUBCOMMAND" != "update" ]
+  if [[
+    "$SUBCOMMAND" != "update" &&
+    "$SUBCOMMAND" != "setup"
+  ]]
   then
     if [ "$IS_PARENT_SCRIPT" == 1 ]
     then
-      if [ "$SUBCOMMAND" == "setup" ]
-      then
-        "$APP_ROOT/bin/dalmatian" update -q -U
-      else
-        "$APP_ROOT/bin/dalmatian" update -q
-      fi
+      "$APP_ROOT/bin/dalmatian" update -q
     fi
   fi
 
