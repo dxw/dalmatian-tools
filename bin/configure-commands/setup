@@ -134,8 +134,6 @@ echo "--- Dalmatian account configuration ---"
 MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
 echo ""
 
-"$APP_ROOT/bin/dalmatian" terraform-dependencies clone
-
 "$APP_ROOT/bin/dalmatian" aws-sso generate-config
 
 "$APP_ROOT/bin/dalmatian" aws-sso account-init -i "$MAIN_DALMATIAN_ACCOUNT_ID" -r "$DEFAULT_REGION" -n "dalmatian-main"

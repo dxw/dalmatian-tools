@@ -34,6 +34,8 @@ echo ""
 
 "$APP_ROOT/bin/dalmatian" aws-sso login -p dalmatian-login
 
+"$APP_ROOT/bin/dalmatian" terraform-dependencies clone
+
 "$APP_ROOT/bin/dalmatian" terraform-dependencies initialise
 
 while IFS='' read -r workspace
