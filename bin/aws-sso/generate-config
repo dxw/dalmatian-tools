@@ -53,13 +53,24 @@ do
     SSO_CONFIG_ACCOUNT_ID="$(echo "$workspace" | cut -d"-" -f1)"
     SSO_CONFIG_REGION="$(echo "$workspace" | cut -d"-" -f2-4)"
     SSO_CONFIG_ACCOUNT_NAME="$(echo "$workspace" | cut -d"-" -f5-)"
-    append_sso_config_file \
-      "$CONFIG_AWS_SSO_FILE" \
-      "$SSO_CONFIG_ACCOUNT_NAME" \
-      "$AWS_SSO_START_URL" \
-      "$SSO_CONFIG_REGION" \
-      "$SSO_CONFIG_ACCOUNT_ID" \
-      "$DALMATIAN_ACCOUNT_ADMIN_ROLE_NAME" \
-      "$SSO_CONFIG_REGION"
+
+    if [[ "$SSO_CONFIG_ACCOUNT_ID" == E* ]]
+    then
+      EXTERNAL_ROLE_ARN="arn:aws:iam::${SSO_CONFIG_ACCOUNT_ID:1}:role/$DALMATIAN_ACCOUNT_ID-dalmatian-access"
+      append_sso_config_file_assume_role \
+        "$CONFIG_AWS_SSO_FILE" \
+        "$SSO_CONFIG_ACCOUNT_NAME" \
+        "dalmatian-main" \
+        "$EXTERNAL_ROLE_ARN"
+    else
+      append_sso_config_file \
+        "$CONFIG_AWS_SSO_FILE" \
+        "$SSO_CONFIG_ACCOUNT_NAME" \
+        "$AWS_SSO_START_URL" \
+        "$SSO_CONFIG_REGION" \
+        "$SSO_CONFIG_ACCOUNT_ID" \
+        "$DALMATIAN_ACCOUNT_ADMIN_ROLE_NAME" \
+        "$SSO_CONFIG_REGION"
+    fi
   fi
 done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)
