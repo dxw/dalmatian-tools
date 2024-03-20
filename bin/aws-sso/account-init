@@ -10,6 +10,7 @@ usage() {
   echo "  -i <aws_account_id>    - AWS Account ID"
   echo "  -r <deefault_region>   - AWS Default region"
   echo "  -n <account_name>      - A lower case hyphenated friendly name"
+  echo "  -e <external>          - Configure as an 'External' AWS Account (An account not part of the SSO Org)"
   exit 1
 }
 
@@ -19,7 +20,8 @@ then
  usage
 fi
 
-while getopts "i:r:n:h" opt; do
+ACCOUNT_EXTERNAL=0
+while getopts "i:r:n:eh" opt; do
   case $opt in
     i)
       AWS_ACCOUNT_ID=$OPTARG
@@ -29,6 +31,9 @@ while getopts "i:r:n:h" opt; do
       ;;
     n)
       ACCOUNT_NAME=$OPTARG
+      ;;
+    e)
+      ACCOUNT_EXTERNAL=1
       ;;
     h)
       usage
@@ -46,6 +51,48 @@ if [[
 ]]
 then
   usage
+fi
+
+MAIN_DALMATIAN_ACCOUNT_ID="$(jq -r '.main_dalmatian_account_id' < "$CONFIG_SETUP_JSON_FILE")"
+DALMATIAN_ACCOUNT_ADMIN_ROLE_NAME="$(jq -r '.aws_sso.default_admin_role_name' < "$CONFIG_SETUP_JSON_FILE")"
+
+if [ "$ACCOUNT_EXTERNAL" == 1 ]
+then
+  AWS_ACCOUNT_ID="E$AWS_ACCOUNT_ID"
+  EXTERNAL_ROLE_TRUST_RELATIONSHIP=$(
+    jq -n \
+    --arg aws_principal_arn "arn:aws:iam::$MAIN_DALMATIAN_ACCOUNT_ID:root" \
+    --arg sso_aws_principal_arn "arn:aws:iam::$MAIN_DALMATIAN_ACCOUNT_ID:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_${DALMATIAN_ACCOUNT_ADMIN_ROLE_NAME}_*" \
+    --arg sso_aws_principal_arn_wild_region "arn:aws:iam::$MAIN_DALMATIAN_ACCOUNT_ID:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_${DALMATIAN_ACCOUNT_ADMIN_ROLE_NAME}_*" \
+    '{
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Principal: {
+            AWS: $aws_principal_arn
+          },
+          Action: "sts:AssumeRole",
+          Condition: {
+            ArnLike: {
+              "aws:PrincipalArn": [
+                $sso_aws_principal_arn,
+                $sso_aws_principal_arn_wild_region
+              ]
+            }
+          }
+        }
+      ]
+    }'
+  )
+  echo "External accounts require a Role to be added that can be assumed by the AWS Federated user account from the Main Dalmatian account"
+  echo "1. In the External Account (${AWS_ACCOUNT_ID:1}), create a Role named '$MAIN_DALMATIAN_ACCOUNT_ID-dalmatian-access', which has Administrator permissions"
+  echo "2. Add the following Trust Relationship policy to the role:"
+  echo "$EXTERNAL_ROLE_TRUST_RELATIONSHIP"
+  if ! yes_no "Enter 'y' to continue:" "y"
+  then
+    exit 0
+  fi
 fi
 
 NEW_WORKSPACE_NAME="$AWS_ACCOUNT_ID-$AWS_ACCOUNT_DEFAULT_REGION-$ACCOUNT_NAME"
@@ -77,7 +124,6 @@ fi
 if [ "$ACCOUNT_NAME" != "dalmatian-main" ]
 then
   echo "==> Running account bootstrap on the main Dalmatian account to upload tfvars ..."
-  MAIN_DALMATIAN_ACCOUNT_ID="$(jq -r '.main_dalmatian_account_id' < "$CONFIG_SETUP_JSON_FILE")"
   DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
   "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main" -N
 fi
