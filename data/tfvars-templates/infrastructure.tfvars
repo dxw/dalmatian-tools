@@ -71,5 +71,16 @@ ecs_cluster_efs_directories                  = []
 infrastructure_rds_defaults = {}
 infrastructure_rds          = {}
 
+# Infrastructure ElastiCache
+infrastructure_elasticache_defaults = {}
+infrastructure_elasticache          = {}
+
+# Custom CloudFormation Stacks
+enable_cloudformatian_s3_template_store = false
+custom_cloudformation_stacks            = {}
+
+# Custom S3 buckets
+custom_s3_buckets = {}
+
 # Custom Hosted Zones
 custom_route53_hosted_zones = {}
