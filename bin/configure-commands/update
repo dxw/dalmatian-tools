@@ -6,19 +6,14 @@ set -o pipefail
 
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -g <git_auth_token>    - Git Auth token (Optional - only required if dalmatian tools repo is private)"
   echo "  -f <force_update>      - Force update (Runs through the upate process even if dalmatian-tools is on the latest version)"
   echo "  -h                     - help"
   exit 1
 }
 
 FORCE_UPDATE=0
-GIT_AUTH_TOKEN="$(jq -r '.dalmatian_update_github_token' < "$CONFIG_SETUP_JSON_FILE")"
-while getopts "g:fh" opt; do
+while getopts "fh" opt; do
   case $opt in
-    g)
-      GIT_AUTH_TOKEN=$OPTARG
-      ;;
     f)
       FORCE_UPDATE=1
       ;;
@@ -32,12 +27,7 @@ while getopts "g:fh" opt; do
 done
 
 log_info -l "Checking for newer version ..." -q "$QUIET_MODE"
-if [ -n "$GIT_AUTH_TOKEN" ]
-then
-  RELEASE_JSON=$(curl -s -H "Authorization: Bearer $GIT_AUTH_TOKEN" "$GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL" | jq -r)
-else
-  RELEASE_JSON=$(curl -s "$GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL" | jq -r)
-fi
+RELEASE_JSON=$(curl -s "$GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL" | jq -r)
 
 GITHUB_MESSAGE=$(echo "$RELEASE_JSON" | jq -r '.message')
 
