@@ -166,6 +166,7 @@ if [[
 then
   export CONFIG_DIR="$HOME/.config/dalmatian"
   export CONFIG_SETUP_JSON_FILE="$CONFIG_DIR/setup.json"
+  export CONFIG_UPDATE_CHECK_JSON_FILE="$CONFIG_DIR/update-check.json"
   export CONFIG_CACHE_DIR="$CONFIG_DIR/.cache"
   export CONFIG_AWS_SSO_FILE="$CONFIG_DIR/dalmatian-sso.config"
   export CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE="$CONFIG_DIR/account-bootstrap-backend.vars"

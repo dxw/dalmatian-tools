@@ -26,6 +26,21 @@ while getopts "fh" opt; do
   esac
 done
 
+CONFIG_UPDATE_CHECK_JSON_FILE="$CONFIG_DIR/update-check.json"
+if [ ! -f "$CONFIG_UPDATE_CHECK_JSON_FILE" ]
+then
+  UPDATE_CHECK_JSON=$(
+    jq -n \
+      --arg complete_status "1" \
+      '{
+        complete_status: $complete_status
+      }'
+  )
+  echo "$UPDATE_CHECK_JSON" > "$CONFIG_UPDATE_CHECK_JSON_FILE"
+fi
+
+UPDATE_CHECK_LAST_COMPLETE_STATUS=$(jq -r '.complete_status' < "$CONFIG_UPDATE_CHECK_JSON_FILE")
+
 log_info -l "Checking for newer version ..." -q "$QUIET_MODE"
 RELEASE_JSON=$(curl -s "$GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL" | jq -r)
 
@@ -47,9 +62,20 @@ CURRENT_LOCAL_TAG=$(git -C "$APP_ROOT" describe --tags)
 LOCAL_CHANGES=$(git -C "$APP_ROOT" status --porcelain)
 if [[
   "$LATEST_REMOTE_TAG" != "$CURRENT_LOCAL_TAG" ||
-  "$FORCE_UPDATE" == 1
+  "$FORCE_UPDATE" == 1 ||
+  "$UPDATE_CHECK_LAST_COMPLETE_STATUS" == 0
 ]]
 then
+  if [ "$UPDATE_CHECK_LAST_COMPLETE_STATUS" == 0 ]
+  then
+    err "The last update did not complete successfully. Attempting another update ..."
+  fi
+  UPDATE_CHECK_JSON=$(
+    jq -r \
+      --arg complete_status "0" \
+      < "$CONFIG_UPDATE_CHECK_JSON_FILE"
+  )
+  echo "$UPDATE_CHECK_JSON" > "$CONFIG_UPDATE_CHECK_JSON_FILE"
   if [ -n "$LOCAL_CHANGES" ]
   then
     err "There may be a newer version of $GIT_DALMATIAN_TOOLS_OWNER/$GIT_DALMATIAN_TOOLS_REPO ($CURRENT_LOCAL_TAG -> $LATEST_REMOTE_TAG) but cant update!"
@@ -72,6 +98,13 @@ then
   brew bundle --file="$APP_ROOT/Brewfile"
   "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
   "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
+  UPDATE_CHECK_JSON=$(
+    jq -r \
+      '.complete_status |= "1"' \
+      < "$CONFIG_UPDATE_CHECK_JSON_FILE"
+  )
+  echo "$UPDATE_CHECK_JSON" > "$CONFIG_UPDATE_CHECK_JSON_FILE"
+  log_info -l "Update complete 👍" -q "$QUIET_MODE"
 else
   log_info -l "You are on the latest version ($LATEST_REMOTE_TAG) 👍" -q "$QUIET_MODE"
 fi
