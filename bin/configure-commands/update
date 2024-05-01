@@ -96,6 +96,8 @@ then
   git -C "$APP_ROOT" -c advice.detachedHead=false checkout "$LATEST_REMOTE_TAG"
   log_info -l "Updating brew packages ..." -q "$QUIET_MODE"
   brew bundle --file="$APP_ROOT/Brewfile"
+  log_info -l "Ensuring tfenv is configured ..."
+  brew link --overwrite tfenv
   "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
   "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
   UPDATE_CHECK_JSON=$(
