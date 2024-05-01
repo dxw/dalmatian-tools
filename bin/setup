@@ -33,6 +33,7 @@ fi
 # Install or update the brew taps/casks in the Brewfile
 BREW_BIN=$(command -v "brew")
 $BREW_BIN bundle install
+$BREW_BIN link --overwrite tfenv
 
 # Test if the user is on an Intel or Apple Silicon mac
 IS_APPLE_SILICON=0 # false
