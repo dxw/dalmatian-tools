@@ -72,7 +72,7 @@ then
   fi
   UPDATE_CHECK_JSON=$(
     jq -r \
-      --arg complete_status "0" \
+      '.complete_status |= 0' \
       < "$CONFIG_UPDATE_CHECK_JSON_FILE"
   )
   echo "$UPDATE_CHECK_JSON" > "$CONFIG_UPDATE_CHECK_JSON_FILE"
