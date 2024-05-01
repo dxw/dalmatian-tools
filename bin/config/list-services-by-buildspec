@@ -36,7 +36,9 @@ then
   usage
 fi
 
-INFRAS=$(yq e -o=json ".infrastructures" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
+CONFIG_FILE="${DALMATIAN_CONFIG_PATH:-$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml}"
+
+INFRAS=$(yq e -o=json ".infrastructures" "$CONFIG_FILE")
 
 if [ -z "$INFRASTRUCTURE_NAME" ]
 then
