@@ -31,7 +31,7 @@ while getopts "p:fh" opt; do
 done
 
 START_URL="$(aws configure get sso_start_url --profile dalmatian-login)"
-AWS_SSO_CACHE_JSON="$(grep -h -e "$START_URL" ~/.aws/sso/cache/*.json || true)"
+AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || true)"
 EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
 if [ -n "$EXPIRES_AT" ]
 then
