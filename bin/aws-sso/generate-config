@@ -61,7 +61,8 @@ do
         "$CONFIG_AWS_SSO_FILE" \
         "$SSO_CONFIG_ACCOUNT_NAME" \
         "dalmatian-main" \
-        "$EXTERNAL_ROLE_ARN"
+        "$EXTERNAL_ROLE_ARN" \
+        "$SSO_CONFIG_REGION"
     else
       append_sso_config_file \
         "$CONFIG_AWS_SSO_FILE" \
