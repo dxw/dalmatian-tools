@@ -8,8 +8,9 @@ aws_profile_name_route53_root             = "dalmatian-main"
 enable_infrastructure_route53_hosted_zone = false
 
 # Dockerhub
-infrastructure_dockerhub_email = ""
-infrastructure_dockerhub_token = ""
+infrastructure_dockerhub_email    = ""
+infrastructure_dockerhub_username = ""
+infrastructure_dockerhub_token    = ""
 
 # Infrastructure VPC
 infrastructure_vpc                                          = false
@@ -54,11 +55,12 @@ infrastructure_ecs_cluster_autoscaling_time_based_min     = []
 infrastructure_ecs_cluster_autoscaling_time_based_custom  = []
 
 # Infrastructure ECS Cluster Services
-infrastructure_ecs_cluster_service_defaults = {}
-infrastructure_ecs_cluster_services         = {}
-infrastructure_ecs_cluster_services_alb_ip_allow_list = ["0.0.0.0/0"]
-enable_infrastructure_ecs_cluster_services_alb_logs = false
-infrastructure_ecs_cluster_services_alb_logs_retention = 30
+infrastructure_ecs_cluster_service_defaults                       = {}
+infrastructure_ecs_cluster_services                               = {}
+infrastructure_ecs_cluster_services_alb_ip_allow_list             = ["0.0.0.0/0"]
+enable_infrastructure_ecs_cluster_services_alb_logs               = false
+infrastructure_ecs_cluster_services_alb_enable_global_accelerator = false
+infrastructure_ecs_cluster_services_alb_logs_retention            = 30
 
 # Infrastructure ECS Cluster EFS
 enable_infrastructure_ecs_cluster_efs        = false
