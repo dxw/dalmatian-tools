@@ -147,6 +147,7 @@ do
           sed -i '' "s/^\#$//g" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
           if [[ ! "$global_config_line" =~ ^\#.* ]]
           then
+            global_config_line=$(echo "$global_config_line" | sed 's/\[/\\[/g; s/\]/\\]/g; s/\*/\\*/g')
             grep -v "^#$global_config_line$" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > "/tmp/$WORKSPACE_TFVARS_FILE"
             mv "/tmp/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
           else
@@ -228,6 +229,7 @@ do
           sed -i '' "s/^\#$//g" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
           if [[ ! "$global_config_line" =~ ^\#.* ]]
           then
+            global_config_line=$(echo "$global_config_line" | sed 's/\[/\\[/g; s/\]/\\]/g; s/\*/\\*/g')
             grep -v "^#$global_config_line$" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > "/tmp/$WORKSPACE_TFVARS_FILE"
             mv "/tmp/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
           else
