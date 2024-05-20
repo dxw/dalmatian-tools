@@ -59,7 +59,7 @@ fi
 
 LATEST_REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.name')
 CURRENT_LOCAL_TAG=$(git -C "$APP_ROOT" describe --tags)
-LOCAL_CHANGES=$(git -C "$APP_ROOT" status --porcelain)
+LOCAL_CHANGES=$(git -C "$APP_ROOT" status -uno --porcelain)
 if [[
   "$LATEST_REMOTE_TAG" != "$CURRENT_LOCAL_TAG" ||
   "$FORCE_UPDATE" == 1 ||
