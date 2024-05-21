@@ -72,6 +72,7 @@ CHECK_COMMANDS=(
   "plan"
   "apply"
   "console"
+  "import"
 )
 if [[
   "${CHECK_COMMANDS[*]}" =~ $(echo "${OPTIONS[0]}" | cut -d' ' -f1 ) &&
@@ -79,6 +80,10 @@ if [[
   "$CURRENT_WORKSPACE" != "default"
 ]]
 then
+  FIRST_OPTION=$(echo "${OPTIONS[0]}" | cut -d' ' -f1)
+  POST_OPTIONS=$(echo "${OPTIONS[0]}" | cut -d' ' -f2-)
+  OPTIONS=()
+  OPTIONS+=("$FIRST_OPTION")
   if [ "$TERRAFORM_PROJECT" == "account-bootstrap" ]
   then
     ACCOUNT_NAME=$(echo "$CURRENT_WORKSPACE" | cut -d'-' -f5-)
@@ -114,6 +119,7 @@ then
     OPTIONS+=("-var-file=$CONFIG_TFVARS_DIR/000-terraform.tfvars")
     OPTIONS+=("-var-file=$CONFIG_TFVARS_DIR/200-$CURRENT_WORKSPACE.tfvars")
   fi
+  OPTIONS+=("${POST_OPTIONS[@]}")
 fi
 
 if [ "$QUIET_MODE" == 0 ]
