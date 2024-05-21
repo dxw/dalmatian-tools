@@ -81,7 +81,11 @@ if [[
 ]]
 then
   FIRST_OPTION=$(echo "${OPTIONS[0]}" | cut -d' ' -f1)
-  POST_OPTIONS=$(echo "${OPTIONS[0]}" | cut -d' ' -f2-)
+  POST_OPTIONS=""
+  if [ "$(echo "${OPTIONS[0]}" | grep -o " " | wc -l | xargs)" != "0" ]
+  then
+    POST_OPTIONS=$(echo "${OPTIONS[0]}" | cut -d' ' -f2-)
+  fi
   OPTIONS=()
   OPTIONS+=("$FIRST_OPTION")
   if [ "$TERRAFORM_PROJECT" == "account-bootstrap" ]
