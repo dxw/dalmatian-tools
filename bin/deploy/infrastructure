@@ -181,6 +181,7 @@ do
     ( "$ENVIRONMENT_NAME" == "$(echo "$workspace" | rev | cut -d'-' -f1 | rev)" ||
     -z "$ENVIRONMENT_NAME" ) &&
     "$workspace" != "default" &&
+    -z $WORKSPACE_NAME &&
     -n "$workspace" ) ||
     ( "$WORKSPACE_NAME" == "$workspace" &&
     -n "$WORKSPACE_NAME" )
