@@ -36,6 +36,8 @@ infrastructure_vpc_network_acl_egress_custom_rules_public   = []
 infrastructure_vpc_network_acl_egress_custom_rules_private  = []
 infrastructure_vpc_network_acl_ingress_custom_rules_public  = []
 infrastructure_vpc_network_acl_ingress_custom_rules_private = []
+enable_infrastructure_vpc_transfer_s3_bucket                = false
+infrastructure_vpc_transfer_s3_bucket_access_vpc_ids        = []
 
 # Infrastructure ECS Cluster
 enable_infrastructure_ecs_cluster                         = false
