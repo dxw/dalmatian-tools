@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                                  - help"
+  echo "  -a <account_bootstrap_import_file>  - Filename of import.tf file to link to the Account Bootstrap module"
+  echo "  -i <infrastructure_import_file>     - Filename of import.tf file to link to the Infrastructure module"
+  exit 1
+}
+
+while getopts "a:i:h" opt; do
+  case $opt in
+    a)
+      ACCOUNT_BOOTSTRAP_IMPORT_FILE=$OPTARG
+      ;;
+    i)
+      INFRASTRUCTURE_IMPORT_FILE=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$ACCOUNT_BOOTSTRAP_IMPORT_FILE" &&
+  -z $INFRASTRUCTURE_IMPORT_FILE
+]]
+then
+  usage
+fi
+
+if [ -n "$ACCOUNT_BOOTSTRAP_IMPORT_FILE" ]
+then
+  if [ -f "$ACCOUNT_BOOTSTRAP_IMPORT_FILE" ]
+  then
+    ln -s "$ACCOUNT_BOOTSTRAP_IMPORT_FILE" "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR/dalmatian-import.tf"
+    log_info -l "$ACCOUNT_BOOTSTRAP_IMPORT_FILE linked to $TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR/dalmatian-import.tf" -q "$QUIET_MODE"
+  else
+    err "$ACCOUNT_BOOTSTRAP_IMPORT_FILE is not a file"
+  fi
+fi
+
+if [ -n "$INFRASTRUCTURE_IMPORT_FILE" ]
+then
+  if [ -f "$INFRASTRUCTURE_IMPORT_FILE" ]
+  then
+    ln -s "$INFRASTRUCTURE_IMPORT_FILE" "$TMP_INFRASTRUCTURE_TERRAFORM_DIR/dalmatian-import.tf"
+    log_info -l "$INFRASTRUCTURE_IMPORT_FILE linked to $TMP_INFRASTRUCTURE_TERRAFORM_DIR/dalmatian-import.tf" -q "$QUIET_MODE"
+  else
+    err "$INFRASTRUCTURE_IMPORT_FILE is not a file"
+  fi
+fi

@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                                  - help"
+  echo "  -o <output-location>                - Absolute path to output the import.tf file"
+  exit 1
+}
+
+while getopts "o:h" opt; do
+  case $opt in
+    o)
+      IMPORT_FILE_OUTPUT_PATH=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -z "$IMPORT_FILE_OUTPUT_PATH" ]
+then
+  usage
+fi
+
+if [ -f "$IMPORT_FILE_OUTPUT_PATH" ]
+then
+  err "$IMPORT_FILE_OUTPUT_PATH already exists. Please choose a different location."
+  exit 1
+fi
+
+MESSAGE=$(cat <<EOT
+You will be promted for the target resource reference (\`to\`),
+    and then the input reference (\`id\`)
+    An attempt will be made to display a Terraform Documetation link
+    to the 'Import' section, which explains wether the resource 'id', 'arn'
+    or 'name' is required
+    You can add multiple resources as needed
+    Press CTRL-C once completed, and the file will be saved to the specified
+    location
+EOT
+)
+log_info -l "$MESSAGE" -q "$QUIET_MODE"
+echo ""
+
+while true
+do
+  append_import_block "$IMPORT_FILE_OUTPUT_PATH"
+  echo ""
+done
