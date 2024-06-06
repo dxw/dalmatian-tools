@@ -71,6 +71,9 @@ ecs_cluster_efs_throughput_mode              = "elastic"
 ecs_cluster_efs_infrequent_access_transition = 0
 ecs_cluster_efs_directories                  = []
 
+# Infrastructure ECS Cluster WAF
+infrastructure_ecs_cluster_wafs = {}
+
 # Infrastructure RDS
 infrastructure_rds_defaults = {}
 infrastructure_rds          = {}
