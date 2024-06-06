@@ -45,6 +45,7 @@ infrastructure_ecs_cluster_ami_version                    = "*"
 infrastructure_ecs_cluster_ebs_docker_storage_volume_size = 22
 infrastructure_ecs_cluster_ebs_docker_storage_volume_type = "gp3"
 infrastructure_ecs_cluster_publicly_avaialble             = false
+infrastructure_ecs_cluster_custom_security_group_rules    = {}
 infrastructure_ecs_cluster_instance_type                  = "t3.small"
 infrastructure_ecs_cluster_termination_timeout            = 900
 infrastructure_ecs_cluster_draining_lambda_enabled        = false
