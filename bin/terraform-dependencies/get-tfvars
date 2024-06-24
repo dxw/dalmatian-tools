@@ -4,12 +4,39 @@
 set -e
 set -o pipefail
 
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                          - help"
+  echo "  -n <new_only>               - Only donwload new tfvars - will not overwrite existing tfavrs in cache (Optional)"
+  exit 1
+}
+
 DALMATIAN_ACCOUNT_DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
 PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
 PROJECT_NAME_HASH="$(echo -n "$PROJECT_NAME" | sha1sum | head -c 6)"
 TFVARS_BUCKET_NAME="$PROJECT_NAME_HASH-tfvars"
 TFVARS_BUCKET_EXISTS=0
 TFVARS_PATHS_JSON="{}"
+NEW_TFVARS_ONLY=0
+
+while getopts "nh" opt; do
+  case $opt in
+    n)
+      NEW_TFVARS_ONLY=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ "$NEW_TFVARS_ONLY" == 1 ]
+then
+  echo "==> Checking for and downloading new tfvars files only ..."
+fi
 
 echo "==> Checking existance of tfvars bucket $TFVARS_BUCKET_NAME"
 if aws s3api head-bucket --bucket "$TFVARS_BUCKET_NAME" > /dev/null 2>&1
@@ -30,7 +57,10 @@ then
 
   if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$DEAFULT_TFAVRS_FILE_NAME" > /dev/null 2>&1
   then
-    aws s3 cp "s3://$TFVARS_BUCKET_NAME/$DEAFULT_TFAVRS_FILE_NAME" "$CONFIG_TFVARS_DIR/."
+    if [[ "$NEW_TFVARS_ONLY" == 0 || ! -f "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" ]]
+    then
+      aws s3 cp "s3://$TFVARS_BUCKET_NAME/$DEAFULT_TFAVRS_FILE_NAME" "$CONFIG_TFVARS_DIR/."
+    fi
     DEFAULT_TFVARS_EXISTS=1
   else
     DEFAULT_TFVARS_EXISTS=0
@@ -38,7 +68,10 @@ then
 
   if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" > /dev/null 2>&1
   then
-    aws s3 cp "s3://$TFVARS_BUCKET_NAME/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+    if [[ "$NEW_TFVARS_ONLY" == 0 || ! -f "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" ]]
+    then
+      aws s3 cp "s3://$TFVARS_BUCKET_NAME/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+    fi
     GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS=1
   else
     GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS=0
@@ -46,7 +79,10 @@ then
 
   if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE" > /dev/null 2>&1
   then
-    aws s3 cp "s3://$TFVARS_BUCKET_NAME/$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+    if [[ "$NEW_TFVARS_ONLY" == 0 || ! -f "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE" ]]
+    then
+      aws s3 cp "s3://$TFVARS_BUCKET_NAME/$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+    fi
     GLOBAL_INFRASTRUCTURE_TFVARS_FILE_EXISTS=1
   else
     GLOBAL_INFRASTRUCTURE_TFVARS_FILE_EXISTS=0
@@ -103,12 +139,15 @@ do
     then
       if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$WORKSPACE_TFVARS_FILE" > /dev/null 2>&1
       then
-        aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+        if [[ "$NEW_TFVARS_ONLY" == 0 || ! -f "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" ]]
+        then
+          aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+        fi
         WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
         WORKSPACE_TFVARS_FILE_EXISTS=1
       fi
     fi
-    if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" ]
+    if [[ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" && "$NEW_TFVARS_ONLY" == 0 ]]
     then
       echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
 
@@ -186,12 +225,15 @@ do
     then
       if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$WORKSPACE_TFVARS_FILE" > /dev/null 2>&1
       then
-        aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+        if [[ "$NEW_TFVARS_ONLY" == 0 || ! -f "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" ]]
+        then
+          aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+        fi
         WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=1
         WORKSPACE_TFVARS_FILE_EXISTS=1
       fi
     fi
-    if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" ]
+    if [[ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" && "$NEW_TFVARS_ONLY" == 0 ]]
     then
       echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
       if yes_no "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]:" "y"
