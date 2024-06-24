@@ -198,6 +198,11 @@ then
   export AWS_CONFIG_FILE="$CONFIG_AWS_SSO_FILE"
   export AWS_PROFILE="dalmatian-main"
 
+  if [ -z "$EDITOR" ]
+  then
+    export EDITOR="nano"
+  fi
+
   # These AWS environment variables take precedence when authenticating, which
   # can cause errors if they are not related to Dalmatian
   unset AWS_SESSION_TOKEN
