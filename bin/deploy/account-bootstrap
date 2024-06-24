@@ -18,6 +18,10 @@ DALMATIAN_ACCOUNT=""
 NON_INTERACTIVE_MODE=0
 PLAN=0
 LIST_ACCOUNTS=0
+MAIN_DALMATIAN_ACCOUNT_ID="$(jq -r '.main_dalmatian_account_id' < "$CONFIG_SETUP_JSON_FILE")"
+DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
+MAIN_DALMATIAN_ACCOUNT="$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main"
+
 while getopts "la:Nph" opt; do
   case $opt in
     l)
@@ -81,6 +85,10 @@ do
   ]]
   then
     WORKSPACE_EXISTS=1
+    if [ "$workspace" == "$MAIN_DALMATIAN_ACCOUNT" ]
+    then
+      "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars -n
+    fi
     "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace select $workspace" -a -q
     STRING_OPTIONS="${OPTIONS[*]}"
     "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "$STRING_OPTIONS" -a -q
