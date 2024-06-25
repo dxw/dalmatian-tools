@@ -57,6 +57,23 @@ infrastructure_ecs_cluster_autoscaling_time_based_max     = []
 infrastructure_ecs_cluster_autoscaling_time_based_min     = []
 infrastructure_ecs_cluster_autoscaling_time_based_custom  = []
 
+# Infrastructure ECS Cluster Alerts
+## Autoscaling Group CPU
+enable_infrastructure_ecs_cluster_asg_cpu_alert             = false
+infrastructure_ecs_cluster_asg_cpu_alert_evaluation_periods = 5
+infrastructure_ecs_cluster_asg_cpu_alert_period             = 60
+infrastructure_ecs_cluster_asg_cpu_alert_threshold          = 90
+infrastructure_ecs_cluster_asg_cpu_alert_slack              = false
+infrastructure_ecs_cluster_asg_cpu_alert_opsgenie           = false
+## Pending Tasks
+enable_infrastructure_ecs_cluster_pending_task_alert                = false
+infrastructure_ecs_cluster_pending_task_metric_lambda_log_retention = 30
+infrastructure_ecs_cluster_pending_task_alert_evaluation_periods    = 5
+infrastructure_ecs_cluster_pending_task_alert_period                = 60
+infrastructure_ecs_cluster_pending_task_alert_threshold             = 50
+infrastructure_ecs_cluster_pending_task_alert_slack                 = false
+infrastructure_ecs_cluster_pending_task_alert_opsgenie              = false
+
 # Infrastructure ECS Cluster Services
 infrastructure_ecs_cluster_service_defaults                       = {}
 infrastructure_ecs_cluster_services                               = {}
