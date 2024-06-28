@@ -49,11 +49,6 @@ GITHUB_MESSAGE=$(echo "$RELEASE_JSON" | jq -r '.message')
 if [ "$GITHUB_MESSAGE" != "null" ]
 then
   err "Github: $GITHUB_MESSAGE"
-  log_info -l "This error may have occured, because the dxw/dalmatian-tools repo is private."
-  log_info -l "To use a GitHub token, manually add \`dalmatian_update_github_token\` to the"
-  log_info -l "setup file: $CONFIG_SETUP_JSON_FILE"
-  log_info -l "Note: Redact your GitHub token before sharing this setup file with anyone"
-  log_info -l "This is only a temporary measure whilst the repo is private"
   exit 1
 fi
 
@@ -61,7 +56,7 @@ LATEST_REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.name')
 CURRENT_LOCAL_TAG=$(git -C "$APP_ROOT" describe --tags)
 LOCAL_CHANGES=$(git -C "$APP_ROOT" status -uno --porcelain)
 if [[
-  "$LATEST_REMOTE_TAG" != "$CURRENT_LOCAL_TAG" ||
+  "$LATEST_REMOTE_TAG" != "$CURRENT_LOCAL_TAG" &&
   "$FORCE_UPDATE" == 1 ||
   "$UPDATE_CHECK_LAST_COMPLETE_STATUS" == 0
 ]]
@@ -75,8 +70,12 @@ then
       '.complete_status |= 0' \
       < "$CONFIG_UPDATE_CHECK_JSON_FILE"
   )
+  CURRENT_LOCAL_TAG_TRIMMED=$(echo "$CURRENT_LOCAL_TAG" | cut -d'-' -f1)
   echo "$UPDATE_CHECK_JSON" > "$CONFIG_UPDATE_CHECK_JSON_FILE"
-  if [ -n "$LOCAL_CHANGES" ]
+  if [[
+    -n "$LOCAL_CHANGES" ||
+    "$CURRENT_LOCAL_TAG_TRIMMED" == "$LATEST_REMOTE_TAG"
+  ]]
   then
     err "There may be a newer version of $GIT_DALMATIAN_TOOLS_OWNER/$GIT_DALMATIAN_TOOLS_REPO ($CURRENT_LOCAL_TAG -> $LATEST_REMOTE_TAG) but cant update!"
     err "This is because you have local changes in $APP_ROOT"
