@@ -44,9 +44,19 @@ if [[
   "$FORCE_RELOG" == "1"
   ]]
 then
-  if [ "$QUIET_MODE" == 0 ]
-  then
-    echo "==> Attempting AWS SSO login ..."
-  fi
+  log_info -l "Attempting AWS SSO login ..." -q "$QUIET_MODE"
   aws sso login --profile "$AWS_SSO_PROFILE"
+  log_info -l "Checking AWS SSO login was successful..." -q "$QUIET_MODE"
+  AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || true)"
+  EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
+  if [[
+    "$EPOCH" -gt "$EXPIRES_AT_SEC" ||
+    -z "$EXPIRES_AT"
+  ]]
+  then
+    err "AWS SSO login failed (session is expired)"
+    err "Please try log out of AWS in your browser to refresh the session"
+    exit 1
+  fi
+  log_info -l "AWS SSO login succeeded" -q "$QUIET_MODE"
 fi
