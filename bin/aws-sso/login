@@ -35,7 +35,7 @@ AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || tru
 EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
 if [ -n "$EXPIRES_AT" ]
 then
-  EXPIRES_AT_SEC="$(TZ="UTC" date -j -f "%Y-%m-%dT%H:%M:%SZ" "+%s" "$EXPIRES_AT")"
+  EXPIRES_AT_SEC="$(gdate -d "$EXPIRES_AT" +%s)"
   EPOCH="$(aws_epoch)"
 fi
 if [[

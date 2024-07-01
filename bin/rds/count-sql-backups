@@ -20,7 +20,7 @@ then
   usage
 fi
 
-TODAY=$(date +%Y-%m-%d)
+TODAY=$(gdate +%Y-%m-%d)
 DATE=$TODAY
 
 while getopts "i:r:e:d:h" opt; do

@@ -62,7 +62,7 @@ fi
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
 S3_BUCKET_NAME="$INFRASTRUCTURE_NAME-$RDS_IDENTIFIER-sql-backup"
-TODAY=$(date +%Y-%m-%d)
+TODAY=$(gdate +%Y-%m-%d)
 
 echo "==> Listing SQL backups in $INFRASTRUCTURE_NAME $RDS_NAME $ENVIRONMENT..."
 

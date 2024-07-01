@@ -98,8 +98,8 @@ do
   RULES+=("$rule")
 done < <(echo "$ACL" | jq -r '.WebACL.Rules[].Name')
 
-START_TIME=$(date -v-"$TIME_FRAME"M +"%Y-%m-%dT%H:%MZ")
-END_TIME=$(date +"%Y-%m-%dT%H:%MZ")
+START_TIME=$(gdate -d "$TIME_FRAME minutes ago" "+%Y-%m-%dT%H:%MZ")
+END_TIME=$(gdate "+%Y-%m-%dT%H:%MZ")
 
 BLOCKED_REQUESTS_JSON_STRING=$(jq -n '[]')
 

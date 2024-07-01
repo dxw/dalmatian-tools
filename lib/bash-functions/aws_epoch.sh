@@ -15,6 +15,6 @@ function aws_epoch {
   AWS_TIME="$(echo "$NTP_STRING" | cut -d ' ' -f 2 | cut -d '.' -f 1)"
   AWS_TZ="$(echo "$NTP_STRING" | cut -d ' ' -f 3)"
 
-  AWS_EPOCH="$(date -j -f "%Y-%m-%d %T (%z)" "+%s" "$AWS_DATE $AWS_TIME $AWS_TZ")"
+  AWS_EPOCH="$(gdate -d "$AWS_DATE $AWS_TIME $AWS_TZ" +%s)"
   echo "$AWS_EPOCH"
 }
