@@ -76,7 +76,7 @@ then
 fi
 
 BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
-PREFIX_DIR="$(date +%s)"
+PREFIX_DIR="$(gdate +%s)"
 
 echo "==> Copying to $BUCKET_NAME S3 bucket ..."
 
