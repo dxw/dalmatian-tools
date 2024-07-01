@@ -74,7 +74,10 @@ then
   echo "$UPDATE_CHECK_JSON" > "$CONFIG_UPDATE_CHECK_JSON_FILE"
   if [[
     -n "$LOCAL_CHANGES" ||
-    "$CURRENT_LOCAL_TAG_TRIMMED" == "$LATEST_REMOTE_TAG"
+    (
+      "$CURRENT_LOCAL_TAG" != "$LATEST_REMOTE_TAG" &&
+      "$CURRENT_LOCAL_TAG_TRIMMED" == "$LATEST_REMOTE_TAG"
+    )
   ]]
   then
     err "There may be a newer version of $GIT_DALMATIAN_TOOLS_OWNER/$GIT_DALMATIAN_TOOLS_REPO ($CURRENT_LOCAL_TAG -> $LATEST_REMOTE_TAG) but cant update!"
