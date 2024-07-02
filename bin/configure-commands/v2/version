@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                       - help"
+  echo "  -q                       - Quiet Mode"
+  echo "  -v <set_version>         - Set the version number (eg. -v 2)"
+  echo "  -s <short>               - Only outputs the version"
+  exit 1
+}
+
+VERSION="v1"
+SET_VERSION=""
+SHORT=0
+while getopts "v:sh" opt; do
+  case $opt in
+    v)
+      SET_VERSION="$OPTARG"
+      ;;
+    s)
+      SHORT=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [ -n "$SET_VERSION" ]
+then
+  VERSION="v$SET_VERSION"
+fi
+
+DALMATIAN_CONFIG_STORE="$HOME/.config/dalmatian"
+DALMATIAN_VERSION_FILE="$DALMATIAN_CONFIG_STORE/version.json"
+
+mkdir -p "$DALMATIAN_CONFIG_STORE"
+
+if [[
+  ! -f "$DALMATIAN_VERSION_FILE" ||
+  -n "$SET_VERSION"
+]]
+then
+  DALMATIAN_VERSION_JSON_STRING=$(
+    jq -n \
+    --arg version "$VERSION" \
+    '{
+      version: $version
+    }'
+  )
+  echo "$DALMATIAN_VERSION_JSON_STRING" > "$DALMATIAN_VERSION_FILE"
+fi
+
+VERSION=$(jq -r '.version' < "$DALMATIAN_VERSION_FILE")
+
+if [ "$SHORT" == 1 ]
+then
+  echo "$VERSION"
+  exit 0
+fi
+
+log_info -l "Dalmatian Tools $VERSION" -q "$QUIET_MODE"
+if [ "$VERSION" == "v1" ]
+then
+  log_info -l "The tooling available in v1 is to be used with infrastructure" -q "$QUIET_MODE"
+  log_info -l "launched with the dxw/dalmatian repo, which is private and internal" -q "$QUIET_MODE"
+  log_info -l "To use tooling for use with infrastructures deployed via dalmatian-tools," -q "$QUIET_MODE"
+  log_info -l "switch to 'v2' by running 'dalmatian version -v 2'" -q "$QUIET_MODE"
+fi
+if [ "$VERSION" == "v2" ]
+then
+  RELEASE=$(git -C "$APP_ROOT" describe --tags)
+  log_info -l "(Release: $RELEASE)"
+  log_info -l "The tooling available in v2 is to be used with infrastructures" -q "$QUIET_MODE"
+  log_info -l "deployed via dalmatian-tools" -q "$QUIET_MODE"
+  log_info -l "To use tooling for use with infrastructures launched with the dxw/dalmatian repo," -q "$QUIET_MODE"
+  log_info -l "switch to 'v1' by running 'dalmatian version -v 1'" -q "$QUIET_MODE"
+fi
