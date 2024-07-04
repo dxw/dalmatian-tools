@@ -5,6 +5,13 @@ _dalmatian_completion() {
     return 0
   fi
   DALMATIAN_BIN_PATH=$(dirname "$(command -v dalmatian)")
+  VERSION="v1"
+  CONFIG_DIR="$HOME/.config/dalmatian"
+  CONFIG_VERSION_JSON_FILE="$CONFIG_DIR/version.json"
+  if [ -f "$CONFIG_VERSION_JSON_FILE" ]
+  then
+    VERSION=$(jq -r '.version' < "$CONFIG_VERSION_JSON_FILE")
+  fi
 
   if [ "${#COMP_WORDS[@]}" == 2 ]
   then
@@ -18,7 +25,11 @@ _dalmatian_completion() {
     FILES=()
     while IFS=  read -r -d $'\0'; do
       FILES+=("$REPLY")
-    done < <(find "$DALMATIAN_BIN_PATH/configure-commands" -maxdepth 1 -type f -print0)
+    done < <(find "$DALMATIAN_BIN_PATH/configure-commands/$VERSION" -maxdepth 1 -type f -print0)
+
+    while IFS=  read -r -d $'\0'; do
+      FILES+=("$REPLY")
+    done < <(find "$DALMATIAN_BIN_PATH/configure-commands/$VERSION" -maxdepth 1 -type l -print0)
 
     for d in "${DIRS[@]}"
     do
@@ -26,7 +37,8 @@ _dalmatian_completion() {
       if [[
         "$SUBCOMMAND" != "bin" &&
         "$SUBCOMMAND" != "configure-commands" &&
-        "$SUBCOMMAND" != "tmp"
+        "$SUBCOMMAND" != "tmp" &&
+        -d "$d/$VERSION"
       ]]
       then
         SUBCOMMANDS+=("$SUBCOMMAND")
@@ -50,13 +62,16 @@ _dalmatian_completion() {
       "$1" != "bin" &&
       "$1" != "configure-commands" &&
       "$1" != "tmp" &&
-      -d "$DALMATIAN_BIN_PATH/${COMP_WORDS[1]}"
+      -d "$DALMATIAN_BIN_PATH/${COMP_WORDS[1]}/$VERSION"
     ]]
     then
       FILES=()
       while IFS=  read -r -d $'\0'; do
         FILES+=("$REPLY")
-      done < <(find "$DALMATIAN_BIN_PATH/${COMP_WORDS[1]}" -maxdepth 1 -type f -print0)
+      done < <(find "$DALMATIAN_BIN_PATH/${COMP_WORDS[1]}/$VERSION" -maxdepth 1 -type f -print0)
+      while IFS=  read -r -d $'\0'; do
+        FILES+=("$REPLY")
+      done < <(find "$DALMATIAN_BIN_PATH/${COMP_WORDS[1]}/$VERSION" -maxdepth 1 -type l -print0)
       COMMANDS=()
 
       for f in "${FILES[@]}"

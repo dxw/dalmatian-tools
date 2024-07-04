@@ -29,6 +29,36 @@ fi
 APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
 export APP_ROOT
 
+SUBCOMMAND="$1"
+COMMAND="$2"
+COMMAND_ARGS=( "${@:3}" )
+if [[
+  -f "$APP_ROOT/bin/configure-commands/v1/$SUBCOMMAND" ||
+  -L "$APP_ROOT/bin/configure-commands/v1/$SUBCOMMAND" ||
+  -f "$APP_ROOT/bin/configure-commands/v2/$SUBCOMMAND" ||
+  -L "$APP_ROOT/bin/configure-commands/v2/$SUBCOMMAND"
+]]
+then
+  COMMAND_ARGS=( "${@:2}" )
+fi
+
+QUIET_MODE=0
+for i in "${!COMMAND_ARGS[@]}"
+do
+  if [ "${COMMAND_ARGS[i]}" == "-q" ]
+  then
+    QUIET_MODE=1
+    unset "COMMAND_ARGS[i]"
+  fi
+done
+export QUIET_MODE
+
+VERSION="v1"
+if [ "$SUBCOMMAND" != "version" ]
+then
+  VERSION=$("$APP_ROOT/bin/dalmatian" version -s -q)
+fi
+
 BASH_FUNCTION_DIR="$APP_ROOT/lib/bash-functions"
 for bash_function_file in "$BASH_FUNCTION_DIR"/*
 do
@@ -81,7 +111,10 @@ then
     FILES=()
     while IFS=  read -r -d $'\0'; do
       FILES+=("$REPLY")
-    done < <(find "$APP_ROOT/bin/configure-commands" -maxdepth 1 -type f -print0)
+    done < <(find "$APP_ROOT/bin/configure-commands/$VERSION" -maxdepth 1 -type f -print0)
+    while IFS=  read -r -d $'\0'; do
+      FILES+=("$REPLY")
+    done < <(find "$APP_ROOT/bin/configure-commands/$VERSION" -maxdepth 1 -type l -print0)
 
     CONFIGURE_COMMANDS=()
     for f in "${FILES[@]}"
@@ -100,43 +133,35 @@ then
     do
       if [[ "$SUBCOMMAND" != "bin" && "$SUBCOMMAND" != "tmp" && "$SUBCOMMAND" != "configure-commands" && "$SUBCOMMAND" != "setup" ]]
       then
-        echo "  $SUBCOMMAND"
-        FILES=()
-        while IFS=  read -r -d $'\0'; do
-          FILES+=("$REPLY")
-        done < <(find "$APP_ROOT/bin/$SUBCOMMAND" -maxdepth 1 -type f -print0)
+        if [ -d "$APP_ROOT/bin/$SUBCOMMAND/$VERSION" ]
+        then
+          echo "  $SUBCOMMAND"
+          FILES=()
+          while IFS=  read -r -d $'\0'; do
+            FILES+=("$REPLY")
+          done < <(find "$APP_ROOT/bin/$SUBCOMMAND/$VERSION" -maxdepth 1 -type f -print0)
+          while IFS=  read -r -d $'\0'; do
+            FILES+=("$REPLY")
+          done < <(find "$APP_ROOT/bin/$SUBCOMMAND/$VERSION" -maxdepth 1 -type l -print0)
 
-        COMMANDS=()
-        for f in "${FILES[@]}"
-        do
-          COMMANDS+=("$(basename "$f")")
-        done
-        IFS=" " read -r -a COMMANDS <<< "$(sort <<<"${COMMANDS[*]}")"
+          COMMANDS=()
+          for f in "${FILES[@]}"
+          do
+            COMMANDS+=("$(basename "$f")")
+          done
+          IFS=" " read -r -a COMMANDS <<< "$(sort <<<"${COMMANDS[*]}")"
 
-        for COMMAND in "${COMMANDS[@]}"
-        do
-          echo "    $COMMAND"
-        done
-        echo ""
+          for COMMAND in "${COMMANDS[@]}"
+          do
+            echo "    $COMMAND"
+          done
+          echo ""
+        fi
       fi
     done
   fi
   exit 0
 fi
-
-SUBCOMMAND="$1"
-COMMAND="$2"
-COMMAND_ARGS=( "${@:3}" )
-QUIET_MODE=0
-for i in "${!COMMAND_ARGS[@]}"
-do
-  if [ "${COMMAND_ARGS[i]}" == "-q" ]
-  then
-    QUIET_MODE=1
-    unset "COMMAND_ARGS[i]"
-  fi
-done
-export QUIET_MODE
 
 if [[ -z "$SUBCOMMAND" && -z "$COMMAND" ]]
 then
@@ -144,12 +169,15 @@ then
 fi
 
 if [[
-  -f "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" &&
+  (
+    -f "$APP_ROOT/bin/configure-commands/$VERSION/$SUBCOMMAND" ||
+    -L "$APP_ROOT/bin/configure-commands/$VERSION/$SUBCOMMAND"
+  ) &&
   "$SUBCOMMAND" != "setup" && # Ignore setup for now, this requires different prerequists
   "$SUBCOMMAND" != "update"
 ]]
 then
-  "$APP_ROOT/bin/configure-commands/$SUBCOMMAND"
+  "$APP_ROOT/bin/configure-commands/$VERSION/$SUBCOMMAND" "${COMMAND_ARGS[@]}"
   exit 0
 fi
 
@@ -157,11 +185,7 @@ fi
 # they can be developed along side the original commands using the original
 # authentication methods
 if [[
-  "$SUBCOMMAND" == "setup" ||
-  "$SUBCOMMAND" == "update" ||
-  "$SUBCOMMAND" == "aws-sso" ||
-  "$SUBCOMMAND" == "terraform-dependencies" ||
-  "$SUBCOMMAND" == "deploy"
+  "$VERSION" == "v2"
 ]]
 then
   export CONFIG_DIR="$HOME/.config/dalmatian"
@@ -234,7 +258,10 @@ then
     "$APP_ROOT/bin/dalmatian" aws-sso login
   fi
 
-  if [[ -f "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" ]]
+  if [[
+    -f "$APP_ROOT/bin/configure-commands/$VERSION/$SUBCOMMAND" ||
+    -L "$APP_ROOT/bin/configure-commands/$VERSION/$SUBCOMMAND"
+  ]]
   then
     COMMAND_ARGS=( "${@:2}" )
     QUIET_MODE=0
@@ -247,12 +274,12 @@ then
       fi
     done
     export QUIET_MODE
-    "$APP_ROOT/bin/configure-commands/$SUBCOMMAND" "${COMMAND_ARGS[@]}"
+    "$APP_ROOT/bin/configure-commands/$VERSION/$SUBCOMMAND" "${COMMAND_ARGS[@]}"
     exit 0
   fi
 
   # Run specified command with args
-  "$APP_ROOT/bin/$SUBCOMMAND/$COMMAND" "${COMMAND_ARGS[@]}"
+  "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" "${COMMAND_ARGS[@]}"
   exit 0
 fi
 
@@ -321,7 +348,7 @@ then
   MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
 
   echo "==> Requesting new MFA credentials..."
-  "$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
+  "$APP_ROOT/bin/aws/$VERSION/mfa" -m "$MFA_CODE"
 
   if [ -n "$RUN_AWS_MFA" ]
   then
@@ -410,12 +437,12 @@ done
 # Assume Role for infrastructure if set
 if [ -n "$INFRASTRUCTURE_NAME" ]
 then
-  # shellcheck source=bin/aws/assume-infrastructure-role
-  . "$APP_ROOT/bin/aws/assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME"
+  # shellcheck source=bin/aws/v1/assume-infrastructure-role
+  . "$APP_ROOT/bin/aws/v1/assume-infrastructure-role" -i "$INFRASTRUCTURE_NAME"
 fi
 
 # If no COMMAND was specified, and SUBCOMMAND isn't an executable script
-if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]] || [[ ! -f "$APP_ROOT/bin/$SUBCOMMAND/$COMMAND" ]]; then
+if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]] || [[ ! -f "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" && ! -L "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" ]]; then
   err "Command not found: $(basename "${0}") ${SUBCOMMAND} ${COMMAND:=""}"
 
   echo
@@ -429,4 +456,4 @@ if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]] || [[ ! -f "$APP_ROOT/bin/$SUBC
 fi
 
 # Run specified command with args
-"$APP_ROOT/bin/$SUBCOMMAND/$COMMAND" "${COMMAND_ARGS[@]}"
+"$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" "${COMMAND_ARGS[@]}"
