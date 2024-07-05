@@ -105,7 +105,7 @@ else
   # If an instance ID is specified, ensure it exists by trying to get the name
   INSTANCE_NAME=$(echo "$INSTANCES" | jq -r --arg i "$INSTANCE_ID" \
   '.Reservations[].Instances[] | select(.InstanceId == $i) | .Tags[] | select(.Key == "Name") | .Value')
-
+  
   if [ -z "$INSTANCE_NAME" ];
   then
     err "Instance ID '$INSTANCE_ID' was not found"
