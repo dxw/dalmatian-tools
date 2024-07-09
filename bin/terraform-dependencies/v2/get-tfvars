@@ -69,7 +69,8 @@ then
     then
       aws s3 cp "s3://$TFVARS_BUCKET_NAME/$DEAFULT_TFAVRS_FILE_NAME" "$CONFIG_TFVARS_DIR/."
     fi
-    TFVAR_FILE_REMOTE_LAST_MODIFIED="$(echo "$TFVAR_FILE_META_JSON" | jq -r '.LastModified' | gdate +%s)"
+    TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE="$(echo "$TFVAR_FILE_META_JSON" | jq -r '.LastModified')"
+    TFVAR_FILE_REMOTE_LAST_MODIFIED="$(gdate -d "$TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE" +%s)"
     TFVAR_FILE_LOCAL_LAST_MODIFIED="$(gdate -r "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" +%s)"
     if [[ "$TFVAR_FILE_REMOTE_LAST_MODIFIED" -gt "$TFVAR_FILE_LOCAL_LAST_MODIFIED" ]]
     then
@@ -94,7 +95,8 @@ then
     then
       aws s3 cp "s3://$TFVARS_BUCKET_NAME/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
     fi
-    TFVAR_FILE_REMOTE_LAST_MODIFIED="$(echo "$TFVAR_FILE_META_JSON" | jq -r '.LastModified' | gdate +%s)"
+    TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE="$(echo "$TFVAR_FILE_META_JSON" | jq -r '.LastModified')"
+    TFVAR_FILE_REMOTE_LAST_MODIFIED="$(gdate -d "$TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE" +%s)"
     TFVAR_FILE_LOCAL_LAST_MODIFIED="$(gdate -r "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" +%s)"
     if [[ "$TFVAR_FILE_REMOTE_LAST_MODIFIED" -gt "$TFVAR_FILE_LOCAL_LAST_MODIFIED" ]]
     then
@@ -119,7 +121,8 @@ then
     then
       aws s3 cp "s3://$TFVARS_BUCKET_NAME/$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
     fi
-    TFVAR_FILE_REMOTE_LAST_MODIFIED="$(echo "$TFVAR_FILE_META_JSON" | jq -r '.LastModified' | gdate +%s)"
+    TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE="$(echo "$TFVAR_FILE_META_JSON" | jq -r '.LastModified')"
+    TFVAR_FILE_REMOTE_LAST_MODIFIED="$(gdate -d "$TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE" +%s)"
     TFVAR_FILE_LOCAL_LAST_MODIFIED="$(gdate -r "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE" +%s)"
     if [[ "$TFVAR_FILE_REMOTE_LAST_MODIFIED" -gt "$TFVAR_FILE_LOCAL_LAST_MODIFIED" ]]
     then
@@ -184,7 +187,7 @@ do
           -p dalmatian-main \
           s3api head-object \
           --bucket "$TFVARS_BUCKET_NAME" \
-          --key "$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE" \
+          --key "$WORKSPACE_TFVARS_FILE" \
           2>/dev/null || true
       )"
       if [[ "$TFVAR_FILE_META_JSON" ]]
@@ -193,7 +196,8 @@ do
         then
           aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
         fi
-        TFVAR_FILE_REMOTE_LAST_MODIFIED="$(echo "$TFVAR_FILE_META_JSON" | jq -r '.LastModified' | gdate +%s)"
+        TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE="$(echo "$TFVAR_FILE_META_JSON" | jq -r '.LastModified')"
+        TFVAR_FILE_REMOTE_LAST_MODIFIED="$(gdate -d "$TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE" +%s)"
         TFVAR_FILE_LOCAL_LAST_MODIFIED="$(gdate -r "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" +%s)"
         if [[ "$TFVAR_FILE_REMOTE_LAST_MODIFIED" -gt "$TFVAR_FILE_LOCAL_LAST_MODIFIED" ]]
         then
@@ -279,9 +283,24 @@ do
     WORKSPACE_TFVARS_FILE_EXISTS=0
     if [ "$TFVARS_BUCKET_EXISTS" == 1 ]
     then
-      if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$WORKSPACE_TFVARS_FILE" > /dev/null 2>&1
+      TFVAR_FILE_META_JSON="$(
+        "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+          -p dalmatian-main \
+          s3api head-object \
+          --bucket "$TFVARS_BUCKET_NAME" \
+          --key "$WORKSPACE_TFVARS_FILE" \
+          2>/dev/null || true
+      )"
+      if [[ "$TFVAR_FILE_META_JSON" ]]
       then
         if [[ "$NEW_TFVARS_ONLY" == 0 || ! -f "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" ]]
+        then
+          aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
+        fi
+        TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE="$(echo "$TFVAR_FILE_META_JSON" | jq -r '.LastModified')"
+        TFVAR_FILE_REMOTE_LAST_MODIFIED="$(gdate -d "$TFVAR_FILE_REMOTE_LAST_MODIFIED_DATE" +%s)"
+        TFVAR_FILE_LOCAL_LAST_MODIFIED="$(gdate -r "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" +%s)"
+        if [[ "$TFVAR_FILE_REMOTE_LAST_MODIFIED" -gt "$TFVAR_FILE_LOCAL_LAST_MODIFIED" ]]
         then
           aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/."
         fi
