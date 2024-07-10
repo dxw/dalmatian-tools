@@ -101,7 +101,7 @@ then
   log_info -l "Ensuring tfenv is configured ..."
   brew link --overwrite tfenv
   "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
-  "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
+  "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars -n
   UPDATE_CHECK_JSON=$(
     jq -r \
       '.complete_status |= "1"' \
