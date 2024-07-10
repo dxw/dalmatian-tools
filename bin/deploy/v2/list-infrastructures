@@ -4,12 +4,56 @@
 set -e
 set -o pipefail
 
+JSON_RESULT='{"accounts": {} }'
+
+INFRASTRUCTURE_WORKSPACES=()
 while IFS='' read -r workspace
 do
   workspace=${workspace/\*/ }
   workspace=$(echo "$workspace" | xargs)
   if [[ -n "$workspace" && "$workspace" != "default" ]]
   then
-    echo "$workspace"
+    INFRASTRUCTURE_WORKSPACES+=("$workspace")
   fi
 done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -i -q)
+
+while IFS='' read -r account_workspace
+do
+  account_workspace=${account_workspace/\*/ }
+  account_workspace=$(echo "$account_workspace" | xargs)
+  if [[ -n "$account_workspace" && "$account_workspace" != "default" ]]
+  then
+    for infrastructure_workspace in "${INFRASTRUCTURE_WORKSPACES[@]}"
+    do
+      if [[ "$infrastructure_workspace" == "$account_workspace"* ]]
+      then
+        JSON_RESULT=$(echo "$JSON_RESULT" | jq -c \
+          --arg account_workspace "$account_workspace" \
+          '.accounts += { "\($account_workspace)": { "infrastructures": {} } }'
+        )
+        INFRASTRUCTURE_NAME_AND_ENVIRONMENT="${infrastructure_workspace#"$account_workspace-"}"
+        INFRASTRUCTURE_ENVIRONMENT="$(echo "$INFRASTRUCTURE_NAME_AND_ENVIRONMENT" | rev | cut -d'-' -f1 | rev)"
+        INFRASTRUCTURE_NAME="${INFRASTRUCTURE_NAME_AND_ENVIRONMENT%"-$INFRASTRUCTURE_ENVIRONMENT"}"
+        JSON_RESULT=$(echo "$JSON_RESULT" | jq -c \
+          --arg account_workspace "$account_workspace" \
+          --arg infrastructure_name "$INFRASTRUCTURE_NAME" \
+          '.accounts[$account_workspace].infrastructures += { "\($infrastructure_name)": { "environments": [], "workspaces": [] } }'
+        )
+        JSON_RESULT=$(echo "$JSON_RESULT" | jq -c \
+          --arg account_workspace "$account_workspace" \
+          --arg infrastructure_name "$INFRASTRUCTURE_NAME" \
+          --arg infrastructure_environment "$INFRASTRUCTURE_ENVIRONMENT" \
+          '.accounts[$account_workspace].infrastructures[$infrastructure_name].environments += [ $infrastructure_environment ]'
+        )
+        JSON_RESULT=$(echo "$JSON_RESULT" | jq -c \
+          --arg account_workspace "$account_workspace" \
+          --arg infrastructure_name "$INFRASTRUCTURE_NAME" \
+          --arg infrastructure_workspace "$infrastructure_workspace" \
+          '.accounts[$account_workspace].infrastructures[$infrastructure_name].workspaces += [ $infrastructure_workspace ]'
+        )
+      fi
+    done
+  fi
+done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)
+
+echo "$JSON_RESULT"
