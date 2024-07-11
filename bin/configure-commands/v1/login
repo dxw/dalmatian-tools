@@ -14,7 +14,7 @@ if ! is_installed "oathtool"; then
   fi
 fi
 
-if ! "$APP_ROOT/bin/aws/awscli-version"
+if ! "$APP_ROOT/bin/aws/v1/awscli-version"
 then
   exit 1
 fi
@@ -102,7 +102,7 @@ fi
 export AWS_ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY
 
-if "$APP_ROOT/bin/aws/mfa" -m "$MFA_CODE"
+if "$APP_ROOT/bin/aws/v1/mfa" -m "$MFA_CODE"
 then
   echo "==> Login success!"
   echo "==> Storing credentials in $DALMATIAN_CREDENTIALS_FILE"
