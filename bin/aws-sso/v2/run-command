@@ -6,13 +6,29 @@ set -o pipefail
 
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -p <aws_sso_profile>   - AWS SSO Profile"
+  echo "  -h                           - help"
+  echo "  -p <aws_sso_profile>         - AWS SSO Profile"
+  echo "  -i <infrastructure_name>     - Infrastructure name"
+  echo "  -e <environment>             - Environment"
+  echo "  -w <infrastructure_workspace> - Workspace"
   exit 1
 }
 
-while getopts "p:h" opt; do
+INFRASTRUCTURE_NAME=""
+ENVIRONMENT=""
+INFRASTRUCTURE_WORKSPACE_NAME=""
+AWS_SSO_PROFILE=""
+while getopts "i:e:w:p:h" opt; do
   case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    w)
+      INFRASTRUCTURE_WORKSPACE_NAME=$OPTARG
+      ;;
     p)
       AWS_SSO_PROFILE=$OPTARG
       ;;
@@ -25,11 +41,22 @@ while getopts "p:h" opt; do
   esac
 done
 
-if [ -z "$AWS_SSO_PROFILE" ]
+if [ -n "$AWS_SSO_PROFILE" ]
+then
+  export AWS_PROFILE="$AWS_SSO_PROFILE"
+elif [[
+  (
+    -z "$INFRASTRUCTURE_NAME" ||
+    -z "$ENVIRONMENT"
+  ) &&
+  -z "$INFRASTRUCTURE_WORKSPACE_NAME"
+]]
 then
   usage
+else
+  AWS_PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+  export AWS_PROFILE
 fi
-shift $((OPTIND-1))
 
-export AWS_PROFILE="$AWS_SSO_PROFILE"
+shift $((OPTIND-1))
 aws "$@"
