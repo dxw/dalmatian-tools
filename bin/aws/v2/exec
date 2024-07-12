@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+if [ -n "$DALMATIAN_TOOLS_DEBUG" ]; then
+  set -x
+fi
+
+usage() {
+  echo "Run any aws cli command in an infrastructure environment"
+  echo 'e.g dalmatian aws exec -i <infrastructure> -e <environment> s3 ls'
+  echo "Usage: $(basename "$0") [OPTIONS] <aws sub command>" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+
+while getopts "i:e:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+shift $((OPTIND-1))
+
+dalmatian aws-sso run-command -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" "$@"
