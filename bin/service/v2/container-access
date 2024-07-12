@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <service_name>      - service name"
+  echo "  -c <command>           - Command to run on container - Defaults to '/bin/bash' (Optional)"
+  echo "  -n <non-interactive>   - Run command non-interactively (Optional)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+COMMAND="/bin/bash"
+INTERACTIVE="--interactive"
+while getopts "i:e:s:c:nh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    c)
+      COMMAND=$OPTARG
+      ;;
+    n)
+      INTERACTIVE="--non-interactive"
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+  || -z "$SERVICE_NAME"
+]]
+then
+  usage
+fi
+
+echo "==> Finding container..."
+
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+CLUSTER="$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT-infrastructure"
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+
+TASKS="$(
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  ecs list-tasks \
+  --cluster "$CLUSTER" \
+  --service-name "$SERVICE_NAME"
+)"
+TASK_ARN=$(echo "$TASKS" | jq -r '.taskArns[0]')
+
+TASK_DESCRIPTION="$(
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  ecs describe-tasks \
+  --cluster "$CLUSTER" \
+  --task "$TASK_ARN"
+)"
+CONTAINER_NAME="$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containers[0].name')"
+
+"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  ecs execute-command \
+  --cluster "$CLUSTER" \
+  --task "$TASK_ARN" \
+  --container "$CONTAINER_NAME" \
+  --command "$COMMAND" \
+  "$INTERACTIVE"
