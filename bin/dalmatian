@@ -204,6 +204,7 @@ then
   export TMP_DIR="$APP_ROOT/tmp"
   export TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-account-bootstrap"
   export TMP_INFRASTRUCTURE_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-infrastructure"
+  export TMP_SERVICE_ENV_DIR="$TMP_DIR/service-environment-files"
 
   export GIT_DALMATIAN_TOOLS_HOST="github.com"
   export GIT_DALMATIAN_TOOLS_OWNER="dxw"
