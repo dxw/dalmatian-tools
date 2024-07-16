@@ -1,0 +1,111 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <service_name>      - service name (Optional, by default lists all services)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+SERVICE_NAME=""
+while getopts "i:e:s:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+JSON_RESULT='{ "services": {} }'
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+CLUSTER="$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT-infrastructure"
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+
+SERVICE_ARNS=$(
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  ecs list-services \
+  --cluster "$CLUSTER" \
+  | jq -r '.serviceArns'
+)
+if [ -n "$SERVICE_NAME" ]
+then
+  SERVICE_ARNS=$(
+    echo "$SERVICE_ARNS" | jq -r \
+    --arg service_name "$SERVICE_NAME" \
+    '.[] | select(endswith("/" + $service_name))'
+  )
+else
+  SERVICE_ARNS=$(echo "$SERVICE_ARNS" | jq -r '.[]')
+fi
+SERVICE_ARNS_ARR=()
+while IFS='' read -r SERVICE_ARN
+do
+  SERVICE_ARNS_ARR+=("$SERVICE_ARN")
+done < <(echo "$SERVICE_ARNS")
+
+for arn in "${SERVICE_ARNS_ARR[@]}"
+do
+  SERVICE="$(
+    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    ecs describe-services \
+    --cluster "$CLUSTER" \
+    --services "$arn"
+  )"
+  SERVICE_NAME="$(echo "$SERVICE" | jq -r '.services[0].serviceName')"
+  DESIRED_CONTAINERS="$(echo "$SERVICE" | jq -r '.services[0].desiredCount')"
+  RUNNING_CONTAINERS="$(echo "$SERVICE" | jq -r '.services[0].runningCount')"
+  TASK_DEFINITION_ARN="$(echo "$SERVICE" | jq -r '.services[0].taskDefinition')"
+  TASK_DEFINITION="$(
+    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    ecs describe-task-definition \
+    --task-definition "$TASK_DEFINITION_ARN"
+  )"
+  ENVIRONMENT_FILE_ARN="$(echo "$TASK_DEFINITION" | jq -r '.taskDefinition.containerDefinitions[0].environmentFiles[0].value')"
+  ENVIRONMENT_FILE_BUCKET_ARN="$(echo "$ENVIRONMENT_FILE_ARN" | cut -d'/' -f1)"
+  ENVIRONMENT_FILE_BUCKET_NAME="$(echo "$ENVIRONMENT_FILE_BUCKET_ARN" | rev | cut -d':' -f1 | rev)"
+  ENVIRONMENT_FILE_KEY="$(echo "$ENVIRONMENT_FILE_ARN" | cut -d'/' -f2-)"
+  JSON_RESULT=$(echo "$JSON_RESULT" | jq -c \
+    --arg service_name "$SERVICE_NAME" \
+    --arg desired_containers "$DESIRED_CONTAINERS" \
+    --arg running_containers "$RUNNING_CONTAINERS" \
+    --arg environment_file_bucket "$ENVIRONMENT_FILE_BUCKET_NAME" \
+    --arg environment_file_key "$ENVIRONMENT_FILE_KEY" \
+    '.services += { "\($service_name)": { "desired_containers": $desired_containers, "running_containers": $running_containers, "environment_file_bucket": $environment_file_bucket, "environment_file_key": $environment_file_key } }'
+  )
+done
+
+echo "$JSON_RESULT"
