@@ -148,7 +148,7 @@ esac
 
 echo "Uploading $DB_DUMP_FILE ..."
 
-"$APP_ROOT/bin/ecs/file-upload" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$DB_DUMP_FILE" -t "/tmp/$(basename "$DB_DUMP_FILE")" -I "$ECS_INSTANCE_ID"
+"$APP_ROOT/bin/ecs/v1/file-upload" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$DB_DUMP_FILE" -t "/tmp/$(basename "$DB_DUMP_FILE")" -I "$ECS_INSTANCE_ID"
 
 echo "==> Uploading complete!"
 
