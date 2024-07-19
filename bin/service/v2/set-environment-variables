@@ -1,0 +1,133 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <service>           - service name"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+while getopts "i:e:s:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+  || -z "$SERVICE_NAME"
+]]
+then
+  usage
+fi
+
+log_info -l "Finding environment file for $SERVICE_NAME ..." -q "$QUIET_MODE"
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+
+SERVICE_DETAILS="$(
+  "$APP_ROOT/bin/dalmatian" service list-services \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  -s "$SERVICE_NAME" \
+  | jq -r \
+  --arg service_name "$SERVICE_NAME" \
+  '.services[$service_name]'
+)"
+ENVIRONMENT_FILE_BUCKET="$(
+  echo "$SERVICE_DETAILS" | jq -r \
+  '.environment_file_bucket')"
+ENVIRONMENT_FILE_KEY="$(
+  echo "$SERVICE_DETAILS" | jq -r \
+  '.environment_file_key')"
+
+ENVIRONMENT_FILE_S3_URI="s3://$ENVIRONMENT_FILE_BUCKET/$ENVIRONMENT_FILE_KEY"
+LOCAL_ENVIRONMENT_FILE="$TMP_SERVICE_ENV_DIR/$INFRASTRUCTURE_NAME-$ENVIRONMENT-$SERVICE_NAME.env"
+
+ENVIRONMENT_FILE_META_JSON="$(
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    s3api head-object \
+    --bucket "$ENVIRONMENT_FILE_BUCKET" \
+    --key "$ENVIRONMENT_FILE_KEY" \
+    2>/dev/null || true
+)"
+
+if [[ "$ENVIRONMENT_FILE_META_JSON" ]]
+then
+  log_info -l "Downloading and opening '$ENVIRONMENT_FILE_S3_URI' ..."
+  
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    s3 cp "$ENVIRONMENT_FILE_S3_URI" "$LOCAL_ENVIRONMENT_FILE"
+else
+  if ! yes_no "$ENVIRONMENT_FILE_S3_URI doesn't exist, do you want to create it now? If this is unexpected, choose N, otherwise the env file may be overwritten" "N"
+  then
+    exit 0
+  fi
+fi
+
+cp "$LOCAL_ENVIRONMENT_FILE" "$LOCAL_ENVIRONMENT_FILE-orig"
+"$EDITOR" "$LOCAL_ENVIRONMENT_FILE"
+
+DIFF="$(colordiff -u "$LOCAL_ENVIRONMENT_FILE-orig" "$LOCAL_ENVIRONMENT_FILE" || true)"
+rm "$LOCAL_ENVIRONMENT_FILE-orig"
+
+if [[ -z "$DIFF" ]]
+then
+  log_info -l "No changes were made to the environment file, exitting ..."
+  rm "$LOCAL_ENVIRONMENT_FILE"
+  exit 0
+fi
+
+log_info -l "The following changes will be made to the environment file:"
+
+echo ""
+echo "$DIFF" | tail -n +3
+echo ""
+
+if ! yes_no "Do you want to upload these changes?" "y"
+then
+  rm "$LOCAL_ENVIRONMENT_FILE"
+  exit 0
+fi
+
+log_info -l "Uploading then removing $LOCAL_ENVIRONMENT_FILE ..."
+
+"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  s3 cp "$LOCAL_ENVIRONMENT_FILE" "$ENVIRONMENT_FILE_S3_URI"
+
+rm "$LOCAL_ENVIRONMENT_FILE"
+
+if yes_no "Envinroment file updated, do you want to redeploy the service now?" "y"
+then
+  "$APP_ROOT/bin/dalmatian" service deploy -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$SERVICE_NAME"
+fi
