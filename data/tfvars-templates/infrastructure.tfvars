@@ -57,6 +57,7 @@ infrastructure_ecs_cluster_autoscaling_time_based_max     = []
 infrastructure_ecs_cluster_autoscaling_time_based_min     = []
 infrastructure_ecs_cluster_autoscaling_time_based_custom  = []
 infrastructure_ecs_cluster_enable_debug_mode              = false
+infrastructure_ecs_cluster_enable_execute_command_logging = false
 
 # Infrastructure ECS Cluster Alerts
 ## Autoscaling Group CPU
