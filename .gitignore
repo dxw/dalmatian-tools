@@ -2,4 +2,8 @@
 bin/tmp
 tmp
 
+# custom script directory
+bin/custom/v2/*
+!bin/custom/v2/.gitkeep
+
 Brewfile.lock.json
