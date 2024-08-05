@@ -103,8 +103,11 @@ ecs_cluster_efs_directories                  = []
 infrastructure_ecs_cluster_wafs = {}
 
 # Infrastructure RDS
-infrastructure_rds_defaults = {}
-infrastructure_rds          = {}
+infrastructure_rds_defaults                     = {}
+infrastructure_rds                              = {}
+enable_infrastructure_rds_backup_to_s3          = false
+infrastructure_rds_backup_to_s3_cron_expression = "cron(0 20 ? * * *)"
+infrastructure_rds_backup_to_s3_retention       = 30
 
 # Infrastructure ElastiCache
 infrastructure_elasticache_defaults = {}
