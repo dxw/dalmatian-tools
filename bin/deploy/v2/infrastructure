@@ -92,13 +92,19 @@ fi
 
 OPTIONS=()
 APPLY_OR_PLAN="apply"
+if [[ -n "$WORKSPACE_NAME" ]]
+then
+  PLAN_FILENAME="/tmp/$WORKSPACE_NAME.plan"
+else
+  PLAN_FILENAME="/tmp/$DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME.plan"
+fi
 if [ "$PLAN" == "1" ]
 then
   APPLY_OR_PLAN="plan"
 fi
 if [ "$SHOW_PLAN" == "1" ]
 then
-  APPLY_OR_PLAN="show -json /tmp/$DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME.plan"
+  APPLY_OR_PLAN="show -json $PLAN_FILENAME"
 fi
 OPTIONS+=("$APPLY_OR_PLAN")
 
@@ -109,8 +115,8 @@ fi
 
 if [ "$OUTPUT_PLAN" == "1" ]
 then
-  OPTIONS+=("-out=/tmp/$DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME.plan ")
-  echo "Plan will be written to /tmp/$DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME.plan"
+  OPTIONS+=("-out=$PLAN_FILENAME")
+  echo "Plan will be written to $PLAN_FILENAME"
 fi
 
 WORKSPACE_EXISTS=0
