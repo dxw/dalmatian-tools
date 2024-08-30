@@ -1,0 +1,81 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                       - help"
+  echo "  -a <dalmatian_account>   - Dalmatian account name"
+  echo "  -Q <athena_query>        - Athena Query to run against CloudTrail logs"
+  echo "     Format the query, using 'CLOUDTRAIL' in place of the full table name, which will be"
+  echo "     evaulated and replaced within the given query that is sent to Athena. eg:"
+  echo "       select * from CLOUDTRAIL limit 50;"
+  exit 1
+}
+
+while getopts "a:Q:h" opt; do
+  case $opt in
+    a)
+      DALMATIAN_ACCOUNT=$OPTARG
+      ;;
+    Q)
+      ATHENA_QUERY=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$DALMATIAN_ACCOUNT"
+  || -z "$ATHENA_QUERY"
+]]
+then
+  usage
+fi
+
+PROFILE="$(resolve_aws_profile -a "$DALMATIAN_ACCOUNT")"
+ACCOUNT_NUMBER="$(echo "$DALMATIAN_ACCOUNT" | cut -d'-' -f1)"
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME_SNAKE="$(echo "$PROJECT_NAME" | tr '-' '_')"
+TABLE_NAME="cloudtrail_logs_${ACCOUNT_NUMBER}_${PROJECT_NAME_SNAKE}_cloudtrail_cloudtrail"
+DATABASE="${PROJECT_NAME_SNAKE}_cloudtrail"
+WORKGROUP="${PROJECT_NAME}-cloudtrail"
+ATHENA_QUERY="${ATHENA_QUERY/CLOUDTRAIL/$TABLE_NAME}"
+
+EXECUTION_ID="$(
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    athena start-query-execution \
+      --query-string "$ATHENA_QUERY" \
+      --query-execution-context Database="$DATABASE" \
+      --work-group "$WORKGROUP" \
+  | jq -r '.QueryExecutionId'
+)"
+
+log_info -l "Execution ID: $EXECUTION_ID" -q "$QUIET_MODE"
+
+EXECUTION_STATUS=""
+while [ "$EXECUTION_STATUS" != "SUCCEEDED" ]
+do
+  EXECUTION_STATUS="$(
+    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    athena get-query-execution \
+      --query-execution-id "$EXECUTION_ID" \
+  | jq -r '.QueryExecution.Status.State'
+  )"
+  log_info -l "Execution status: $EXECUTION_STATUS" -q "$QUIET_MODE"
+  sleep 1
+done
+
+"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+    athena get-query-results \
+    --query-execution-id "$EXECUTION_ID" | jq
