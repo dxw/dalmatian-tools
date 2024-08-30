@@ -2,7 +2,7 @@
 
 # Words taken from https://github.com/hermitdave/FrequencyWords CC-BY-SA-4.0.
 # See README.md in the data/ directory for more details.
-DICT="$( dirname -- "$0")/../../data/common-short-words.txt"
+DICT="$( dirname -- "$0")/../../../data/common-short-words.txt"
 
 usage() {
   echo 'Generate a password that is suitable for use in basic auth'
