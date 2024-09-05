@@ -5,22 +5,24 @@
   ],
   "customManagers": [
     {
+      "customType": "regex",
       "fileMatch": ["^terraform-project-versions\\.json$"],
       "matchStrings": [
         "\"terraform-dxw-dalmatian-infrastructure\":\\s*\"(?<currentValue>[^\"]+)\""
       ],
-      "datasource": "github-releases",
-      "depName": "dxw/terraform-dxw-dalmatian-infrastructure",
-      "versioning": "semver-coerced"
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "dxw/terraform-dxw-dalmatian-infrastructure",
+      "versioningTemplate": "semver-coerced"
     },
     {
+      "customType": "regex",
       "fileMatch": ["^terraform-project-versions\\.json$"],
       "matchStrings": [
         "\"terraform-dxw-dalmatian-account-bootstrap\":\\s*\"(?<currentValue>[^\"]+)\""
       ],
-      "datasource": "github-releases",
-      "depName": "dxw/terraform-dxw-dalmatian-account-bootstrap",
-      "versioning": "semver-coerced"
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "dxw/terraform-dxw-dalmatian-account-bootstrap",
+      "versioningTemplate": "semver-coerced"
     }
   ]
 }
