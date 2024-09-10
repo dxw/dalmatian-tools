@@ -115,6 +115,10 @@ infrastructure_rds_backup_to_s3_retention       = 30
 infrastructure_elasticache_defaults = {}
 infrastructure_elasticache          = {}
 
+# Infrastructure Bastion Host
+enable_infrastructure_bastion_host                      = false
+infrastructure_bastion_host_custom_security_group_rules = {}
+
 # Custom CloudFormation Stacks
 enable_cloudformatian_s3_template_store = false
 custom_cloudformation_stacks            = {}
