@@ -60,6 +60,7 @@ infrastructure_ecs_cluster_enable_debug_mode              = false
 infrastructure_ecs_cluster_enable_execute_command_logging = false
 infrastructure_ecs_cluster_syslog_endpoint                = ""
 infrastructure_ecs_cluster_syslog_permitted_peer          = ""
+infrastructure_ecs_cluster_logspout_command               = []
 
 # Infrastructure ECS Cluster Alerts
 ## Autoscaling Group CPU
