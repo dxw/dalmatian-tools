@@ -55,5 +55,20 @@ function resolve_aws_profile {
   fi
   
   PROFILE_NAME="$(echo "$ACCOUNT_WORKSPACE" | cut -d'-' -f5-)"
+  PROFILE_EXISTS=0
+  while IFS='' read -r PROFILE
+  do
+    if [ "$PROFILE_NAME" == "$PROFILE" ]
+    then
+      PROFILE_EXISTS=1
+      break
+    fi
+  done < <(aws configure list-profiles)
+  if [ "$PROFILE_EXISTS" != 1 ]
+  then
+    echo "Error: Profile does not exist for $INFRASTRUCTURE_NAME $ENVIRONMENT_NAME $DALMATIAN_ACCOUNT" >&2
+    echo "Try running \`dalmatian aws-sso generate-config\` first" >&2
+    exit 1
+  fi
   echo "$PROFILE_NAME"
 }
