@@ -59,4 +59,7 @@ then
     exit 1
   fi
   log_info -l "AWS SSO login succeeded" -q "$QUIET_MODE"
+  exit 0
 fi
+
+echo "You're already logged in. Your existing session will expire on $EXPIRES_AT"
