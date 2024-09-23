@@ -10,6 +10,14 @@ set -o pipefail
 function aws_epoch {
   AWS_NTP_SERVER="0.amazon.pool.ntp.org"
 
+  # Trap if the user hasn't updated sntp yet
+  if which sntp | grep -qv 'homebrew' > /dev/null
+  then
+    echo "==> Installing missing dependencies..."
+    BREW_BIN=$(command -v "brew")
+    $BREW_BIN bundle install
+  fi
+
   NTP_STRING="$(sntp "$AWS_NTP_SERVER" | tail -n1)"
   AWS_DATE="$(echo "$NTP_STRING" | cut -d ' ' -f 1)"
   AWS_TIME="$(echo "$NTP_STRING" | cut -d ' ' -f 2 | cut -d '.' -f 1)"
