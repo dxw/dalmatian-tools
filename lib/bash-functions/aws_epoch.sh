@@ -8,7 +8,7 @@ set -o pipefail
 #
 # @usage aws_epoch
 function aws_epoch {
-  AWS_NTP_SERVER="0.amazon.pool.ntp.org"
+  AWS_NTP_SERVER="time.aws.com"
 
   NTP_STRING="$(sntp "$AWS_NTP_SERVER" | tail -n1)"
   AWS_DATE="$(echo "$NTP_STRING" | cut -d ' ' -f 1)"
