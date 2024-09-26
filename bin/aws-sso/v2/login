@@ -54,8 +54,8 @@ then
     -z "$EXPIRES_AT"
   ]]
   then
-    err "AWS SSO login failed (session is expired)"
-    err "Please try log out of AWS in your browser to refresh the session"
+    err "Failed to validate your sign-in with AWS SSO. Your session has expired."
+    err "Please try to log out of AWS in your browser to refresh the session, and try again."
     exit 1
   fi
   log_info -l "AWS SSO login succeeded" -q "$QUIET_MODE"
