@@ -8,6 +8,8 @@ set -o pipefail
 # @param -l <log>  Any information to output
 # @param -q <0/1>  Quiet mode
 function log_info {
+  cyan='\033[0;36m'
+  clear='\033[0m'
   OPTIND=1
   QUIET_MODE=0
   while getopts "l:q:" opt; do
@@ -26,6 +28,6 @@ function log_info {
   done
   if [ "$QUIET_MODE" == "0" ]
   then
-    echo "==> $LOG"
+    echo -e "${cyan}==>${clear} $LOG"
   fi
 }

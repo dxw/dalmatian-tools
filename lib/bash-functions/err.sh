@@ -7,5 +7,8 @@ set -o pipefail
 # @usage err "A problem happened!"
 # @param $* Any information to pass into stderr
 function err {
-  echo "[!] Error: $*" >&2
+  red='\033[0;31m'
+  clear='\033[0m'
+
+  echo -e "${red}[!] Error: ${clear}$*" >&2
 }
