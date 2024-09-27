@@ -71,7 +71,7 @@ done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command
 
 if [ "$WORKSPACE_EXISTS" == "0" ]
 then
-  echo "$DALMATIAN_ACCOUNT does not exist."
-  echo "Here are the available dalmatian accounts:"
+  err "$DALMATIAN_ACCOUNT does not exist."
+  log_info -l "Here are the available dalmatian accounts:" -q "$QUIET_MODE"
   "$APP_ROOT/bin/dalmatian" deploy list-accounts
 fi

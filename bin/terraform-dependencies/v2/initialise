@@ -37,6 +37,6 @@ while getopts "ruh" opt; do
   esac
 done
 
-echo "==> Attempting Terraform init ..."
+log_info -l "Attempting Terraform init ..." -q "$QUIET_MODE"
 "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "init" -a -q
 "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "init" -i -q

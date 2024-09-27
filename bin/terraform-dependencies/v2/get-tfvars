@@ -35,16 +35,16 @@ done
 
 if [ "$NEW_TFVARS_ONLY" == 1 ]
 then
-  echo "==> Checking for and downloading new tfvars files only ..."
+  log_info -l "Checking for and downloading new tfvars files only ..." -q "$QUIET_MODE"
 fi
 
-echo "==> Checking existance of tfvars bucket $TFVARS_BUCKET_NAME"
+log_info -l "Checking existance of tfvars bucket $TFVARS_BUCKET_NAME" -q "$QUIET_MODE"
 if aws s3api head-bucket --bucket "$TFVARS_BUCKET_NAME" > /dev/null 2>&1
 then
-  echo "==> $TFVARS_BUCKET_NAME bucket exists ..."
+  log_info -l "$TFVARS_BUCKET_NAME bucket exists ..." -q "$QUIET_MODE"
   TFVARS_BUCKET_EXISTS=1
 else
-  echo "==> $TFVARS_BUCKET_NAME bucket doesn't exist. Bucket will be created on first deployment."
+  log_info -l "$TFVARS_BUCKET_NAME bucket doesn't exist. Bucket will be created on first deployment." -q "$QUIET_MODE"
   TFVARS_BUCKET_EXISTS=0
 fi
 
@@ -53,7 +53,7 @@ DEAFULT_TFAVRS_FILE_NAME="000-terraform.tfvars"
 
 if [ "$TFVARS_BUCKET_EXISTS" == 1 ]
 then
-  echo "==> Downloading tfvars ..."
+  log_info -l "Downloading tfvars ..." -q "$QUIET_MODE"
 
   TFVAR_FILE_META_JSON="$(
     "$APP_ROOT/bin/dalmatian" aws-sso run-command \
@@ -136,10 +136,10 @@ fi
 
 if [[ "$TFVARS_BUCKET_EXISTS" == 0 || "$DEFAULT_TFVARS_EXISTS" == 0 ]]
 then
-  echo "==> $DEAFULT_TFAVRS_FILE_NAME doesn't exist in tfvars S3 bucket."
+  log_info -l "$DEAFULT_TFAVRS_FILE_NAME doesn't exist in tfvars S3 bucket." -q "$QUIET_MODE"
   echo "project_name=\"$PROJECT_NAME\"" > "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
   echo "aws_region=\"$DALMATIAN_ACCOUNT_DEFAULT_REGION\"" >> "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
-  echo "==> Created $CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
+  log_info -l "Created $CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" -q "$QUIET_MODE"
 fi
 
 if [ "$GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS" == "0" ]
@@ -213,7 +213,7 @@ do
     fi
     if [[ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" && "$NEW_TFVARS_ONLY" == 0 ]]
     then
-      echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
+      log_info -l "$WORKSPACE_TFVARS_FILE doesn't exist ..." -q "$QUIET_MODE"
 
       if yes_no "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]: " "y"
       then
@@ -318,7 +318,7 @@ do
     fi
     if [[ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" && "$NEW_TFVARS_ONLY" == 0 ]]
     then
-      echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
+      log_info -l "$WORKSPACE_TFVARS_FILE doesn't exist ..." -q "$QUIET_MODE"
       if yes_no "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]:" "y"
       then
         WORKSPACE_TFVARS_HEADER=(

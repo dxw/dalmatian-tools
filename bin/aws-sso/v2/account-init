@@ -85,9 +85,9 @@ then
       ]
     }'
   )
-  echo "External accounts require a Role to be added that can be assumed by the AWS Federated user account from the Main Dalmatian account"
-  echo "1. In the External Account (${AWS_ACCOUNT_ID:1}), create a Role named '$MAIN_DALMATIAN_ACCOUNT_ID-dalmatian-access', which has Administrator permissions"
-  echo "2. Add the following Trust Relationship policy to the role:"
+  log_info -l "External accounts require a Role to be added that can be assumed by the AWS Federated user account from the Main Dalmatian account" -q "$QUIET_MODE"
+  log_info -l "1. In the External Account (${AWS_ACCOUNT_ID:1}), create a Role named '$MAIN_DALMATIAN_ACCOUNT_ID-dalmatian-access', which has Administrator permissions" -q "$QUIET_MODE"
+  log_info -l "2. Add the following Trust Relationship policy to the role:" -q "$QUIET_MODE"
   echo "$EXTERNAL_ROLE_TRUST_RELATIONSHIP"
   if ! yes_no "Enter 'y' to continue:" "y"
   then
@@ -96,7 +96,7 @@ then
 fi
 
 NEW_WORKSPACE_NAME="$AWS_ACCOUNT_ID-$AWS_ACCOUNT_DEFAULT_REGION-$ACCOUNT_NAME"
-echo "==> Creating $NEW_WORKSPACE_NAME workspace ..."
+log_info -l "Creating $NEW_WORKSPACE_NAME workspace ..." -q "$QUIET_MODE"
 
 WORKSPACE_EXISTS=0
 while IFS='' read -r workspace
@@ -111,7 +111,7 @@ done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command 
 
 if [ "$WORKSPACE_EXISTS" == "1" ]
 then
-  echo "==> $NEW_WORKSPACE_NAME workspace exists"
+  log_info -l "$NEW_WORKSPACE_NAME workspace exists" -q "$QUIET_MODE"
   "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace select $NEW_WORKSPACE_NAME" -a -q
 else
   "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace new $NEW_WORKSPACE_NAME" -a -q
@@ -123,10 +123,10 @@ fi
 
 if [ "$ACCOUNT_NAME" != "dalmatian-main" ]
 then
-  echo "==> Running account bootstrap on the main Dalmatian account to upload tfvars ..."
+  log_info -l "Running account bootstrap on the main Dalmatian account to upload tfvars ..." -q "$QUIET_MODE"
   DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
   "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main" -N
 fi
 
-echo "==> Running account bootstrap on $NEW_WORKSPACE_NAME"
+log_info -l "Running account bootstrap on $NEW_WORKSPACE_NAME" -q "$QUIET_MODE"
 "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$NEW_WORKSPACE_NAME"

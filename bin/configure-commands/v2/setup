@@ -4,18 +4,17 @@
 set -e
 set -o pipefail
 
-echo "----------------------------------------------------"
-echo "| To enable us to deploy the resources across      |"
-echo "| multiple AWS accounts, we will configure AWS SSO |"
-echo "| and store the required AWS profiles, and other   |"
-echo "| configuration within:                            |"
-echo "| \`\$HOME/.config/dalmatian\`                        |"
-echo "|                                                  |"
-echo "| This configuration will then be automatically    |"
-echo "| loaded and used when running other dalmatian     |"
-echo "| tools commands                                   |"
-echo "----------------------------------------------------"
-echo ""
+log_info -l "----------------------------------------------------" -q "$QUIET_MODE"
+log_info -l "| To enable us to deploy the resources across      |" -q "$QUIET_MODE"
+log_info -l "| multiple AWS accounts, we will configure AWS SSO |" -q "$QUIET_MODE"
+log_info -l "| and store the required AWS profiles, and other   |" -q "$QUIET_MODE"
+log_info -l "| configuration within:                            |" -q "$QUIET_MODE"
+log_info -l "| \`\$HOME/.config/dalmatian\`                        |" -q "$QUIET_MODE"
+log_info -l "|                                                  |" -q "$QUIET_MODE"
+log_info -l "| This configuration will then be automatically    |" -q "$QUIET_MODE"
+log_info -l "| loaded and used when running other dalmatian     |" -q "$QUIET_MODE"
+log_info -l "| tools commands                                   |" -q "$QUIET_MODE"
+log_info -l "----------------------------------------------------" -q "$QUIET_MODE"
 
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$CONFIG_CACHE_DIR"
@@ -94,23 +93,20 @@ else
 fi
 echo "$SETUP_JSON" > "$CONFIG_SETUP_JSON_FILE"
 
-echo "-- Dalmatian Setup --"
+log_info -l "-- Dalmatian Setup --" -q "$QUIET_MODE"
 read_prompt_with_setup_default -p "Dalmatian project name" -d "project_name" -s
 DEFAULT_REGION=$(read_prompt_with_setup_default -p "Default AWS Region" -d "default_region")
-echo ""
 
-echo "-- AWS SSO configration --"
+log_info -l "-- AWS SSO configration --" -q "$QUIET_MODE"
 read_prompt_with_setup_default -p "AWS SSO start URL" -d "aws_sso.start_url" -s
 read_prompt_with_setup_default -p "AWS SSO Region" -d "aws_sso.region" -s
 read_prompt_with_setup_default -p "AWS SSO Default administrative role name" -d "aws_sso.default_admin_role_name" -s
 read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.registration_scopes" -s
-echo ""
 
-echo "-- Backend Configuration --"
-echo "Enter the S3 backend configuration parameters"
+log_info -l "-- Backend Configuration --" -q "$QUIET_MODE"
+log_info -l "Enter the S3 backend configuration parameters" -q "$QUIET_MODE"
 BACKEND_S3_BUCKET_NAME=$(read_prompt_with_setup_default -p "Bucket Name" -d "backend.s3.bucket_name")
 BACKEND_S3_BUCKET_REGION=$(read_prompt_with_setup_default -p "Bucket Region" -d "backend.s3.bucket_region")
-echo ""
 
 cat <<EOT > "$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
 bucket               = "$BACKEND_S3_BUCKET_NAME"
@@ -130,17 +126,15 @@ profile              = "dalmatian-main"
 encrypt              = true
 EOT
 
-echo "--- Dalmatian account configuration ---"
+log_info -l "--- Dalmatian account configuration ---" -q "$QUIET_MODE"
 MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
-echo ""
 
 "$APP_ROOT/bin/dalmatian" aws-sso generate-config
 
 "$APP_ROOT/bin/dalmatian" aws-sso account-init -i "$MAIN_DALMATIAN_ACCOUNT_ID" -r "$DEFAULT_REGION" -n "dalmatian-main"
 
-echo "==> Setup complete!"
-echo ""
-echo "It is highly recommended to run the first account bootstrap for the main dalmatian account now, using \`dalmatian deploy account-bootstrap -a $MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main\`"
+log_info -l "Setup complete!" -q "$QUIET_MODE"
+log_info -l "It is highly recommended to run the first account bootstrap for the main dalmatian account now, using \`dalmatian deploy account-bootstrap -a $MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main\`" -q "$QUIET_MODE"
 read -rp "Do you want to run this now? [y/n]: " DEPLOY_NOW
 if [[ "$DEPLOY_NOW" == "y" || "$DEPLOY_NOW" == "Y" ]]
 then
