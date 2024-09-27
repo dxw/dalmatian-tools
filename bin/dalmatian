@@ -259,7 +259,11 @@ then
     "$SUBCOMMAND" != "update"
   ]]
   then
-    "$APP_ROOT/bin/dalmatian" aws-sso login
+    if [ "$IS_PARENT_SCRIPT" == 1 ]
+    then
+      "$APP_ROOT/bin/dalmatian" aws-sso login
+    fi
+    "$APP_ROOT/bin/dalmatian" aws-sso login -q
   fi
 
   if [[
