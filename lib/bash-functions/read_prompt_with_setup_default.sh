@@ -21,7 +21,8 @@ function read_prompt_with_setup_default {
         SILENT=1
         ;;
       *)
-        echo "Invalid usage"
+        echo "Invalid \`read_prompt_with_setup_default\` function usage" >&2
+        exit 1
         ;;
     esac
   done
