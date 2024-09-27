@@ -128,7 +128,7 @@ fi
 
 if [ "$QUIET_MODE" == 0 ]
 then
-  echo "==> Running command:"
+  log_info -l "Running command:" -q "$QUIET_MODE"
   env | { grep "^AWS_" || true; }
   env | { grep  "^TF_" || true; }
   echo "terraform -chdir=$(grealpath --relative-to="$PWD" "$RUN_DIR")"

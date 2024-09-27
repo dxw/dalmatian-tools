@@ -86,7 +86,7 @@ then
     then
       break
     else
-      echo "Invalid selection"
+      err "Invalid selection"
     fi
   done
 
@@ -122,16 +122,16 @@ fi
 WORKSPACE_TFVARS_FILE="$TFVARS_FILE_NUMBER-$SELECTED_WORKSPACE.tfvars"
 WORKSPACE_TFVARS_FILE_EXISTS=0
 
-echo "==> Checking $WORKSPACE_TFVARS_FILE file ..."
+log_info -l "Checking $WORKSPACE_TFVARS_FILE file ..." -q "$QUIET_MODE"
 
 if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$WORKSPACE_TFVARS_FILE" > /dev/null 2>&1
 then
   aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" > /dev/null
   if ! diff "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > /dev/null
   then
-    echo "The remote $WORKSPACE_TFVARS_FILE file is different than your local cached copy."
-    echo "This is either because the remote copy has been updated, or you have already edited your local copy"
-    echo "What do you want to do?"
+    err "The remote $WORKSPACE_TFVARS_FILE file is different than your local cached copy."
+    err "This is either because the remote copy has been updated, or you have already edited your local copy"
+    log_info -l "What do you want to do?" -q "$QUIET_MODE"
     echo "1) Edit my local copy"
     echo "2) Use the remote copy and edit"
     echo "3) Show the diff"
@@ -155,7 +155,7 @@ fi
 WORKSPACE_TFVARS_ADD_TO_PATHS_JSON=0
 if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "0" ]
 then
-  echo "==> $WORKSPACE_TFVARS_FILE doesn't exist ..."
+  log_info -l "$WORKSPACE_TFVARS_FILE doesn't exist ..." -q "$QUIET_MODE"
   if yes_no "Do you want to create the $WORKSPACE_TFVARS_FILE file now? [y/n]: " "y"
   then
     cp "$APP_ROOT/data/tfvars-templates/$DEPLOY_PROJECT.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
@@ -180,8 +180,8 @@ fi
 
 echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"
 
-echo "==> $WORKSPACE_TFVARS_FILE edited!"
-echo "==> Running terraform plan for $SELECTED_WORKSPACE .."
+log_info -l "$WORKSPACE_TFVARS_FILE edited!" -q "$QUIET_MODE"
+log_info -l "Running terraform plan for $SELECTED_WORKSPACE .." -q "$QUIET_MODE"
 "$APP_ROOT/bin/dalmatian" deploy "$DEPLOY_PROJECT" "$DEPLOY_FLAG" "$SELECTED_WORKSPACE" -p
 
 if yes_no "Do you want to run the deploy for $SELECTED_WORKSPACE now? [y/n]: " "y"
@@ -197,6 +197,6 @@ MAIN_DALMATIAN_ACCOUNT="$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-mai
 
 if [ "$DALMATIAN_ACCOUNT" != "$MAIN_DALMATIAN_ACCOUNT" ]
 then
-  echo "==> Running account bootstrap on the main Dalmatian account to upload tfvars ..."
+  log_info -l "Running account bootstrap on the main Dalmatian account to upload tfvars ..." -q "$QUIET_MODE"
   "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main" -N
 fi

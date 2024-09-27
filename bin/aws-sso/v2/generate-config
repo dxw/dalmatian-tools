@@ -4,7 +4,7 @@
 set -e
 set -o pipefail
 
-echo "==> Generating Dalmatian SSO configuration ..."
+log_info -l "Generating Dalmatian SSO configuration ..." -q "$QUIET_MODE"
 
 AWS_SSO_START_URL="$(jq -r '.aws_sso.start_url' < "$CONFIG_SETUP_JSON_FILE")"
 AWS_SSO_REGION="$(jq -r '.aws_sso.region' < "$CONFIG_SETUP_JSON_FILE")"
@@ -49,7 +49,7 @@ do
     -n "$workspace"
   ]]
   then
-    echo "==> Generating $workspace config ..."
+    log_info -l "Generating $workspace config ..." -q "$QUIET_MODE"
     SSO_CONFIG_ACCOUNT_ID="$(echo "$workspace" | cut -d"-" -f1)"
     SSO_CONFIG_REGION="$(echo "$workspace" | cut -d"-" -f2-4)"
     SSO_CONFIG_ACCOUNT_NAME="$(echo "$workspace" | cut -d"-" -f5-)"

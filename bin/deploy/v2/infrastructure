@@ -116,7 +116,7 @@ fi
 if [ "$OUTPUT_PLAN" == "1" ]
 then
   OPTIONS+=("-out=$PLAN_FILENAME")
-  echo "Plan will be written to $PLAN_FILENAME"
+  log_info -l "Plan will be written to $PLAN_FILENAME" -q "$QUIET_MODE"
 fi
 
 WORKSPACE_EXISTS=0
@@ -149,7 +149,7 @@ if [[
   -n "$ENVIRONMENT_NAME"
 ]]
 then
-  echo "The infrastructure $DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME does not exist."
+  err "The infrastructure $DALMATIAN_ACCOUNT-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME does not exist."
   read -rp "Do you want to create it now? [y/n]: " CREATE_INFRASTRUCTURE
   if [ "$CREATE_INFRASTRUCTURE" != "y" ]
   then

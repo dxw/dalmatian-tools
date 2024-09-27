@@ -44,16 +44,16 @@ TFVARS_PATHS_JSON="$(jq -r < "$CONFIG_TFVARS_PATHS_FILE")"
 TFVARS_DIR="${CONFIG_TFVARS_DIR/$HOME/~}"
 CONFIG_GLOBAL_TFVARS_FILE_EXISTS=0
 
-echo "==> Checking $CONFIG_GLOBAL_TFVARS_FILE file ..."
+log_info -l "Checking $CONFIG_GLOBAL_TFVARS_FILE file ..." -q "$QUIET_MODE"
 
 if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$CONFIG_GLOBAL_TFVARS_FILE" > /dev/null 2>&1
 then
   aws s3 cp "s3://$TFVARS_BUCKET_NAME/$CONFIG_GLOBAL_TFVARS_FILE" "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" > /dev/null
   if ! diff "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_TFVARS_FILE" > /dev/null
   then
-    echo "The remote $CONFIG_GLOBAL_TFVARS_FILE file is different than your local cached copy."
-    echo "This is either because the remote copy has been updated, or you have already edited your local copy"
-    echo "What do you want to do?"
+    err "The remote $CONFIG_GLOBAL_TFVARS_FILE file is different than your local cached copy."
+    err "This is either because the remote copy has been updated, or you have already edited your local copy"
+    log_info -l "What do you want to do?" -q "$QUIET_MODE"
     echo "1) Edit my local copy"
     echo "2) Use the remote copy and edit"
     echo "3) Show the diff"
@@ -77,7 +77,7 @@ fi
 GLOBAL_TFVARS_ADD_TO_PATHS_JSON=0
 if [ "$CONFIG_GLOBAL_TFVARS_FILE_EXISTS" == "0" ]
 then
-  echo "==> $CONFIG_GLOBAL_TFVARS_FILE doesn't exist ..."
+  log_info -l "$CONFIG_GLOBAL_TFVARS_FILE doesn't exist ..." -q "$QUIET_MODE"
   read -rp "Do you want to create the $CONFIG_GLOBAL_TFVARS_FILE file now? [y/n]: " CREATE_GLOBAL_TFVARS_FILE
   if [[
     "$CREATE_GLOBAL_TFVARS_FILE" == "y"
@@ -105,13 +105,13 @@ fi
 
 echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"
 
-echo "==> $CONFIG_GLOBAL_TFVARS_FILE edited!"
+log_info -l "$CONFIG_GLOBAL_TFVARS_FILE edited!" -q "$QUIET_MODE"
 
 MAIN_DALMATIAN_ACCOUNT_ID="$(jq -r '.main_dalmatian_account_id' < "$CONFIG_SETUP_JSON_FILE")"
 DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
 MAIN_DALMATIAN_ACCOUNT="$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main"
 
-echo "==> Running account bootstrap on the main Dalmatian account to upload tfvars ..."
+log_info -l "Running account bootstrap on the main Dalmatian account to upload tfvars ..." -q "$QUIET_MODE"
 "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT" -N
 
 read -rp "Do you want to run the $DEPLOY_NAME deployment for all accounts now? [y/n]: " RUN_APPLY

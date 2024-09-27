@@ -58,7 +58,7 @@ then
   usage
 fi
 
-echo "==> Finding container..."
+log_info -l "Finding container..." -q "$QUITE_MODE"
 
 PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
 CLUSTER="$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT-infrastructure"
