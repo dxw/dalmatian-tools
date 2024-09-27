@@ -8,23 +8,18 @@ usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -p <aws_sso_profile>   - AWS SSO Profile"
-  echo "  -q <quiet_mode>        - Quiet mode"
   exit 1
 }
 
 AWS_SSO_PROFILE="dalmatian-login"
 FORCE_RELOG=0
-QUIET_MODE=0
-while getopts "p:fqh" opt; do
+while getopts "p:fh" opt; do
   case $opt in
     p)
       AWS_SSO_PROFILE=$OPTARG
       ;;
     f)
       FORCE_RELOG=1
-      ;;
-    q)
-      QUIET_MODE=1
       ;;
     h)
       usage
