@@ -33,6 +33,7 @@ done
 START_URL="$(aws configure get sso_start_url --profile dalmatian-login)"
 AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || true)"
 EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
+log_info -l "Attempting AWS SSO login ..." -q "$QUIET_MODE"
 if [ -n "$EXPIRES_AT" ]
 then
   EXPIRES_AT_SEC="$(gdate -d "$EXPIRES_AT" +%s)"
@@ -44,7 +45,6 @@ if [[
   "$FORCE_RELOG" == "1"
   ]]
 then
-  log_info -l "Attempting AWS SSO login ..." -q "$QUIET_MODE"
   aws sso login --profile "$AWS_SSO_PROFILE"
   log_info -l "Checking AWS SSO login was successful..." -q "$QUIET_MODE"
   AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || true)"
