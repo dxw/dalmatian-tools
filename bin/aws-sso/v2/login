@@ -49,6 +49,7 @@ then
   log_info -l "Checking AWS SSO login was successful..." -q "$QUIET_MODE"
   AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || true)"
   EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
+  EXPIRES_AT_SEC="$(gdate -d "$EXPIRES_AT" +%s)"
   if [[
     "$EPOCH" -gt "$EXPIRES_AT_SEC" ||
     -z "$EXPIRES_AT"
