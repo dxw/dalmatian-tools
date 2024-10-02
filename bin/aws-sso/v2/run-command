@@ -10,15 +10,15 @@ usage() {
   echo "  -p <aws_sso_profile>         - AWS SSO Profile"
   echo "  -i <infrastructure_name>     - Infrastructure name"
   echo "  -e <environment>             - Environment"
-  echo "  -w <infrastructure_workspace> - Workspace"
+  echo "  -a <account_name>            - Dalmatian account name (Optional - can be used instead of infrastructure/environment name)"
   exit 1
 }
 
 INFRASTRUCTURE_NAME=""
 ENVIRONMENT=""
-INFRASTRUCTURE_WORKSPACE_NAME=""
+DALMATIAN_ACCOUNT_NAME=""
 AWS_SSO_PROFILE=""
-while getopts "i:e:w:p:h" opt; do
+while getopts "i:e:a:p:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -26,8 +26,8 @@ while getopts "i:e:w:p:h" opt; do
     e)
       ENVIRONMENT=$OPTARG
       ;;
-    w)
-      INFRASTRUCTURE_WORKSPACE_NAME=$OPTARG
+    a)
+      DALMATIAN_ACCOUNT_NAME=$OPTARG
       ;;
     p)
       AWS_SSO_PROFILE=$OPTARG
@@ -49,12 +49,12 @@ elif [[
     -z "$INFRASTRUCTURE_NAME" ||
     -z "$ENVIRONMENT"
   ) &&
-  -z "$INFRASTRUCTURE_WORKSPACE_NAME"
+  -z "$DALMATIAN_ACCOUNT_NAME"
 ]]
 then
   usage
 else
-  AWS_PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+    AWS_PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -a "$DALMATIAN_ACCOUNT_NAME")"
   export AWS_PROFILE
 fi
 
