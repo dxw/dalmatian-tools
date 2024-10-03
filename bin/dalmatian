@@ -259,7 +259,7 @@ then
     "$SUBCOMMAND" != "update"
   ]]
   then
-    if [ "$IS_PARENT_SCRIPT" == 1 ]
+    if [[ "$IS_PARENT_SCRIPT" == 1 && "$QUIET_MODE" == 0 ]]
     then
       "$APP_ROOT/bin/dalmatian" aws-sso login
     fi
