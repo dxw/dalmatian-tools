@@ -378,3 +378,5 @@ do
 done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -i -q)
 
 echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"
+
+"$APP_ROOT/bin/dalmatian" terraform-dependencies clean-tfvars-cache

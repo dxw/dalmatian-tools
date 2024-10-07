@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                          - help"
+  exit 1
+}
+
+#DALMATIAN_ACCOUNT_DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
+#PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+#PROJECT_NAME_HASH="$(echo -n "$PROJECT_NAME" | sha1sum | head -c 6)"
+
+while getopts "h" opt; do
+  case $opt in
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+log_info -l "Checking for redundant files in tfvars cache ..." -q "$QUIET_MODE"
+
+ACCOUNT_BOOTSTRAP_WORKSPACES=()
+while IFS='' read -r workspace <&9
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [[
+    "$workspace" != "default" &&
+    -n "$workspace"
+  ]]
+  then
+    ACCOUNT_BOOTSTRAP_WORKSPACES+=("$workspace")
+  fi
+done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -a -q)
+
+INFRASTRUCTURE_WORKSPACES=()
+while IFS='' read -r workspace <&9
+do
+  workspace=${workspace/\*/ }
+  workspace=$(echo "$workspace" | xargs)
+  if [[
+    "$workspace" != "default" &&
+    -n "$workspace"
+  ]]
+  then
+    INFRASTRUCTURE_WORKSPACES+=("$workspace")
+  fi
+done 9< <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" -i -q)
+
+REMOVED_ACCOUNT_BOOTSTRAP_TFVARS=0
+while IFS='' read -r tfvar_file <&9
+do
+  ACCOUNT_EXISTS=0
+  for workspace in "${ACCOUNT_BOOTSTRAP_WORKSPACES[@]}"
+  do
+    if [ "100-$workspace.tfvars" == "$tfvar_file" ]
+    then
+      ACCOUNT_EXISTS=1
+      break
+    fi
+  done
+  if [ "$ACCOUNT_EXISTS" == 0 ]
+  then
+    log_info -l "Removing $tfvar_file account bootstrap tfvar file ..." -q "$QUIET_MODE"
+    rm "$CONFIG_TFVARS_DIR/$tfvar_file"
+    REMOVED_ACCOUNT_BOOTSTRAP_TFVARS=1
+  fi
+done 9< <(find "$CONFIG_TFVARS_DIR"/100-* -maxdepth 1 -exec basename {} \;)
+
+REMOVED_INFRASTRUCTURE_TFVARS=0
+while IFS='' read -r tfvar_file <&9
+do
+  INFRASTRUCTURE_EXISTS=0
+  for workspace in "${INFRASTRUCTURE_WORKSPACES[@]}"
+  do
+    if [ "200-$workspace.tfvars" == "$tfvar_file" ]
+    then
+      INFRASTRUCTURE_EXISTS=1
+      break
+    fi
+  done
+  if [ "$INFRASTRUCTURE_EXISTS" == 0 ]
+  then
+    log_info -l "Removing $tfvar_file infrastructure tfvar file ..." -q "$QUIET_MODE"
+    rm "$CONFIG_TFVARS_DIR/$tfvar_file"
+    REMOVED_INFRASTRUCTURE_TFVARS=1
+  fi
+done 9< <(find "$CONFIG_TFVARS_DIR"/200-* -maxdepth 1 -exec basename {} \;)
+
+if [[
+  "$REMOVED_ACCOUNT_BOOTSTRAP_TFVARS" == 0 &&
+  "$REMOVED_INFRASTRUCTURE_TFVARS" == 0
+]]
+then
+  log_info -l "tfvar cache clean complete - no files were removed" -q "$QUIET_MODE"
+fi
