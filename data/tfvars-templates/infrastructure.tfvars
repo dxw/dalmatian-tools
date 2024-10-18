@@ -129,3 +129,8 @@ custom_s3_buckets = {}
 
 # Custom Hosted Zones
 custom_route53_hosted_zones = {}
+
+# Datadog
+infrastructure_datadog_api_key                  = ""
+infrastructure_datadog_region                   = ""
+enable_infrastructure_ecs_cluster_datadog_agent = false

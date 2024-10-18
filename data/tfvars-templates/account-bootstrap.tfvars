@@ -31,6 +31,15 @@ enable_cloudwatch_opsgenie_alerts             = false
 cloudwatch_opsgenie_alerts_sns_endpoint       = ""
 cloudwatch_opsgenie_alerts_sns_kms_encryption = false
 
+# Datadog
+datadog_api_key                = ""
+datadog_app_key                = ""
+datadog_region                 = ""
+enable_datadog_aws_integration = false
+
 # CodeStar connections
 # eg. codestar_connections ={ github = { provider_type = "GitHub" } }
 codestar_connections = {}
+
+# Custom IAM Roles
+custom_iam_roles = {}
