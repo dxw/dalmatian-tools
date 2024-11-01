@@ -132,5 +132,6 @@ custom_route53_hosted_zones = {}
 
 # Datadog
 infrastructure_datadog_api_key                  = ""
+infrastructure_datadog_app_key                  = ""
 infrastructure_datadog_region                   = ""
 enable_infrastructure_ecs_cluster_datadog_agent = false
