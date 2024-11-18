@@ -43,3 +43,6 @@ codestar_connections = {}
 
 # Custom IAM Roles
 custom_iam_roles = {}
+
+# OpenID Connectors
+openid_connect_providers = {}
