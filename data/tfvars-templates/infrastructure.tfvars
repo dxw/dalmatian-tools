@@ -40,27 +40,29 @@ enable_infrastructure_vpc_transfer_s3_bucket                = false
 infrastructure_vpc_transfer_s3_bucket_access_vpc_ids        = []
 
 # Infrastructure ECS Cluster
-enable_infrastructure_ecs_cluster                         = false
-infrastructure_ecs_cluster_ami_version                    = "*"
-infrastructure_ecs_cluster_ebs_docker_storage_volume_size = 22
-infrastructure_ecs_cluster_ebs_docker_storage_volume_type = "gp3"
-infrastructure_ecs_cluster_publicly_avaialble             = false
-infrastructure_ecs_cluster_custom_security_group_rules    = {}
-infrastructure_ecs_cluster_instance_type                  = "t3.small"
-infrastructure_ecs_cluster_termination_timeout            = 900
-infrastructure_ecs_cluster_draining_lambda_enabled        = false
-infrastructure_ecs_cluster_draining_lambda_log_retention  = 30
-infrastructure_ecs_cluster_min_size                       = 2
-infrastructure_ecs_cluster_max_size                       = 2
-infrastructure_ecs_cluster_max_instance_lifetime          = 86400
-infrastructure_ecs_cluster_autoscaling_time_based_max     = []
-infrastructure_ecs_cluster_autoscaling_time_based_min     = []
-infrastructure_ecs_cluster_autoscaling_time_based_custom  = []
-infrastructure_ecs_cluster_enable_debug_mode              = false
-infrastructure_ecs_cluster_enable_execute_command_logging = false
-infrastructure_ecs_cluster_syslog_endpoint                = ""
-infrastructure_ecs_cluster_syslog_permitted_peer          = ""
-infrastructure_ecs_cluster_logspout_command               = []
+enable_infrastructure_ecs_cluster                                      = false
+infrastructure_ecs_cluster_ami_version                                 = "*"
+infrastructure_ecs_cluster_ebs_docker_storage_volume_size              = 22
+infrastructure_ecs_cluster_ebs_docker_storage_volume_type              = "gp3"
+infrastructure_ecs_cluster_publicly_avaialble                          = false
+infrastructure_ecs_cluster_custom_security_group_rules                 = {}
+infrastructure_ecs_cluster_instance_type                               = "t3.small"
+infrastructure_ecs_cluster_termination_timeout                         = 900
+infrastructure_ecs_cluster_draining_lambda_enabled                     = false
+infrastructure_ecs_cluster_draining_lambda_log_retention               = 30
+infrastructure_ecs_cluster_min_size                                    = 2
+infrastructure_ecs_cluster_max_size                                    = 2
+infrastructure_ecs_cluster_max_instance_lifetime                       = 86400
+infrastructure_ecs_cluster_instance_refresh_lambda_schedule_expression = ""
+infrastructure_ecs_cluster_instance_refresh_lambda_log_retention       = 30
+infrastructure_ecs_cluster_autoscaling_time_based_max                  = []
+infrastructure_ecs_cluster_autoscaling_time_based_min                  = []
+infrastructure_ecs_cluster_autoscaling_time_based_custom               = []
+infrastructure_ecs_cluster_enable_debug_mode                           = false
+infrastructure_ecs_cluster_enable_execute_command_logging              = false
+infrastructure_ecs_cluster_syslog_endpoint                             = ""
+infrastructure_ecs_cluster_syslog_permitted_peer                       = ""
+infrastructure_ecs_cluster_logspout_command                            = []
 
 # Infrastructure ECS Cluster Alerts
 ## Autoscaling Group CPU
