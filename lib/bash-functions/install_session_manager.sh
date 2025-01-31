@@ -23,6 +23,10 @@ function install_session_manager {
   # Run the installer...
   "$SESSION_MANAGER_INSTALL_DIR/sessionmanager-bundle/install" --install-dir "$SESSION_MANAGER_INSTALL_DIR" -b "$HOME/.bin/session-manager-plugin"
 
+  # Cleanup..
+  rm "$HOME/Downloads/session-manager-plugin.zip"
+  rm -rf "$SESSION_MANAGER_INSTALL_DIR/sessionmanager-bundle"
+
   # Try it for a nice confirmation message
   if ! is_installed "session-manager-plugin";
   then
@@ -33,8 +37,4 @@ function install_session_manager {
   else
     session-manager-plugin
   fi
-
-  # Cleanup..
-  rm "$HOME/Downloads/session-manager-plugin.zip"
-  rm -rf "$SESSION_MANAGER_INSTALL_DIR/sessionmanager-bundle"
 }
