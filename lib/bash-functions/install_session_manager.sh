@@ -27,7 +27,7 @@ function install_session_manager {
   "$SESSION_MANAGER_INSTALL_DIR/sessionmanager-bundle/install" --install-dir "$SESSION_MANAGER_INSTALL_DIR" -b "$BIN_DIR/session-manager-plugin"
 
   # Cleanup..
-  rm "$TMP_DIR/session-manager-plugin.zip"
+  rm -f "$TMP_DIR/session-manager-plugin.zip"
   rm -rf "$SESSION_MANAGER_INSTALL_DIR/sessionmanager-bundle"
 
   # Try it for a nice confirmation message
