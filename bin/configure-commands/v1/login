@@ -26,9 +26,10 @@ $BREW_BIN bundle install --file="$APP_ROOT/Brewfile"
 # Ensure AWS Session Manager is up-to-date
 install_session_manager
 
-log_info -l "Ensuring tfenv is configured ..."
+log_info -l "Ensuring tfenv is configured ..." -q "$QUIET_MODE"
 $BREW_BIN link --overwrite tfenv
 
+log_info -l "Checking AWS CLI is the correct version ..." -q "$QUIET_MODE"
 if ! "$APP_ROOT/bin/aws/v1/awscli-version"
 then
   exit 1
@@ -42,6 +43,7 @@ mkdir -p "$DALMATIAN_CONFIG_STORE"
 
 DALMATIAN_ROLE="dalmatian-admin"
 
+log_info -l "Configuring GPG ..." -q "$QUIET_MODE"
 if ! command -v gpg > /dev/null
 then
   err "GPG is not installed on this system. Please install GPG to continue"
