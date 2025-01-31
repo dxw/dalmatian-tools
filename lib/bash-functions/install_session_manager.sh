@@ -10,6 +10,9 @@ function install_session_manager {
     ARCH+="_$(uname -m)"
   fi
 
+  TMP_DIR="$APP_ROOT/tmp"
+  BIN_DIR="$APP_ROOT/bin"
+
   SESSION_MANAGER_ZIP="$BASE_URI/$ARCH/sessionmanager-bundle.zip"
   SESSION_MANAGER_INSTALL_DIR="$HOME/Applications/session-manager-plugin"
 
@@ -17,14 +20,14 @@ function install_session_manager {
 
   # Grab the installer...
   mkdir -p "$SESSION_MANAGER_INSTALL_DIR"
-  curl -fsSL "$SESSION_MANAGER_ZIP" -o "$HOME/Downloads/session-manager-plugin.zip"
-  unzip -o "$HOME/Downloads/session-manager-plugin.zip" -d "$SESSION_MANAGER_INSTALL_DIR"
+  curl -fsSL "$SESSION_MANAGER_ZIP" -o "$TMP_DIR/session-manager-plugin.zip"
+  unzip -o "$TMP_DIR/session-manager-plugin.zip" -d "$SESSION_MANAGER_INSTALL_DIR"
 
   # Run the installer...
-  "$SESSION_MANAGER_INSTALL_DIR/sessionmanager-bundle/install" --install-dir "$SESSION_MANAGER_INSTALL_DIR" -b "$HOME/.bin/session-manager-plugin"
+  "$SESSION_MANAGER_INSTALL_DIR/sessionmanager-bundle/install" --install-dir "$SESSION_MANAGER_INSTALL_DIR" -b "$BIN_DIR/session-manager-plugin"
 
   # Cleanup..
-  rm "$HOME/Downloads/session-manager-plugin.zip"
+  rm "$TMP_DIR/session-manager-plugin.zip"
   rm -rf "$SESSION_MANAGER_INSTALL_DIR/sessionmanager-bundle"
 
   # Try it for a nice confirmation message
@@ -32,7 +35,7 @@ function install_session_manager {
   then
     echo "Add 'session-manager-plugin' to your \$PATH by running:"
     echo
-    echo "    export PATH=\"\$PATH:\$HOME/.bin/\""
+    echo "    export PATH=\"\$PATH:$BIN_DIR\""
     exit 1
   else
     session-manager-plugin
