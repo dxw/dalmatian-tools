@@ -14,6 +14,17 @@ if ! is_installed "oathtool"; then
   fi
 fi
 
+# Install or update the brew taps/casks in the Brewfile
+BREW_BIN=$(command -v "brew")
+log_info -l "Updating brew packages ..." -q "$QUIET_MODE"
+$BREW_BIN bundle install --file="$APP_ROOT/Brewfile"
+
+# Ensure AWS Session Manager is up-to-date
+install_session_manager
+
+log_info -l "Ensuring tfenv is configured ..."
+$BREW_BIN link --overwrite tfenv
+
 if ! "$APP_ROOT/bin/aws/v1/awscli-version"
 then
   exit 1

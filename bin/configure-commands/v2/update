@@ -96,10 +96,18 @@ then
   git -C "$APP_ROOT" checkout main
   git -C "$APP_ROOT" pull
   git -C "$APP_ROOT" -c advice.detachedHead=false checkout "$LATEST_REMOTE_TAG"
+
+  # Install or update the brew taps/casks in the Brewfile
+  BREW_BIN=$(command -v "brew")
   log_info -l "Updating brew packages ..." -q "$QUIET_MODE"
-  brew bundle --file="$APP_ROOT/Brewfile"
+  $BREW_BIN bundle install --file="$APP_ROOT/Brewfile"
+
+  # Ensure AWS Session Manager is up-to-date
+  install_session_manager
+
   log_info -l "Ensuring tfenv is configured ..."
-  brew link --overwrite tfenv
+  $BREW_BIN link --overwrite tfenv
+
   "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
   "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars -n
   UPDATE_CHECK_JSON=$(
