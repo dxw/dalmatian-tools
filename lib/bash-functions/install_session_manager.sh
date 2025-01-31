@@ -23,11 +23,16 @@ function install_session_manager {
   # Run the installer...
   "$SESSION_MANAGER_INSTALL_DIR/sessionmanager-bundle/install" --install-dir "$SESSION_MANAGER_INSTALL_DIR" -b "$HOME/.bin/session-manager-plugin"
 
-  # Ensure the $PATH includes the local installation
-  export PATH="$PATH:$HOME/.bin/"
-
   # Try it for a nice confirmation message
-  session-manager-plugin
+  if ! is_installed "session-manager-plugin";
+  then
+    echo "Add 'session-manager-plugin' to your \$PATH by running:"
+    echo
+    echo "    export PATH=\"\$PATH:\$HOME/.bin/\""
+    exit 1
+  else
+    session-manager-plugin
+  fi
 
   # Cleanup..
   rm "$HOME/Downloads/session-manager-plugin.zip"
