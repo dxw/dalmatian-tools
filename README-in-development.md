@@ -7,7 +7,7 @@ CLI tools to help with working with Dalmatian
 - An AWS Organisation with at least 1 Account to configure with Dalmatian
 - A user assigned to a group that has an Administrative permission set
 - An S3 bucket to store the Terraform state
-- AWS IAM Identity Center (successor to AWS Single Sign-On) configured with the 
+- AWS IAM Identity Center (successor to AWS Single Sign-On) configured with the
 default identity source.
 
 ## Installation
