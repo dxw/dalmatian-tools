@@ -7,3 +7,4 @@ bin/custom/v2/*
 !bin/custom/v2/.gitkeep
 
 Brewfile.lock.json
+bin/session-manager-plugin

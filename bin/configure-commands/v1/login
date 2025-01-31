@@ -3,17 +3,33 @@
 echo "Note: You must have a Dalmatian Admin account to use Dalmatian Tools"
 echo
 
-# Check to see if oathtool is installed, and prompt to install it if it isn't
-if ! is_installed "oathtool"; then
-  if yes_no "Install oathtool now? (Y/n)" "Y"; then
-    BREW_BIN=$(command -v "brew")
-    $BREW_BIN install oath-toolkit
+# Check to see if Homebrew is installed, and prompt to install it if it isn't
+if ! is_installed "brew"; then
+  if yes_no "Install Homebrew now? (Y/n)" "Y"; then
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+    if ! is_installed "brew"; then
+      err "Something went wrong installing Homebrew. Please try again or install Homebrew manually."
+      exit 1
+    fi
   else
-    echo "Please run \`brew install oath-toolkit\` before trying again"
+    echo "Please install Homebrew before trying again"
     exit 1
   fi
 fi
 
+# Install or update the brew taps/casks in the Brewfile
+BREW_BIN=$(command -v "brew")
+log_info -l "Updating brew packages ..." -q "$QUIET_MODE"
+$BREW_BIN bundle install --file="$APP_ROOT/Brewfile"
+
+# Ensure AWS Session Manager is up-to-date
+install_session_manager
+
+log_info -l "Ensuring tfenv is configured ..." -q "$QUIET_MODE"
+$BREW_BIN link --overwrite tfenv
+
+log_info -l "Checking AWS CLI is the correct version ..." -q "$QUIET_MODE"
 if ! "$APP_ROOT/bin/aws/v1/awscli-version"
 then
   exit 1
@@ -27,6 +43,7 @@ mkdir -p "$DALMATIAN_CONFIG_STORE"
 
 DALMATIAN_ROLE="dalmatian-admin"
 
+log_info -l "Configuring GPG ..." -q "$QUIET_MODE"
 if ! command -v gpg > /dev/null
 then
   err "GPG is not installed on this system. Please install GPG to continue"
