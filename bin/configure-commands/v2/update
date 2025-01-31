@@ -89,10 +89,7 @@ then
     exit 0
   fi
   log_info -l "Updating ..." -q "$QUIET_MODE"
-  log_info -l "Updating dalmatian requires elevated permissions"
-  log_info -l "Attempting sudo ..."
-  sudo -v
-  log_info -l "Elevated permissions are available, continuing ..."
+
   git -C "$APP_ROOT" checkout main
   git -C "$APP_ROOT" pull
   git -C "$APP_ROOT" -c advice.detachedHead=false checkout "$LATEST_REMOTE_TAG"
