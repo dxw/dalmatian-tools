@@ -6,7 +6,7 @@ set -o pipefail
 
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -f <force_update>      - Force update (Runs through the upate process even if dalmatian-tools is on the latest version)"
+  echo "  -f <force_update>      - Force update (Runs through the update process even if dalmatian-tools is on the latest version)"
   echo "  -h                     - help"
   exit 1
 }
