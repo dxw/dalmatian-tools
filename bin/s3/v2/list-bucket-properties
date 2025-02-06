@@ -1,0 +1,125 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -b <bucket_name>       - bucket name (optional, by default goes through all s3 buckets)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+while getopts "i:e:b:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    b)
+      BUCKET_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+
+if [[
+  -z "$BUCKET_NAME"
+]]
+then
+  log_info -l "Finding S3 buckets ..." -q "$QUIET_MODE"
+  BUCKETS="$(
+    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+      -p "$PROFILE" \
+      s3api list-buckets \
+      | jq -r \
+      '.Buckets[].Name'
+  )"
+else
+  BUCKETS="$BUCKET_NAME"
+fi
+
+while IFS='' read -r BUCKET
+do
+  echo "----------------------------------"
+  echo "$BUCKET"
+  BUCKETS_ACL="$(
+    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+      -p "$PROFILE" \
+      s3api get-bucket-acl \
+      --bucket "$BUCKET"
+  )"
+  BUCKET_OWNER="$(
+    echo "$BUCKETS_ACL" \
+    | jq -r \
+    '.Owner.ID'
+  )"
+  BUCKET_OWNER_FULL_CONTROL="$(
+    echo "$BUCKETS_ACL" \
+    | jq -r \
+    --arg bucket_owner "$BUCKET_OWNER" \
+    '.Grants[] | select(.Grantee.ID == $bucket_owner and .Permission == "FULL_CONTROL")'
+  )"
+  BUCKET_OWNER_FULL_CONTROL_CHECK="❌"
+  if [ -n "$BUCKET_OWNER_FULL_CONTROL" ]
+  then
+    BUCKET_OWNER_FULL_CONTROL_CHECK="✅"
+  fi
+  OTHER_ACLS="$(
+    echo "$BUCKETS_ACL" \
+    | jq -rc \
+    --arg bucket_owner "$BUCKET_OWNER" \
+    '.Grants[] | select(.Grantee.ID != $bucket_owner and .Permission != "FULL_CONTROL")'
+  )"
+  OTHER_ACLS_COUNT=0
+  OTHER_ACLS_CHECK="✅"
+  if [ -n "$OTHER_ACLS" ]
+  then
+    OTHER_ACLS_COUNT="$(
+      echo "$OTHER_ACLS" | wc -l | xargs
+    )"
+    OTHER_ACLS_CHECK="❌"
+  fi
+  BLOCKS_PUBLIC_ACCESS="$(
+    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+      -p "$PROFILE" \
+      s3api get-public-access-block \
+      --bucket "$BUCKET" 2>/dev/null \
+      | jq '[.PublicAccessBlockConfiguration[]] | all(. == true)' \
+      || echo "false"
+  )"
+  BLOCKS_PUBLIC_ACCESS_CHECK="❌"
+  if [ "$BLOCKS_PUBLIC_ACCESS" == "true" ]
+  then
+    BLOCKS_PUBLIC_ACCESS_CHECK="✅"
+  fi
+  log_info -l "Other ACLs: $OTHER_ACLS_COUNT $OTHER_ACLS_CHECK" -q "$QUIET_MODE"
+  log_info -l "Blocks public access: $BLOCKS_PUBLIC_ACCESS_CHECK" -q "$QUIET_MODE"
+  log_info -l "Bucket owner Full Control: $BUCKET_OWNER_FULL_CONTROL_CHECK" -q "$QUIET_MODE"
+done < <(echo "$BUCKETS")
