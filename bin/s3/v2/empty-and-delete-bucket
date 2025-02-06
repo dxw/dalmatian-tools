@@ -1,0 +1,129 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -b <bucket_name>       - bucket name (optional, by default goes through all s3 buckets)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+while getopts "i:e:b:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    b)
+      BUCKET_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+
+if yes_no "Do you want to empty and delete the '$BUCKET_NAME' bucket in '$INFRASTRUCTURE_NAME' ('$ENVIRONMENT')?: " "y"
+then
+  log_info -l "Emptying: $BUCKET_NAME ..." -q "$QUIET_MODE"
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    s3 rm "s3://$BUCKET_NAME" \
+    --recursive
+
+  OBJECTS="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    s3api list-object-versions \
+    --bucket "$BUCKET_NAME")"
+  
+  VERSIONS="$(echo "$OBJECTS" | jq '.Versions')"
+  NUM_VERSIONS=$(echo "$VERSIONS" | jq 'length')
+  
+  if [ "$NUM_VERSIONS" != "0" ]
+  then
+    log_info -l "$NUM_VERSIONS versions to remove ..." -q "$QUIET_MODE"
+    while [ "$NUM_VERSIONS" -gt 0 ]
+    do
+      "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+        -p "$PROFILE" \
+        s3api delete-objects \
+        --bucket "$BUCKET_NAME" \
+        --delete "$(echo "$VERSIONS" | \
+        jq '.[0:500]
+        | map({Key, VersionId}) | {Objects: ., Quiet: true}' 
+        )"
+      VERSIONS="$(echo "$VERSIONS" | jq '.[500:]')"
+      NUM_VERSIONS="$(echo "$VERSIONS" | jq 'length')"
+      if [ "$NUM_VERSIONS" -gt 0 ]
+      then
+        log_info -l "Removed 500 versions, $NUM_VERSIONS remaining ..." -q "$QUIET_MODE"
+      else
+        log_info -l "All versions removed" -q "$QUIET_MODE"
+      fi
+    done
+  fi
+  
+  OBJECTS="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    s3api list-object-versions \
+    --bucket "$BUCKET_NAME")"
+  
+  DELETE_MARKERS="$(echo "$OBJECTS" | jq '.DeleteMarkers')"
+  NUM_DELETE_MARKERS=$(echo "$DELETE_MARKERS" | jq 'length')
+  
+  if [ "$NUM_DELETE_MARKERS" != "0" ]
+  then
+    log_info -l "$NUM_DELETE_MARKERS delete markers to remove ..." -q "$QUIET_MODE"
+    while [ "$NUM_DELETE_MARKERS" -gt 0 ]
+    do
+      "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+        -p "$PROFILE" \
+        s3api delete-objects \
+        --bucket "$BUCKET_NAME" \
+        --delete "$(echo "$DELETE_MARKERS" | \
+        jq '.[0:500]
+        | map({Key, VersionId}) | {Objects: ., Quiet: true}' 
+        )"
+      DELETE_MARKERS="$(echo "$DELETE_MARKERS" | jq '.[500:]')"
+      NUM_DELETE_MARKERS="$(echo "$DELETE_MARKERS" | jq 'length')"
+      if [ "$NUM_DELETE_MARKERS" -gt 0 ]
+      then
+        log_info -l "Removed 500 delete markers, $NUM_DELETE_MARKERS remaining ..." -q "$QUIET_MODE"
+      else
+        log_info -l "All delete markers removed" -q "$QUIET_MODE"
+      fi
+    done
+  fi
+
+  log_info -l "Deleting: $BUCKET_NAME ..." -q "$QUIET_MODE"
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    s3api delete-bucket \
+    --bucket "$BUCKET_NAME"
+fi
