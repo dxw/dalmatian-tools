@@ -43,6 +43,14 @@ then
 fi
 
 QUIET_MODE=0
+
+# set quiet mode if not running in a terminal
+# e.g when piping output to another command or redirecting output to a file
+if [ ! -t 1 ]
+then
+  QUIET_MODE=1
+fi
+
 for i in "${!COMMAND_ARGS[@]}"
 do
   if [ "${COMMAND_ARGS[i]}" == "-q" ]
