@@ -102,7 +102,7 @@ rm "$LOCAL_ENVIRONMENT_FILE-orig"
 
 if [[ -z "$DIFF" ]]
 then
-  log_info -l "No changes were made to the environment file, exitting ..."
+  log_info -l "No changes were made to the environment file, exiting ..."
   rm "$LOCAL_ENVIRONMENT_FILE"
   exit 0
 fi
