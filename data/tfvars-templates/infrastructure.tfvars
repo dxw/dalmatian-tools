@@ -137,3 +137,7 @@ infrastructure_datadog_api_key                  = ""
 infrastructure_datadog_app_key                  = ""
 infrastructure_datadog_region                   = ""
 enable_infrastructure_ecs_cluster_datadog_agent = false
+
+# Custom tags
+custom_resource_tags       = []
+custom_resource_tags_delay = 0
