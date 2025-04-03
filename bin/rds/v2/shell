@@ -1,0 +1,217 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                                   - help"
+  echo "  -i <infrastructure>                  - infrastructure name"
+  echo "  -r <rds_name>                        - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>                     - environment name (e.g. 'staging' or 'prod')"
+  echo "  -D <keep>_alive_delay>               - delay in seconds to check for mysql/psql/bash processes before exiting (default 60)"
+  echo "  -M <keep_alive_maximum_lifetime>     - maximum time in seconds before the container is stopped (default 600 seconds)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+KEEP_ALIVE_DELAY=60
+KEEP_ALIVE_MAX_LIFETIME=600
+
+while getopts "i:e:r:M:D:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    D)
+      KEEP_ALIVE_DELAY=$OPTARG
+      ;;
+    M)
+      KEEP_ALIVE_MAX_LIFETIME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE"
+  || -z "$ENVIRONMENT"
+  || -z "$RDS_NAME"
+]]
+then
+  usage
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+RDS_IDENTIFIER="$RESOURCE_PREFIX_HASH-$RDS_NAME"
+SECURITY_GROUP_NAME="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT-infrastructure-rds-tooling-$RDS_NAME"
+CLUSTER_NAME="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT-infrastructure-rds-tooling"
+TASK_DEF_NAME="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT-infrastructure-rds-tooling-$RDS_NAME"
+
+log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
+
+set +e
+DB_CLUSTERS="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  rds describe-db-clusters \
+  --db-cluster-identifier "$RDS_IDENTIFIER" \
+  2>/dev/null)"
+set -e
+
+if [ -z "$DB_CLUSTERS" ]
+then
+  set +e
+  DB_INSTANCES="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    rds describe-db-instances \
+    --db-instance-identifier "$RDS_IDENTIFIER" \
+    2>/dev/null)"
+  set -e
+  if [ -z "$DB_INSTANCES" ]
+  then
+    err "RDS $RDS_IDENTIFIER does not exist"
+    exit 1
+  fi
+  DB_INFO="$(echo "$DB_INSTANCES" \
+    | jq -r \
+    '.DBInstances[0]')"
+  DB_SUBNET_GROUP="$(echo "$DB_INFO" \
+    | jq -r \
+    '.DBSubnetGroup.DBSubnetGroupName')"
+else
+  DB_INFO="$(echo "$DB_CLUSTERS" \
+    | jq -r \
+    '.DBClusters[0]')"
+  DB_SUBNET_GROUP="$(echo "$DB_INFO" \
+    | jq -r \
+    '.DBSubnetGroup')"
+fi
+
+DB_ENGINE="$(echo "$DB_INFO" \
+  | jq -r \
+  '.Engine')"
+DB_ENGINE="${DB_ENGINE#aurora-}"
+
+SECURITY_GROUP_IDS="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  ec2 describe-security-groups \
+  --filters "Name=group-name,Values=$SECURITY_GROUP_NAME" \
+  | jq -c \
+  '[.SecurityGroups[0].GroupId]')"
+
+DB_SUBNETS="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  rds describe-db-subnet-groups \
+  --db-subnet-group-name "$DB_SUBNET_GROUP" \
+  | jq -c \
+  '[.DBSubnetGroups[0].Subnets[].SubnetIdentifier]')"
+
+NETWORK_CONFIGURATION="awsvpcConfiguration={subnets=$DB_SUBNETS,securityGroups=$SECURITY_GROUP_IDS,assignPublicIp=ENABLED}"
+
+if [ "$DB_ENGINE" == "mysql" ]
+then
+  ECS_EXECUTE_COMMAND="/bin/bash -c \"MYSQL_PWD=\$DB_PASSWORD mysql -u \$DB_USER -h \$DB_HOST\""
+elif [ "$DB_ENGINE" == "postgresql" ]
+then
+  ECS_EXECUTE_COMMAND="/bin/bash -c \"PGPASSWORD=\$DB_PASSWORD psql -U \$DB_USER -h \$DB_HOST -d postgres\""
+else
+  err "Unrecognised engine: $DB_ENGINE"
+fi
+
+TASK_OVERRIDES=$(jq -n \
+  --arg container_name "rds-tooling-$RDS_NAME" \
+  --arg delay "$KEEP_ALIVE_DELAY" \
+  --arg max_keepalive "$KEEP_ALIVE_MAX_LIFETIME" \
+  '{
+    "containerOverrides": [
+      {
+        "name": $container_name,
+        "command": [
+          "keep-alive",
+          "-d",
+          $delay,
+          "-m",
+          $max_keepalive
+        ]
+      }
+    ]
+  }'
+)
+
+log_info -l "Launching Fargate task for $DB_ENGINE shell ..." -q "$QUIET_MODE"
+
+TASK="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  ecs run-task \
+    --cluster "$CLUSTER_NAME" \
+    --launch-type "FARGATE" \
+    --task-definition "$TASK_DEF_NAME" \
+    --network-configuration "$NETWORK_CONFIGURATION" \
+    --enable-execute-command \
+    --overrides "$TASK_OVERRIDES")"
+
+TASK_ARN="$(echo "$TASK" \
+  | jq -r \
+  '.tasks[0].taskArn')"
+
+log_info -l "Waiting for task to start running ..." -q "$QUIET_MODE"
+
+"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  ecs wait tasks-running \
+   --cluster "$CLUSTER_NAME" \
+    --task "$TASK_ARN"
+
+log_info -l "Waiting for SSM agent to start on container ..." -q "$QUIET_MODE"
+
+for i in {1..10}
+do
+  sleep 3
+  set +e
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    ecs execute-command \
+      --cluster "$CLUSTER_NAME" \
+      --task "$TASK_ARN" \
+      --container "rds-tooling-$RDS_NAME" \
+      --command "/bin/bash -c 'echo ssm-agent check'" \
+      --interactive \
+      > /dev/null 2>&1 \
+      && break
+  set -e
+  if [ "$i" -ge 10 ]
+  then
+    err "SSM agent was not ready after $i attempts to connect via ECS Exec. There may be an issue with ssm-agent."
+    exit 1
+  fi
+done
+
+log_info -l "Executing $DB_ENGINE shell on $RDS_IDENTIFIER ..." -q "$QUIET_MODE"
+
+"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  ecs execute-command \
+    --cluster "$CLUSTER_NAME" \
+    --task "$TASK_ARN" \
+    --container "rds-tooling-$RDS_NAME" \
+    --command "$ECS_EXECUTE_COMMAND" \
+    --interactive
