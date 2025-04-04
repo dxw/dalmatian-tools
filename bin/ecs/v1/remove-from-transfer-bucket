@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <source>            - Source"
+  echo "  -r <recursive>         - Recursive"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]; then
+  usage
+fi
+
+RECURSIVE=0
+
+while getopts "i:e:s:rh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SOURCE=$OPTARG
+      ;;
+    r)
+      RECURSIVE=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME" ||
+  -z "$ENVIRONMENT" ||
+  -z "$SOURCE" ]]; then
+  usage
+fi
+
+BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
+
+
+if [ "$RECURSIVE" == 1 ]; then
+  S3_RECURSIVE="--recursive"
+else
+  S3_RECURSIVE=""
+fi
+
+log_info -l "Removing $SOURCE from S3 bucket $BUCKET_NAME..." -q "$QUIET_MODE"
+
+# shellcheck disable=2086
+aws s3 rm s3://"$BUCKET_NAME"/"$SOURCE" $S3_RECURSIVE
+
+log_info -l "Success!" -q "$QUIET_MODE"
