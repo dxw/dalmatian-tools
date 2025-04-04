@@ -27,13 +27,26 @@ then
   exit 1
 fi
 
-# Check awscli version
-version=$(aws --version 2>&1 | cut -d' ' -f1 | cut -d'/' -f2)
+# Suppress errors and capture the major version number
+version=$(aws --version 2>/dev/null | grep -oE 'aws-cli/([1-2])\.' | grep -oE '[1-2]')
 
-if [[ $version == "2"* ]]
+log_info -l "Detected AWS CLI major version: $version" -q "$QUIET_MODE"
+
+if [[ ! $version == "2"* ]];
 then
-  echo "awscli version 2 is installed"
-else
   err "awscli version 2 is not installed which is required for dalmatian-tools"
+
+  if [ "$QUIET_MODE" == "0" ]
+  then
+    echo
+    echo "If you have manually installed AWS CLI 1, you should run: "
+    echo "    sudo rm -rf /usr/local/aws"
+    echo "    sudo rm /usr/local/bin/aws"
+    echo
+    echo "If you installed it using Homebrew, you should run:"
+    echo "    brew remove awscli awscli@1"
+    echo "    brew install awscli"
+  fi
+
   exit 1
 fi
