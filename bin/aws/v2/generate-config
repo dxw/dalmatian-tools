@@ -32,7 +32,7 @@ append_sso_config_file \
   "$DALMATIAN_ACCOUNT_DEFAULT_REGION"
 echo ""
 
-"$APP_ROOT/bin/dalmatian" aws-sso login -p dalmatian-login
+"$APP_ROOT/bin/dalmatian" aws login -p dalmatian-login
 
 "$APP_ROOT/bin/dalmatian" terraform-dependencies clone
 

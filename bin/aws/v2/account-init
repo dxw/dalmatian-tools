@@ -117,7 +117,7 @@ else
   "$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace new $NEW_WORKSPACE_NAME" -a -q
 fi
 
-"$APP_ROOT/bin/dalmatian" aws-sso generate-config
+"$APP_ROOT/bin/dalmatian" aws generate-config
 
 "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
 

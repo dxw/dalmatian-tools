@@ -56,7 +56,7 @@ then
   log_info -l "Downloading tfvars ..." -q "$QUIET_MODE"
 
   TFVAR_FILE_META_JSON="$(
-    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    "$APP_ROOT/bin/dalmatian" aws run-command \
       -p dalmatian-main \
       s3api head-object \
       --bucket "$TFVARS_BUCKET_NAME" \
@@ -82,7 +82,7 @@ then
   fi
 
   TFVAR_FILE_META_JSON="$(
-    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    "$APP_ROOT/bin/dalmatian" aws run-command \
       -p dalmatian-main \
       s3api head-object \
       --bucket "$TFVARS_BUCKET_NAME" \
@@ -108,7 +108,7 @@ then
   fi
 
   TFVAR_FILE_META_JSON="$(
-    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    "$APP_ROOT/bin/dalmatian" aws run-command \
       -p dalmatian-main \
       s3api head-object \
       --bucket "$TFVARS_BUCKET_NAME" \
@@ -183,7 +183,7 @@ do
     if [ "$TFVARS_BUCKET_EXISTS" == 1 ]
     then
       TFVAR_FILE_META_JSON="$(
-        "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+        "$APP_ROOT/bin/dalmatian" aws run-command \
           -p dalmatian-main \
           s3api head-object \
           --bucket "$TFVARS_BUCKET_NAME" \
@@ -288,7 +288,7 @@ do
     if [ "$TFVARS_BUCKET_EXISTS" == 1 ]
     then
       TFVAR_FILE_META_JSON="$(
-        "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+        "$APP_ROOT/bin/dalmatian" aws run-command \
           -p dalmatian-main \
           s3api head-object \
           --bucket "$TFVARS_BUCKET_NAME" \

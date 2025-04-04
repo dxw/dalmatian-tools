@@ -55,7 +55,7 @@ if [[
 then
   log_info -l "Finding S3 buckets ..." -q "$QUIET_MODE"
   BUCKETS="$(
-    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    "$APP_ROOT/bin/dalmatian" aws run-command \
       -p "$PROFILE" \
       s3api list-buckets \
       | jq -r \
@@ -70,7 +70,7 @@ do
   echo "----------------------------------"
   echo "$BUCKET"
   BUCKETS_ACL="$(
-    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    "$APP_ROOT/bin/dalmatian" aws run-command \
       -p "$PROFILE" \
       s3api get-bucket-acl \
       --bucket "$BUCKET"
@@ -107,7 +107,7 @@ do
     OTHER_ACLS_CHECK="❌"
   fi
   BLOCKS_PUBLIC_ACCESS="$(
-    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    "$APP_ROOT/bin/dalmatian" aws run-command \
       -p "$PROFILE" \
       s3api get-public-access-block \
       --bucket "$BUCKET" 2>/dev/null \
