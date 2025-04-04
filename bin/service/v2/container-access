@@ -65,7 +65,7 @@ CLUSTER="$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT-infrastructure"
 PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
 
 TASKS="$(
-  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  "$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ecs list-tasks \
   --cluster "$CLUSTER" \
@@ -74,7 +74,7 @@ TASKS="$(
 TASK_ARN=$(echo "$TASKS" | jq -r '.taskArns[0]')
 
 TASK_DESCRIPTION="$(
-  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  "$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ecs describe-tasks \
   --cluster "$CLUSTER" \
@@ -82,7 +82,7 @@ TASK_DESCRIPTION="$(
 )"
 CONTAINER_NAME="$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containers[0].name')"
 
-"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+"$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ecs execute-command \
   --cluster "$CLUSTER" \

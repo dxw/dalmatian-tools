@@ -66,7 +66,7 @@ COMMAND="${COMMAND//\\/\\\\}"
 log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
 
 set +e
-DB_CLUSTERS="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+DB_CLUSTERS="$("$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   rds describe-db-clusters \
   --db-cluster-identifier "$RDS_IDENTIFIER" \
@@ -76,7 +76,7 @@ set -e
 if [ -z "$DB_CLUSTERS" ]
 then
   set +e
-  DB_INSTANCES="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  DB_INSTANCES="$("$APP_ROOT/bin/dalmatian" aws run-command \
     -p "$PROFILE" \
     rds describe-db-instances \
     --db-instance-identifier "$RDS_IDENTIFIER" \
@@ -107,14 +107,14 @@ DB_ENGINE="$(echo "$DB_INFO" \
   '.Engine')"
 DB_ENGINE="${DB_ENGINE#aurora-}"
 
-SECURITY_GROUP_IDS="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+SECURITY_GROUP_IDS="$("$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ec2 describe-security-groups \
   --filters "Name=group-name,Values=$SECURITY_GROUP_NAME" \
   | jq -c \
   '[.SecurityGroups[0].GroupId]')"
 
-DB_SUBNETS="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+DB_SUBNETS="$("$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   rds describe-db-subnet-groups \
   --db-subnet-group-name "$DB_SUBNET_GROUP" \
@@ -152,7 +152,7 @@ TASK_OVERRIDES=$(jq -n \
 
 log_info -l "Launching Fargate task to run command ..." -q "$QUIET_MODE"
 
-TASK="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+TASK="$("$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ecs run-task \
     --cluster "$CLUSTER_NAME" \
@@ -168,7 +168,7 @@ TASK_ID="$(echo "$TASK_ARN" | cut -d'/' -f3)"
 
 log_info -l "Waiting for task to start running ...." -q "$QUIET_MODE"
 
-"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+"$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ecs wait tasks-running \
   --cluster "$CLUSTER_NAME" \
@@ -176,7 +176,7 @@ log_info -l "Waiting for task to start running ...." -q "$QUIET_MODE"
 
 log_info -l "Tailing logs ..." -q "$QUIET_MODE"
 
-"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+"$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   logs tail "$LOG_GROUP_NAME" \
   --log-stream-names "rds-tooling/rds-tooling-$RDS_NAME/$TASK_ID" \
@@ -184,7 +184,7 @@ log_info -l "Tailing logs ..." -q "$QUIET_MODE"
   --follow &
 LOG_PID=$!
 
-"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+"$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ecs wait tasks-stopped \
   --cluster "$CLUSTER_NAME" \

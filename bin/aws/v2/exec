@@ -49,4 +49,4 @@ then
 fi
 shift $((OPTIND-1))
 
-dalmatian aws-sso run-command -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" "$@"
+"$APP_ROOT/bin/dalmatian" aws run-command -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" "$@"

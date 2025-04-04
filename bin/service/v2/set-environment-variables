@@ -72,7 +72,7 @@ ENVIRONMENT_FILE_S3_URI="s3://$ENVIRONMENT_FILE_BUCKET/$ENVIRONMENT_FILE_KEY"
 LOCAL_ENVIRONMENT_FILE="$TMP_SERVICE_ENV_DIR/$INFRASTRUCTURE_NAME-$ENVIRONMENT-$SERVICE_NAME.env"
 
 ENVIRONMENT_FILE_META_JSON="$(
-  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  "$APP_ROOT/bin/dalmatian" aws run-command \
     -p "$PROFILE" \
     s3api head-object \
     --bucket "$ENVIRONMENT_FILE_BUCKET" \
@@ -83,8 +83,8 @@ ENVIRONMENT_FILE_META_JSON="$(
 if [[ "$ENVIRONMENT_FILE_META_JSON" ]]
 then
   log_info -l "Downloading and opening '$ENVIRONMENT_FILE_S3_URI' ..."
-  
-  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+
+  "$APP_ROOT/bin/dalmatian" aws run-command \
     -p "$PROFILE" \
     s3 cp "$ENVIRONMENT_FILE_S3_URI" "$LOCAL_ENVIRONMENT_FILE"
 else
@@ -121,7 +121,7 @@ fi
 
 log_info -l "Uploading then removing $LOCAL_ENVIRONMENT_FILE ..."
 
-"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+"$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   s3 cp "$LOCAL_ENVIRONMENT_FILE" "$ENVIRONMENT_FILE_S3_URI"
 

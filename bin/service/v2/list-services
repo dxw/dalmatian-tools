@@ -53,7 +53,7 @@ CLUSTER="$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT-infrastructure"
 PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
 
 SERVICE_ARNS=$(
-  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  "$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ecs list-services \
   --cluster "$CLUSTER" \
@@ -78,7 +78,7 @@ done < <(echo "$SERVICE_ARNS")
 for arn in "${SERVICE_ARNS_ARR[@]}"
 do
   SERVICE="$(
-    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    "$APP_ROOT/bin/dalmatian" aws run-command \
     -p "$PROFILE" \
     ecs describe-services \
     --cluster "$CLUSTER" \
@@ -89,7 +89,7 @@ do
   RUNNING_CONTAINERS="$(echo "$SERVICE" | jq -r '.services[0].runningCount')"
   TASK_DEFINITION_ARN="$(echo "$SERVICE" | jq -r '.services[0].taskDefinition')"
   TASK_DEFINITION="$(
-    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    "$APP_ROOT/bin/dalmatian" aws run-command \
     -p "$PROFILE" \
     ecs describe-task-definition \
     --task-definition "$TASK_DEFINITION_ARN"

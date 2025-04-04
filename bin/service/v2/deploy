@@ -52,7 +52,7 @@ log_info -l "Deploying $SERVICE_NAME in $INFRASTRUCTURE_NAME $ENVIRONMENT"
 
 PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
 
-"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+"$APP_ROOT/bin/dalmatian" aws run-command \
   -i "$INFRASTRUCTURE_NAME" \
   -e "$ENVIRONMENT" \
   codepipeline start-pipeline-execution \

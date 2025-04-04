@@ -129,9 +129,9 @@ EOT
 log_info -l "--- Dalmatian account configuration ---" -q "$QUIET_MODE"
 MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
 
-"$APP_ROOT/bin/dalmatian" aws-sso generate-config
+"$APP_ROOT/bin/dalmatian" aws generate-config
 
-"$APP_ROOT/bin/dalmatian" aws-sso account-init -i "$MAIN_DALMATIAN_ACCOUNT_ID" -r "$DEFAULT_REGION" -n "dalmatian-main"
+"$APP_ROOT/bin/dalmatian" aws account-init -i "$MAIN_DALMATIAN_ACCOUNT_ID" -r "$DEFAULT_REGION" -n "dalmatian-main"
 
 log_info -l "Setup complete!" -q "$QUIET_MODE"
 log_info -l "It is highly recommended to run the first account bootstrap for the main dalmatian account now, using \`dalmatian deploy account-bootstrap -a $MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main\`" -q "$QUIET_MODE"

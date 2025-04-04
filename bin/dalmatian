@@ -267,15 +267,15 @@ then
 
   if [[
     "$SUBCOMMAND" != "setup" &&
-    ( "$SUBCOMMAND" != "aws-sso" && "$COMMAND" != "login" && "$COMMAND" != "generate-config" ) &&
+    ( "$SUBCOMMAND" != "aws" && "$COMMAND" != "login" && "$COMMAND" != "generate-config" ) &&
     "$SUBCOMMAND" != "update"
   ]]
   then
     if [[ "$IS_PARENT_SCRIPT" == 1 && "$QUIET_MODE" == 0 ]]
     then
-      "$APP_ROOT/bin/dalmatian" aws-sso login
+      "$APP_ROOT/bin/dalmatian" aws login
     fi
-    "$APP_ROOT/bin/dalmatian" aws-sso login -q
+    "$APP_ROOT/bin/dalmatian" aws login -q
   fi
 
   if [[
