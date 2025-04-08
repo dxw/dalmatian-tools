@@ -1,0 +1,130 @@
+#!/bin/bash
+
+# Requires the `session-manager-plugin` to be installed:
+# https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
+
+# exit on failures
+set -e
+set -o pipefail
+if [ -n "$DALMATIAN_TOOLS_DEBUG" ]; then
+  set -x
+fi
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -l                     - list available ec2 instance ids (optional)"
+  echo "  -I <instance_id>       - ec2 instance id (optional)"
+  echo "  -R <remote_port>       - remote port (optional if -l is set)"
+  echo "  -L <local_port>        - local port (optional if -l is set)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+if ! command -v session-manager-plugin > /dev/null
+then
+  err "This script requires the \`session-manager-plugin\` to be installed"
+  log_info -l "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html" -q "$QUIET_MODE"
+  log_info -l "Also, If you are running an Mac M1 or above, you'll need to install Rosetta 2 by running:" -q "$QUIET_MODE"
+  log_info -l "softwareupdate --install-rosetta" -q "$QUIET_MODE"
+  exit 1
+fi
+
+while getopts "i:e:I:R:L:lh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    l)
+      LIST=1
+      ;;
+    I)
+      INSTANCE_ID=$OPTARG
+      ;;
+    R)
+      REMOTE_PORT=$OPTARG
+      ;;
+    L)
+      LOCAL_PORT=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+if [[ $LIST -eq 1 ]]
+then
+  # If the list flag is set, we don't need to check for other arguments
+  if [[
+    -z "$INFRASTRUCTURE_NAME"
+    || -z "$ENVIRONMENT"
+  ]]
+  then
+    usage
+  fi
+else
+  if [[
+    -z "$INFRASTRUCTURE_NAME"
+    || -z "$ENVIRONMENT"
+    || -z "$REMOTE_PORT"
+    || -z "$LOCAL_PORT"
+  ]]
+  then
+    usage
+  fi
+fi
+
+log_info -l "Finding instance..." -q "$QUIET_MODE"
+INSTANCES=$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  ec2 describe-instances \
+  --filters \
+  Name=instance-state-code,Values=16 
+)
+RESERVATIONS="$(echo "$INSTANCES" | jq -r '.Reservations[]')"
+if [ -z "$RESERVATIONS" ]
+then
+  err "No instances found for Infrastructure '$INFRASTRUCTURE_NAME' Environment '$ENVIRONMENT'"
+  exit 1
+fi
+
+AVAILABLE_INSTANCES=$(echo "$RESERVATIONS" | jq -r '.Instances[] |
+  (.InstanceId) + " | " +
+    (.Tags[] | select(.Key == "Name") |
+    .Value) + " | " +
+  (.LaunchTime)')
+
+if [ -n "$LIST" ];
+then
+  echo "$AVAILABLE_INSTANCES"
+  exit 0
+fi
+
+if [ -z "$INSTANCE_ID" ];
+then
+  # If an instance ID isn't specified, just connect to the first one
+  INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
+  INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
+fi
+
+log_info -l "Connecting to '$INSTANCE_NAME' (id: $INSTANCE_ID)..." -q "$QUIET_MODE"
+
+"$APP_ROOT/bin/dalmatian" aws run-command \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  ssm start-session --document-name AWS-StartPortForwardingSession --target "$INSTANCE_ID" --parameters portNumber="$REMOTE_PORT",localPortNumber="$LOCAL_PORT"
