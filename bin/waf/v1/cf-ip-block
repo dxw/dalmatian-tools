@@ -1,0 +1,107 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -w <waf_name>          - WAF name (as defined in the Dalmatian config)"
+  echo "  -b <ip_address>        - IP Address (with netmask) you want to apply a rule to (e.g. 1.2.3.4/32)"
+  echo "  -6                     - Use IPv6"
+  echo "  -d                     - Delete"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+SOURCE_IP_TYPE="ipv4"
+
+while getopts "i:e:b:w:hd6" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    b)
+      SOURCE_IP=$OPTARG
+      if [[ $SOURCE_IP == *":"* ]];
+      then
+        SOURCE_IP_TYPE="ipv6"
+      else
+        SOURCE_IP_TYPE="ipv4"
+      fi
+      ;;
+    6)
+      SOURCE_IP_TYPE="ipv6"
+      ;;
+    w)
+      WAF_NAME=$OPTARG
+      ;;
+    d)
+      DELETE=true
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+WAF_IP_SET_NAME="$INFRASTRUCTURE_NAME-$WAF_NAME-waf-$ENVIRONMENT-blocked-$SOURCE_IP_TYPE"
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+if [[ -n "$SOURCE_IP" ]]
+then
+  if ! [[ "$SOURCE_IP" =~ /[0-9]{1,2}$ ]]
+  then
+    err "Please include a subnet mask when specifying your source IP address (e.g. '1.2.3.4/32')"
+    usage
+  fi
+fi
+
+ALL_SETS=$(aws wafv2 list-ip-sets --scope CLOUDFRONT --region us-east-1)
+SET_ID=$(echo "$ALL_SETS" | jq -r ".IPSets.[] | select(.Name==\"$WAF_IP_SET_NAME\") | .Id")
+SET_JSON=$(aws wafv2 get-ip-set --name "$WAF_IP_SET_NAME" --region us-east-1 --scope CLOUDFRONT --id "$SET_ID")
+CURRENT_IP_SET=$(echo "$SET_JSON" | jq -c '.IPSet.Addresses')
+LOCK_TOKEN=$(echo "$SET_JSON" | jq -c -r '.LockToken')
+
+if [[ -n "$SOURCE_IP" ]]
+then
+  log_info -l "Updating IP Set $WAF_IP_SET_NAME..." -q "$QUIET_MODE"
+  if [[ -z "$DELETE" ]]
+  then
+    NEW_IP_SET=$(echo "$CURRENT_IP_SET" | jq -c " . + [ \"$SOURCE_IP\" ]")
+  else
+    NEW_IP_SET=$(echo "$CURRENT_IP_SET" | jq -c " . - [ \"$SOURCE_IP\" ]")
+  fi
+  aws wafv2 update-ip-set --name "$WAF_IP_SET_NAME" --region us-east-1 --scope CLOUDFRONT --id "$SET_ID" --addresses "$NEW_IP_SET" --lock-token "$LOCK_TOKEN" >/dev/null 
+fi
+
+if [[ -z "$SOURCE_IP" ]]
+then
+    log_info -l "Listing IP Set $WAF_IP_SET_NAME..." -q "$QUIET_MODE"
+fi
+
+SET_JSON=$(aws wafv2 get-ip-set --name "$WAF_IP_SET_NAME" --region us-east-1 --scope CLOUDFRONT --id "$SET_ID")
+CURRENT_IP_SET=$(echo "$SET_JSON" | jq -c '.IPSet.Addresses')
+echo "$CURRENT_IP_SET"
+
