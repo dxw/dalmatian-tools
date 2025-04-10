@@ -1,6 +1,7 @@
 # Infrastructure
-infrastructure_kms_encryption           = false
-infrastructure_logging_bucket_retention = 30
+infrastructure_kms_encryption            = false
+infrastructure_logging_bucket_retention  = 30
+infrastructure_kms_key_policy_statements = ""
 
 # Route53
 route53_root_hosted_zone_domain_name      = ""
