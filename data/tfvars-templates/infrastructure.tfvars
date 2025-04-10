@@ -81,7 +81,7 @@ infrastructure_ecs_cluster_pending_task_alert_period                = 60
 infrastructure_ecs_cluster_pending_task_alert_threshold             = 50
 infrastructure_ecs_cluster_pending_task_alert_slack                 = false
 infrastructure_ecs_cluster_pending_task_alert_opsgenie              = false
-## Container Instance / ASG Instance diff
+## Container Instance ASG Instance diff
 enable_infrastructure_ecs_cluster_ecs_asg_diff_alert                = false
 infrastructure_ecs_cluster_ecs_asg_diff_metric_lambda_log_retention = 30
 infrastructure_ecs_cluster_ecs_asg_diff_alert_evaluation_periods    = 15
