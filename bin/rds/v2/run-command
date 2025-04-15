@@ -53,7 +53,7 @@ then
   usage
 fi
 
-"$APP_ROOT/bin/dalmatian" rds tooling-container-run-command \
+"$APP_ROOT/bin/dalmatian" utilities run-command \
   -i "$INFRASTRUCTURE" \
   -e "$ENVIRONMENT" \
   -r "$RDS_NAME" \
