@@ -127,7 +127,7 @@ log_info -l "Uploading then removing $LOCAL_ENVIRONMENT_FILE ..."
 
 rm "$LOCAL_ENVIRONMENT_FILE"
 
-if yes_no "Envinroment file updated, do you want to redeploy the service now?" "y"
+if yes_no "Environment file updated, do you want to redeploy the service now?" "y"
 then
   "$APP_ROOT/bin/dalmatian" service deploy -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$SERVICE_NAME"
 fi
