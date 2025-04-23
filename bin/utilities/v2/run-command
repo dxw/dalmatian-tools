@@ -83,7 +83,7 @@ fi
 
 PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
 PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
-RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -l)"
 CLUSTER_NAME="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT-infrastructure-utilities"
 COMMAND="${COMMAND//\\/\\\\}"
 
