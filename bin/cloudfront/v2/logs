@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service_name>      - service name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -p <pattern>           - pattern to include [Optional] (e.g. '2020-11-13')"
+  echo "  -d <directory>         - directory to download logs to [Optional] (e.g /home/user/logs/)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]; then
+  usage
+fi
+
+while getopts "i:e:s:p:d:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    p)
+      PATTERN=$OPTARG
+      ;;
+    d)
+      DIRECTORY=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME" ||
+     -z "$ENVIRONMENT" ||
+     -z "$SERVICE_NAME" ]]; then
+  usage
+fi
+
+if [[ -z "$DIRECTORY" ]]; then
+  DIRECTORY=/tmp/$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-cloudfront-logs
+fi
+
+log_info -l "making sure $DIRECTORY exists" -q "$QUIET_MODE"
+mkdir -p "$DIRECTORY"
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+
+log_info -l "downloading log files" -q "$QUIET_MODE"
+if [[ -z "$PATTERN" ]]; then
+  dalmatian aws run-command \
+    -i "$INFRASTRUCTURE_NAME" \
+    -e "$ENVIRONMENT" \
+    s3 sync s3://"$RESOURCE_PREFIX_HASH"-logs/cloudfront/infrasructure-ecs-cluster-service/"$SERVICE_NAME" "$DIRECTORY"
+else
+  dalmatian aws run-command \
+    -i "$INFRASTRUCTURE_NAME" \
+    -e "$ENVIRONMENT" \
+    s3 sync s3://"$RESOURCE_PREFIX_HASH"-logs/cloudfront/infrasructure-ecs-cluster-service/"$SERVICE_NAME" "$DIRECTORY" --exclude "*" --include "*${PATTERN}*"
+fi
+
+log_info -l  "logs in ${DIRECTORY}" -q "$QUIET_MODE"
