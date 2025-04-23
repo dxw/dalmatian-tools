@@ -16,11 +16,9 @@ usage() {
 }
 
 # if there are no arguments passed exit with usage
-if [ $# -eq 0 ]
-then
- usage
+if [ $# -eq 0 ]; then
+  usage
 fi
-
 
 while getopts "i:e:s:p:d:h" opt; do
   case $opt in
@@ -49,29 +47,24 @@ while getopts "i:e:s:p:d:h" opt; do
 done
 
 if [[
-  -z "$INFRASTRUCTURE_NAME"
-  || -z "$ENVIRONMENT"
-  || -z "$SERVICE_NAME"
-]]
-then
+  -z "$INFRASTRUCTURE_NAME" ||
+     -z "$ENVIRONMENT" ||
+     -z "$SERVICE_NAME" ]]; then
   usage
 fi
 
-if [[ -z "$DIRECTORY" ]]
-then
+if [[ -z "$DIRECTORY" ]]; then
   DIRECTORY=/tmp/$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-cloudfront-logs
 fi
 
-echo "==> making sure $DIRECTORY exists"
+log_info -l "making sure $DIRECTORY exists" -q "$QUIET_MODE"
 mkdir -p "$DIRECTORY"
 
-
-echo "==> downloading log files"
-if [[ -z "$PATTERN" ]]
-then
+log_info -l "downloading log files" -q "$QUIET_MODE"
+if [[ -z "$PATTERN" ]]; then
   aws s3 sync s3://"${INFRASTRUCTURE_NAME}"-"${SERVICE_NAME}"-"${ENVIRONMENT}"-cloudfront-logs/ "$DIRECTORY"
 else
   aws s3 sync s3://"${INFRASTRUCTURE_NAME}"-"${SERVICE_NAME}"-"${ENVIRONMENT}"-cloudfront-logs/ "$DIRECTORY" --exclude "*" --include "*${PATTERN}*"
 fi
 
-echo "==> logs in ${DIRECTORY}"
+log_info -l "logs in ${DIRECTORY}" -q "$QUIET_MODE"
