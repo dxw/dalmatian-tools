@@ -59,12 +59,19 @@ fi
 
 log_info -l "making sure $DIRECTORY exists" -q "$QUIET_MODE"
 mkdir -p "$DIRECTORY"
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
 
 log_info -l "downloading log files" -q "$QUIET_MODE"
 if [[ -z "$PATTERN" ]]; then
-  aws s3 sync s3://"${INFRASTRUCTURE_NAME}"-"${SERVICE_NAME}"-"${ENVIRONMENT}"-cloudfront-logs/ "$DIRECTORY"
+  dalmatian aws run-command \
+    -i "$INFRASTRUCTURE_NAME" \
+    -e "$ENVIRONMENT" \
+    s3 sync s3://"$RESOURCE_PREFIX_HASH"-logs/cloudfront/infrasructure-ecs-cluster-service/"$SERVICE_NAME" "$DIRECTORY"
 else
-  aws s3 sync s3://"${INFRASTRUCTURE_NAME}"-"${SERVICE_NAME}"-"${ENVIRONMENT}"-cloudfront-logs/ "$DIRECTORY" --exclude "*" --include "*${PATTERN}*"
+  dalmatian aws run-command \
+    -i "$INFRASTRUCTURE_NAME" \
+    -e "$ENVIRONMENT" \
+    s3 sync s3://"$RESOURCE_PREFIX_HASH"-logs/cloudfront/infrasructure-ecs-cluster-service/"$SERVICE_NAME" "$DIRECTORY" --exclude "*" --include "*${PATTERN}*"
 fi
 
-log_info -l "logs in ${DIRECTORY}" -q "$QUIET_MODE"
+log_info -l  "logs in ${DIRECTORY}" -q "$QUIET_MODE"
