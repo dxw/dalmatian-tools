@@ -6,7 +6,9 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["^terraform-project-versions\\.json$"],
+      "managerFilePatterns": [
+        "/^terraform-project-versions\\.json$/"
+      ],
       "matchStrings": [
         "\"terraform-dxw-dalmatian-infrastructure\":\\s*\"(?<currentValue>[^\"]+)\""
       ],
@@ -16,7 +18,9 @@
     },
     {
       "customType": "regex",
-      "fileMatch": ["^terraform-project-versions\\.json$"],
+      "managerFilePatterns": [
+        "/^terraform-project-versions\\.json$/"
+      ],
       "matchStrings": [
         "\"terraform-dxw-dalmatian-account-bootstrap\":\\s*\"(?<currentValue>[^\"]+)\""
       ],
