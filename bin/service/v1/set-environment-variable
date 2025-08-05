@@ -88,6 +88,13 @@ then
   usage
 fi
 
+if [[ ! "$KEY" =~ ^[a-zA-Z] ]]
+then
+  echo "ERROR: keys must start with an alphabetical (i.e. non-numeric) character"
+  usage
+fi
+
+
 if [[ -n "$ENV_FILE" ]]
 then
   if [ ! -f "$ENV_FILE" ]
