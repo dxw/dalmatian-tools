@@ -1,0 +1,79 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service>           - service name "
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -w                     - watch deployment status until complete (optional)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]; then
+  usage
+fi
+
+WATCH=""
+
+while getopts "i:e:s:wh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    w)
+      WATCH="1"
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ 
+  -z "$INFRASTRUCTURE_NAME" ||
+     -z "$SERVICE_NAME" ||
+     -z "$ENVIRONMENT" ]]; then
+  usage
+fi
+
+echo "==> Forcing new deployment for $SERVICE_NAME in $ENVIRONMENT"
+
+# This command updates the service to use the latest version of its task definition
+# and forces a new deployment.
+DEPLOYMENT=$(aws ecs update-service --service "$SERVICE_NAME" --task-definition "$ENVIRONMENT-$INFRASTRUCTURE_NAME-$SERVICE_NAME" --cluster "$INFRASTRUCTURE_NAME-$ENVIRONMENT" --force-new-deployment)
+
+if [ -n "$WATCH" ]; then
+  echo "==> Watching deployment status..."
+  EVENT_ID_REGEX=$(echo "$DEPLOYMENT" | jq -r '.service.events[] | .id' | tr '\n' '|' | sed 's/.$//')
+  DEPLOYMENT_ID=$(echo "$DEPLOYMENT" | jq -r '.service.deployments[] | select(.status == "PRIMARY") | .id')
+  STATUS=""
+  while [ "$STATUS" != "COMPLETED" ]; do
+    SERVICE=$(aws ecs describe-services --cluster "$INFRASTRUCTURE_NAME-$ENVIRONMENT" --services "$SERVICE_NAME")
+    EVENTS=$(echo "$SERVICE" | jq -r --arg r "$EVENT_ID_REGEX" '.services[0].events[] | select(.id | test("\($r)") | not)')
+    EVENT_ID_REGEX=$(echo "$SERVICE" | jq -r '.services[0].events[] | .id' | tr '\n' '|' | sed 's/.$//')
+    STATUS=$(echo "$SERVICE" | jq -r --arg i "$DEPLOYMENT_ID" '.services[0].deployments[] | select(.id == $i) | .rolloutState')
+    if [ -n "$EVENTS" ]; then
+      echo "$EVENTS" | jq -r '.message'
+    fi
+    echo "$SERVICE" | jq -r --arg i "$DEPLOYMENT_ID" '.services[0].deployments[] | select(.id == $i) | "\(.rolloutState) - Desired: \(.desiredCount), Pending: \(.pendingCount), Running: \(.runningCount)"'
+    sleep 10
+  done
+  echo "==> Deployment complete."
+else
+  echo "==> Deployment started."
+fi
