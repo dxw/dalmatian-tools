@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -s <service_name>      - service name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -P <paths>             - space separated list of paths (default '/*')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]; then
+  usage
+fi
+
+PATHS="/*"
+
+while getopts "i:e:s:P:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    P)
+      PATHS=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ 
+  -z "$INFRASTRUCTURE_NAME" ||
+     -z "$ENVIRONMENT" ||
+     -z "$SERVICE_NAME" ]] \
+  ; then
+  usage
+fi
+
+log_info -l "Finding CloudFront distribution..."
+
+# Helper to run AWS commands via dalmatian wrapper
+dalmatian_aws() {
+  dalmatian aws run-command \
+    -i "$INFRASTRUCTURE_NAME" \
+    -e "$ENVIRONMENT" \
+    "$@"
+}
+dalmatian_aws cloudfront list-distributions
+DISTRIBUTIONS=$(dalmatian_aws cloudfront list-distributions)
+DISTRIBUTION=$(echo "$DISTRIBUTIONS" | jq -r --arg origin "$SERVICE_NAME-default" '.DistributionList.Items[] | select(.Origins.Items[].Id==$origin)')
+
+if [ -z "$DISTRIBUTION" ] || [ "$DISTRIBUTION" == "null" ]; then
+  err "Could not find distribution with origin ID: $SERVICE_NAME-default"
+  exit 1
+fi
+
+DISTRIBUTION_ID=$(echo "$DISTRIBUTION" | jq -r '.Id')
+DISTRIBUTION_ALIAS=$(echo "$DISTRIBUTION" | jq -r '.Aliases.Items[0]')
+DISTRIBUTION_DOMAIN=$(echo "$DISTRIBUTION" | jq -r '.DomainName')
+
+log_info -l "Running invalidation on distribution $DISTRIBUTION_ID ( $DISTRIBUTION_ALIAS, $DISTRIBUTION_DOMAIN ) ..."
+
+DISTRIBUTION_INVALIDATION=$(dalmatian_aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "$PATHS")
+DISTRIBUTION_INVALIDATION_ID=$(echo "$DISTRIBUTION_INVALIDATION" | jq -r '.Invalidation.Id')
+
+log_info -l "Waiting for invalidation $DISTRIBUTION_INVALIDATION_ID to complete..."
+dalmatian_aws cloudfront wait invalidation-completed --distribution-id "$DISTRIBUTION_ID" --id "$DISTRIBUTION_INVALIDATION_ID"
+
+log_info -l "Invalidation completed."
