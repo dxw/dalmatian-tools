@@ -4,6 +4,23 @@
 set -e
 set -o pipefail
 
+if [ -z "$APP_ROOT" ]; then
+  APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/../../.. && pwd -P)"
+fi
+
+if ! command -v log_info > /dev/null; then
+  for f in "$APP_ROOT"/lib/bash-functions/*; do
+    if [ -f "$f" ]; then
+      source "$f"
+      while IFS='' read -r function_name; do
+        export -f "${function_name?}"
+      done < <(grep "^function" "$f" | cut -d" " -f2)
+    fi
+  done
+fi
+
+QUIET_MODE="${QUIET_MODE:-0}"
+
 usage() {
   echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                       - help"
@@ -39,11 +56,11 @@ if [ -z "$DALMATIAN_CONFIG_PATH" ]
 then
 "$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
 
-echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
+log_info -l "Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..." -q "$QUIET_MODE"
 
 INFRASTRUCTURE_ACCOUNT_ID=$(yq e ".infrastructures.$INFRASTRUCTURE_NAME.account_id" "$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml")
 else
-  echo "==> Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..."
+  log_info -l "Assuming role to provide access to $INFRASTRUCTURE_NAME infrastructure account ..." -q "$QUIET_MODE"
 
 INFRASTRUCTURE_ACCOUNT_ID=$(yq e ".infrastructures.$INFRASTRUCTURE_NAME.account_id" "$DALMATIAN_CONFIG_PATH")
 

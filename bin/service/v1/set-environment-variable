@@ -24,7 +24,7 @@ set_envar() {
   KEY="$4"
   VALUE="$5"
 
-  echo "==> setting environment variable $4 for $1/$2/$3"
+  log_info -l "setting environment variable $4 for $1/$2/$3" -q "$QUIET_MODE"
 
   aws ssm put-parameter \
     --name "/$1/$2/$3/$4" \
@@ -90,7 +90,7 @@ fi
 
 if [[ ! "$KEY" =~ ^[a-zA-Z] ]]
 then
-  echo "ERROR: keys must start with an alphabetical (i.e. non-numeric) character"
+  err "keys must start with an alphabetical (i.e. non-numeric) character"
   usage
 fi
 

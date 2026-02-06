@@ -86,8 +86,8 @@ then
     }'
   )
   log_info -l "External accounts require a Role to be added that can be assumed by the AWS Federated user account from the Main Dalmatian account" -q "$QUIET_MODE"
-  log_info -l "1. In the External Account (${AWS_ACCOUNT_ID:1}), create a Role named '$MAIN_DALMATIAN_ACCOUNT_ID-dalmatian-access', which has Administrator permissions" -q "$QUIET_MODE"
-  log_info -l "2. Add the following Trust Relationship policy to the role:" -q "$QUIET_MODE"
+  log_msg -l "1. In the External Account (${AWS_ACCOUNT_ID:1}), create a Role named '$MAIN_DALMATIAN_ACCOUNT_ID-dalmatian-access', which has Administrator permissions" -q "$QUIET_MODE"
+  log_msg -l "2. Add the following Trust Relationship policy to the role:" -q "$QUIET_MODE"
   echo "$EXTERNAL_ROLE_TRUST_RELATIONSHIP"
   if ! yes_no "Enter 'y' to continue:" "y"
   then

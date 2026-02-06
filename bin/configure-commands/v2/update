@@ -102,7 +102,7 @@ then
   # Ensure AWS Session Manager is up-to-date
   install_session_manager
 
-  log_info -l "Ensuring tfenv is configured ..."
+  log_info -l "Ensuring tfenv is configured ..." -q "$QUIET_MODE"
   $BREW_BIN link --overwrite tfenv
 
   "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I

@@ -53,7 +53,7 @@ fi
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
-echo "==> Retrieving RDS root password from Parameter Store..."
+log_info -l "Retrieving RDS root password from Parameter Store..." -q "$QUIET_MODE"
 
 RDS_ROOT_PASSWORD_PARAMETER=$(
   aws ssm get-parameters \
@@ -67,13 +67,13 @@ RDS_ROOT_PASSWORD=$(
 
 ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
 
-echo "ECS instance ID: $ECS_INSTANCE_ID"
+log_info -l "ECS instance ID: $ECS_INSTANCE_ID" -q "$QUIET_MODE"
 
-echo "==> Listing databases..."
+log_info -l "Listing databases..." -q "$QUIET_MODE"
 
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \
   --document-name "$RDS_IDENTIFIER-aurora-db-list" \
   --parameters "RootPassword=$RDS_ROOT_PASSWORD"
 
-echo "Success!"
+log_info -l "Success!" -q "$QUIET_MODE"

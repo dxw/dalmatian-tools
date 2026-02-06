@@ -76,7 +76,7 @@ fi
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
-echo "==> Retrieving RDS root password from Parameter Store..."
+log_info -l "Retrieving RDS root password from Parameter Store..." -q "$QUIET_MODE"
 
 RDS_ROOT_PASSWORD_PARAMETER=$(
   aws ssm get-parameters \
@@ -88,7 +88,7 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-echo "==> Getting RDS info..."
+log_info -l "Getting RDS info..." -q "$QUIET_MODE"
 
 RDS_INFO=$(
   aws rds describe-db-instances \
@@ -113,15 +113,15 @@ aws ssm start-session \
   --document-name "$RDS_IDENTIFIER-rds-sql-dump" \
   --parameters "RootPassword=$RDS_ROOT_PASSWORD,DatabaseName=$DATABASE_NAME"
 
-echo "==> Export complete"
+log_info -l "Export complete" -q "$QUIET_MODE"
 
 SQL_FILE_NAME="$DATABASE_NAME-$ENVIRONMENT-sql-export.sql"
 S3_BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
 
-echo "==> Starting download of $SQL_FILE_NAME from s3 bucket $S3_BUCKET_NAME..."
+log_info -l "Starting download of $SQL_FILE_NAME from s3 bucket $S3_BUCKET_NAME..." -q "$QUIET_MODE"
 
 aws s3 cp "s3://$S3_BUCKET_NAME/db_exports/$SQL_FILE_NAME" "$OUTPUT_FILE_PATH"
 
-echo "==> Deleting sql file from S3 ..."
+log_info -l "Deleting sql file from S3 ..." -q "$QUIET_MODE"
 
 aws s3 rm "s3://$S3_BUCKET_NAME/db_exports/$SQL_FILE_NAME"

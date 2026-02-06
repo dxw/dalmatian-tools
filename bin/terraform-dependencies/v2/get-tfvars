@@ -41,10 +41,10 @@ fi
 log_info -l "Checking existance of tfvars bucket $TFVARS_BUCKET_NAME" -q "$QUIET_MODE"
 if aws s3api head-bucket --bucket "$TFVARS_BUCKET_NAME" > /dev/null 2>&1
 then
-  log_info -l "$TFVARS_BUCKET_NAME bucket exists ..." -q "$QUIET_MODE"
+  log_msg -l "$TFVARS_BUCKET_NAME bucket exists ..." -q "$QUIET_MODE"
   TFVARS_BUCKET_EXISTS=1
 else
-  log_info -l "$TFVARS_BUCKET_NAME bucket doesn't exist. Bucket will be created on first deployment." -q "$QUIET_MODE"
+  log_msg -l "$TFVARS_BUCKET_NAME bucket doesn't exist. Bucket will be created on first deployment." -q "$QUIET_MODE"
   TFVARS_BUCKET_EXISTS=0
 fi
 
@@ -136,10 +136,10 @@ fi
 
 if [[ "$TFVARS_BUCKET_EXISTS" == 0 || "$DEFAULT_TFVARS_EXISTS" == 0 ]]
 then
-  log_info -l "$DEAFULT_TFAVRS_FILE_NAME doesn't exist in tfvars S3 bucket." -q "$QUIET_MODE"
+  log_msg -l "$DEAFULT_TFAVRS_FILE_NAME doesn't exist in tfvars S3 bucket." -q "$QUIET_MODE"
   echo "project_name=\"$PROJECT_NAME\"" > "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
   echo "aws_region=\"$DALMATIAN_ACCOUNT_DEFAULT_REGION\"" >> "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
-  log_info -l "Created $CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" -q "$QUIET_MODE"
+  log_msg -l "Created $CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" -q "$QUIET_MODE"
 fi
 
 if [ "$GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS" == "0" ]

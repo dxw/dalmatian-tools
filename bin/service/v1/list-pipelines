@@ -47,6 +47,6 @@ then
   usage
 fi
 
-echo "==> Listing pipelines for $INFRASTRUCTURE_NAME $SERVICE_NAME ($ENVIRONMENT) ..."
+log_info -l "Listing pipelines for $INFRASTRUCTURE_NAME $SERVICE_NAME ($ENVIRONMENT) ..." -q "$QUIET_MODE"
 
 aws codepipeline list-pipelines | jq -r --arg i "$INFRASTRUCTURE_NAME" --arg e "$ENVIRONMENT" --arg s "$SERVICE_NAME" '.pipelines[]| select(.name|test("^\($i)-\($s)-\($e)"))' | jq -r '.name'

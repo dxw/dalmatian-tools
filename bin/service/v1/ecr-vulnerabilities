@@ -56,7 +56,7 @@ fi
 
 REPOSITORY_NAME="$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT"
 
-echo "==> Getting image vulnerabilities..."
+log_info -l "Getting image vulnerabilities..." -q "$QUIET_MODE"
 
 IMAGE_SCAN_FINDINGS=$(aws ecr describe-image-scan-findings --repository-name "$REPOSITORY_NAME" --image-id imageTag="$IMAGE_TAG" | jq -rc '.imageScanFindings.findings[]')
 

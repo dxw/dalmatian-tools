@@ -57,7 +57,7 @@ fi
 
 if [ -n "$LIST" ];
 then
-  echo "==> Finding ECS instances..."
+  log_info -l "Finding ECS instances..." -q "$QUIET_MODE"
   INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
 
   AVAILABLE_INSTANCES=$(echo "$INSTANCES" | jq -r '.Reservations[].Instances[] | (.InstanceId) + " | " + (.Tags[] | select(.Key == "Name") | .Value) + " | " + (.LaunchTime)')
@@ -70,7 +70,7 @@ fi
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
-echo "==> Retrieving RDS root password from Parameter Store..."
+log_info -l "Retrieving RDS root password from Parameter Store..." -q "$QUIET_MODE"
 
 RDS_ROOT_PASSWORD_PARAMETER=$(
   aws ssm get-parameters \
@@ -82,7 +82,7 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-echo "==> Getting RDS info..."
+log_info -l "Getting RDS info..." -q "$QUIET_MODE"
 
 RDS_INFO=$(
   aws rds describe-db-clusters \
@@ -98,7 +98,7 @@ ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME"
 
 echo "ECS instance ID: $ECS_INSTANCE_ID"
 
-echo "==> Starting $RDS_ENGINE session on $RDS_IDENTIFIER..."
+log_info -l "Starting $RDS_ENGINE session on $RDS_IDENTIFIER..." -q "$QUIET_MODE"
 set -x
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \
