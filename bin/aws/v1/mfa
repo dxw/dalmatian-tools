@@ -11,6 +11,7 @@ fi
 if ! command -v log_info > /dev/null; then
   for f in "$APP_ROOT"/lib/bash-functions/*; do
     if [ -f "$f" ]; then
+      #shellcheck disable=SC1090
       source "$f"
       while IFS='' read -r function_name; do
         export -f "${function_name?}"
