@@ -63,4 +63,4 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 # run the backup task
 aws ecs run-task --no-cli-pager --cluster "$CLUSTER_NAME" --task-definition "arn:aws:ecs:eu-west-2:$ACCOUNT_ID:task-definition/$TASK_NAME"
-echo "==> Started backup task $TASK_NAME for RDS instance $RDS_IDENTIFIER"
+log_info -l "Started backup task $TASK_NAME for RDS instance $RDS_IDENTIFIER" -q "$QUIET_MODE"

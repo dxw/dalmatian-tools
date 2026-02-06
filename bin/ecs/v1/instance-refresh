@@ -43,7 +43,7 @@ then
   usage
 fi
 
-#echo "==> Refreshing instances on $INFRASTRUCTURE_NAME $ENVIRONMENT..."
+log_info -l "Refreshing instances on $INFRASTRUCTURE_NAME $ENVIRONMENT..." -q "$QUIET_MODE"
 AUTO_SCALING_GROUP_NAME=$(aws autoscaling describe-auto-scaling-groups | jq -r --arg i "$INFRASTRUCTURE_NAME" --arg e "$ENVIRONMENT" '.AutoScalingGroups[] | select(.AutoScalingGroupName | test("asg-ecs-\($i)-\($e).*")) | .AutoScalingGroupName')
 INSTANCE_REFRESH_ID=$(aws autoscaling start-instance-refresh --auto-scaling-group-name "$AUTO_SCALING_GROUP_NAME" | jq -r '.InstanceRefreshId')
 
@@ -60,11 +60,11 @@ do
   then
     if [ "$NEW_STATUS_REASON" != "null" ]
     then
-      echo "$NEW_STATUS_REASON"
+      log_info -l "$NEW_STATUS_REASON" -q "$QUIET_MODE"
     fi
     STATUS_REASON="$NEW_STATUS_REASON"
   fi
-  echo "Status: $STATUS, Percent Complete: $PERCENT_COMPLETE, Instances to update: $INSTANCES_TO_UPDATE"
+  log_info -l "Status: $STATUS, Percent Complete: $PERCENT_COMPLETE, Instances to update: $INSTANCES_TO_UPDATE" -q "$QUIET_MODE"
   if [ "$STATUS" != "Successful" ]
   then
     sleep 30

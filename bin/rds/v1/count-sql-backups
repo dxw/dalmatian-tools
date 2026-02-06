@@ -62,7 +62,7 @@ RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
 S3_BUCKET_NAME="$INFRASTRUCTURE_NAME-$RDS_IDENTIFIER-sql-backup"
 
-echo "==> Counting SQL backups in $INFRASTRUCTURE_NAME $RDS_NAME $ENVIRONMENT..."
+log_info -l "Counting SQL backups in $INFRASTRUCTURE_NAME $RDS_NAME $ENVIRONMENT..." -q "$QUIET_MODE"
 
 aws s3api list-objects-v2 \
   --bucket "$S3_BUCKET_NAME" \

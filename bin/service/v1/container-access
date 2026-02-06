@@ -25,10 +25,10 @@ fi
 
 if ! command -v session-manager-plugin > /dev/null
 then
-  echo "This script requires the \`session-manager-plugin\` to be installed:"
-  echo "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
-  echo "Also, If you are running an Mac M1 or above, you'll need to install Rosetta 2 by running:"
-  echo "softwareupdate --install-rosetta"
+  err "This script requires the \`session-manager-plugin\` to be installed"
+  log_info -l "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html" -q "$QUIET_MODE"
+  log_info -l "Also, If you are running an Mac M1 or above, you'll need to install Rosetta 2 by running:" -q "$QUIET_MODE"
+  log_info -l "softwareupdate --install-rosetta" -q "$QUIET_MODE"
   exit 1
 fi
 
@@ -66,7 +66,7 @@ then
   usage
 fi
 
-echo "==> Finding container..."
+log_info -l "Finding container..." -q "$QUIET_MODE"
 
 CLUSTER="$INFRASTRUCTURE_NAME-$ENVIRONMENT"
 if [ -n "$CLUSTER_NAME" ]
@@ -86,7 +86,7 @@ CONTAINER_NAME_PREFIX="ecs-$(echo "$TASK_DEFINITION_ARN" | cut -d'/' -f2| sed -e
 CONTAINER_INSTANCE_DESCRIPTION=$(aws ecs describe-container-instances --cluster "$CLUSTER" --container-instance "$CONTAINER_INSTANCE_ARN")
 CONTAINER_INSTANCE_ID=$(echo "$CONTAINER_INSTANCE_DESCRIPTION" | jq -r '.containerInstances[0].ec2InstanceId')
 
-echo "==> Connecting to container $CONTAINER_NAME_PREFIX* on $CLUSTER cluster..."
+log_info -l "Connecting to container $CONTAINER_NAME_PREFIX* on $CLUSTER cluster..." -q "$QUIET_MODE"
 
 aws ssm start-session \
   --target "$CONTAINER_INSTANCE_ID" \

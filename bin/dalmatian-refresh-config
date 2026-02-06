@@ -4,16 +4,34 @@
 set -e
 set -o pipefail
 
+if [ -z "$APP_ROOT" ]; then
+  APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
+fi
+
+if ! command -v log_info > /dev/null; then
+  for f in "$APP_ROOT"/lib/bash-functions/*; do
+    if [ -f "$f" ]; then
+      # shellcheck disable=SC1090
+      source "$f"
+      while IFS='' read -r function_name; do
+        export -f "${function_name?}"
+      done < <(grep "^function" "$f" | cut -d" " -f2)
+    fi
+  done
+fi
+
+QUIET_MODE="${QUIET_MODE:-0}"
+
 SCRIPT_PATH="$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
-echo "==> Finding Dalmatian config..."
+log_info -l "Finding Dalmatian config..." -q "$QUIET_MODE"
 CI_PIPELINE=$(aws codepipeline get-pipeline --name ci-terraform-build-pipeline)
 CI_BUILD_PROJECT_NAME=$(echo "$CI_PIPELINE" | jq -r '.pipeline.stages[] | select(.name == "Build") | .actions[] | select(.name == "Build-ci") | .configuration.ProjectName')
 
 BUILD_PROJECTS=$(aws codebuild batch-get-projects --names "$CI_BUILD_PROJECT_NAME")
 DALMATIAN_CONFIG_REPO=$(echo "$BUILD_PROJECTS" | jq -r '.projects[0].environment.environmentVariables[] | select(.name == "dalmatian_config_repo") | .value')
 
-echo "==> Fetching Dalmatian config..."
+log_info -l "Fetching Dalmatian config..." -q "$QUIET_MODE"
 rm -rf "$SCRIPT_PATH/tmp/dalmatian-config"
 
 set +e

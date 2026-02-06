@@ -51,14 +51,14 @@ if [[
   usage
 fi
 
-echo "==> Forcing new deployment for $SERVICE_NAME in $ENVIRONMENT"
+log_info -l "Forcing new deployment for $SERVICE_NAME in $ENVIRONMENT" -q "$QUIET_MODE"
 
 # This command updates the service to use the latest version of its task definition
 # and forces a new deployment.
 DEPLOYMENT=$(aws ecs update-service --service "$SERVICE_NAME" --task-definition "$ENVIRONMENT-$INFRASTRUCTURE_NAME-$SERVICE_NAME" --cluster "$INFRASTRUCTURE_NAME-$ENVIRONMENT" --force-new-deployment)
 
 if [ -n "$WATCH" ]; then
-  echo "==> Watching deployment status..."
+  log_info -l "Watching deployment status..." -q "$QUIET_MODE"
   EVENT_ID_REGEX=$(echo "$DEPLOYMENT" | jq -r '.service.events[] | .id' | tr '\n' '|' | sed 's/.$//')
   DEPLOYMENT_ID=$(echo "$DEPLOYMENT" | jq -r '.service.deployments[] | select(.status == "PRIMARY") | .id')
   STATUS=""
@@ -68,12 +68,12 @@ if [ -n "$WATCH" ]; then
     EVENT_ID_REGEX=$(echo "$SERVICE" | jq -r '.services[0].events[] | .id' | tr '\n' '|' | sed 's/.$//')
     STATUS=$(echo "$SERVICE" | jq -r --arg i "$DEPLOYMENT_ID" '.services[0].deployments[] | select(.id == $i) | .rolloutState')
     if [ -n "$EVENTS" ]; then
-      echo "$EVENTS" | jq -r '.message'
+      log_msg -l "$(echo "$EVENTS" | jq -r '.message')" -q "$QUIET_MODE"
     fi
-    echo "$SERVICE" | jq -r --arg i "$DEPLOYMENT_ID" '.services[0].deployments[] | select(.id == $i) | "\(.rolloutState) - Desired: \(.desiredCount), Pending: \(.pendingCount), Running: \(.runningCount)"'
+    log_msg -l "$(echo "$SERVICE" | jq -r --arg i "$DEPLOYMENT_ID" '.services[0].deployments[] | select(.id == $i) | "\(.rolloutState) - Desired: \(.desiredCount), Pending: \(.pendingCount), Running: \(.runningCount)"')" -q "$QUIET_MODE"
     sleep 10
   done
-  echo "==> Deployment complete."
+  log_info -l "Deployment complete." -q "$QUIET_MODE"
 else
-  echo "==> Deployment started."
+  log_info -l "Deployment started." -q "$QUIET_MODE"
 fi

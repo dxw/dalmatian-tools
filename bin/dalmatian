@@ -367,7 +367,7 @@ then
   AWS_MFA_SECRET=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_mfa_secret')
   MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
 
-  echo "==> Requesting new MFA credentials..."
+  log_info -l "Requesting new MFA credentials..." -q "$QUIET_MODE"
   "$APP_ROOT/bin/aws/$VERSION/mfa" -m "$MFA_CODE"
 
   if [ -n "$RUN_AWS_MFA" ]
@@ -407,7 +407,7 @@ fi
 # Update assume role credentials if needed
 if [ "$ASSUME_MAIN_ROLE_CONFIGURED" == "0" ]
 then
-  echo "==> Requesting 'Assume Role' credentials ..."
+  log_info -l "Requesting 'Assume Role' credentials ..." -q "$QUIET_MODE"
   ASSUME_ROLE_RESULT=$(
     aws sts assume-role \
     --role-arn "arn:aws:iam::$ACCOUNT_ID:role/$DALMATIAN_ROLE" \

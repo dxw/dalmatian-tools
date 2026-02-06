@@ -27,10 +27,10 @@ fi
 
 if ! command -v session-manager-plugin > /dev/null
 then
-  echo "This script requires the \`session-manager-plugin\` to be installed:"
-  echo "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
-  echo "Also, If you are running an Mac M1 or above, you'll need to install Rosetta 2 by running:"
-  echo "softwareupdate --install-rosetta"
+  err "This script requires the \`session-manager-plugin\` to be installed"
+  log_info -l "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html" -q "$QUIET_MODE"
+  log_info -l "Also, If you are running an Mac M1 or above, you'll need to install Rosetta 2 by running:" -q "$QUIET_MODE"
+  log_info -l "softwareupdate --install-rosetta" -q "$QUIET_MODE"
   exit 1
 fi
 
@@ -78,7 +78,7 @@ fi
 BUCKET_NAME="$INFRASTRUCTURE_NAME-ecs-$ENVIRONMENT-dalmatian-transfer"
 PREFIX_DIR="$(gdate +%s)"
 
-echo "==> Copying to $BUCKET_NAME S3 bucket ..."
+log_info -l "Copying to $BUCKET_NAME S3 bucket ..." -q "$QUIET_MODE"
 
 if [ "$RECURSIVE" == 1 ];
 then
@@ -92,13 +92,13 @@ else
 fi
 
 
-echo "==> Finding ECS instance..."
+log_info -l "Finding ECS instance..." -q "$QUIET_MODE"
 
 INSTANCES=$(aws ec2 describe-instances --filters Name=instance-state-code,Values=16 Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
 INSTANCE_ID=${INSTANCE_ID:-$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )}
 INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
 
-echo "==> uploading from '$INSTANCE_NAME' (id: $INSTANCE_ID) to S3.."
+log_info -l "uploading from '$INSTANCE_NAME' (id: $INSTANCE_ID) to S3.." -q "$QUIET_MODE"
 
 aws ssm start-session \
   --target "$INSTANCE_ID" \
@@ -106,11 +106,11 @@ aws ssm start-session \
   --parameters "S3Target=s3://$BUCKET_NAME/$PREFIX_DIR/$(basename "$SOURCE"),Source=$SOURCE,Recursive=$SSM_S3_RECURSIVE"
 
 
-echo "==> Downloading from S3 bucket"
+log_info -l "Downloading from S3 bucket" -q "$QUIET_MODE"
 # shellcheck disable=2086
 aws s3 cp s3://"$BUCKET_NAME"/"$PREFIX_DIR"/"$(basename "$SOURCE")" "$LOCAL_TARGET" $S3_RECURSIVE
-echo "==> Removing from S3 bucket ..."
+log_info -l "Removing from S3 bucket ..." -q "$QUIET_MODE"
 # shellcheck disable=2086
 aws s3 rm s3://"$BUCKET_NAME"/"$PREFIX_DIR"/"$(basename "$SOURCE")" $S3_RECURSIVE
 
-echo "Success!"
+log_info -l "Success!" -q "$QUIET_MODE"

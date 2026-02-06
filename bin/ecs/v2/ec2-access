@@ -26,9 +26,9 @@ fi
 if ! command -v session-manager-plugin > /dev/null
 then
   err "This script requires the \`session-manager-plugin\` to be installed"
-  log_info -l "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html" -q "$QUIET_MODE"
-  log_info -l "Also, If you are running an Mac M1 or above, you'll need to install Rosetta 2 by running:" -q "$QUIET_MODE"
-  log_info -l "softwareupdate --install-rosetta" -q "$QUIET_MODE"
+  log_msg -l "https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html" -q "$QUIET_MODE"
+  log_msg -l "Also, If you are running an Mac M1 or above, you'll need to install Rosetta 2 by running:" -q "$QUIET_MODE"
+  log_msg -l "softwareupdate --install-rosetta" -q "$QUIET_MODE"
   exit 1
 fi
 
@@ -109,7 +109,7 @@ else
   if [ -z "$INSTANCE_NAME" ];
   then
     err "Instance ID '$INSTANCE_ID' was not found"
-    log_info -l "Available instances:" -q "$QUIET_MODE"
+    log_msg -l "Available instances:" -q "$QUIET_MODE"
     echo "$AVAILABLE_INSTANCES"
     exit 1
   fi

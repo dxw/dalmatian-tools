@@ -67,8 +67,8 @@ fi
 
 while IFS='' read -r BUCKET
 do
-  echo "----------------------------------"
-  echo "$BUCKET"
+  log_msg -l "----------------------------------" -q "$QUIET_MODE"
+  log_msg -l "$BUCKET" -q "$QUIET_MODE"
   BUCKETS_ACL="$(
     "$APP_ROOT/bin/dalmatian" aws run-command \
       -p "$PROFILE" \
@@ -119,7 +119,7 @@ do
   then
     BLOCKS_PUBLIC_ACCESS_CHECK="✅"
   fi
-  log_info -l "Other ACLs: $OTHER_ACLS_COUNT $OTHER_ACLS_CHECK" -q "$QUIET_MODE"
-  log_info -l "Blocks public access: $BLOCKS_PUBLIC_ACCESS_CHECK" -q "$QUIET_MODE"
-  log_info -l "Bucket owner Full Control: $BUCKET_OWNER_FULL_CONTROL_CHECK" -q "$QUIET_MODE"
+  log_msg -l "Other ACLs: $OTHER_ACLS_COUNT $OTHER_ACLS_CHECK" -q "$QUIET_MODE"
+  log_msg -l "Blocks public access: $BLOCKS_PUBLIC_ACCESS_CHECK" -q "$QUIET_MODE"
+  log_msg -l "Bucket owner Full Control: $BUCKET_OWNER_FULL_CONTROL_CHECK" -q "$QUIET_MODE"
 done < <(echo "$BUCKETS")

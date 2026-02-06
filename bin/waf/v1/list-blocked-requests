@@ -83,7 +83,7 @@ ACL_SUMMARY=$(echo "$ACLS" | jq -r --arg acl_name "$WAF_WEB_ACL_NAME" '.WebACLs[
 ACL_ARN=$(echo "$ACL_SUMMARY" | jq -r '.ARN')
 ACL_ID=$(echo "$ACL_SUMMARY" | jq -r '.Id')
 
-echo "==> Querying for Blocked sampled requests..."
+log_info -l "Querying for Blocked sampled requests..." -q "$QUIET_MODE"
 
 ACL=$(aws wafv2 get-web-acl \
     --name "$WAF_WEB_ACL_NAME" \

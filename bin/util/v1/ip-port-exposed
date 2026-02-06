@@ -38,7 +38,7 @@ then
   usage
 fi
 
-echo "Searching ..."
+log_info -l "Searching ..." -q "$QUIET_MODE"
 
 PORTS_FILE="/tmp/$(date +%s).exposed_ports.txt"
 
@@ -47,9 +47,9 @@ aws ec2 describe-security-groups \
   --output json | jq -r '.[] | "\(.[0]) \(.[1]) \(.[2][].FromPort) \(.[2][].ToPort) \(.[2][].IpRanges | join(", "))"' > "$PORTS_FILE"
 
 if grep -E -v "80|443" < "$PORTS_FILE" ; then
-  echo "Exposed port found!"
+  log_info -l "Exposed port found!" -q "$QUIET_MODE"
 else
-  echo "No exposed ports found!"
+  log_info -l "No exposed ports found!" -q "$QUIET_MODE"
 fi
 
-echo "Finished!"
+log_info -l "Finished!" -q "$QUIET_MODE"

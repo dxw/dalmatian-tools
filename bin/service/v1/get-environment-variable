@@ -53,7 +53,7 @@ then
   usage
 fi
   
-echo "==> getting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT"
+log_info -l "getting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT" -q "$QUIET_MODE"
 
 aws ssm get-parameter --with-decryption \
   --name "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/$KEY" \

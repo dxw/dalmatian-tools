@@ -48,7 +48,7 @@ then
   usage
 fi
 
-echo "==> Finding domain names for $INFRASTRUCTURE_NAME $SERVICE_NAME ($ENVIRONMENT) ..."
+log_info -l "Finding domain names for $INFRASTRUCTURE_NAME $SERVICE_NAME ($ENVIRONMENT) ..." -q "$QUIET_MODE"
 
 CLOUDFRONT_DISTRIBUTION=$(aws cloudfront  list-distributions | jq -r --arg i "$INFRASTRUCTURE_NAME" --arg s "$SERVICE_NAME" --arg e "$ENVIRONMENT" '.DistributionList.Items[] | select(.DefaultCacheBehavior.TargetOriginId=="\($i)-\($s)-\($e)-default-origin")')
 

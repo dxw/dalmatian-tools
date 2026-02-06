@@ -86,7 +86,7 @@ WAF_IP_SET_NAME="Dalmatian$ACTION$SOURCE_IP_LABEL"
 # e.g. DalmatianBlock123-123-123-123-32
 
 WAF_WEB_ACL_NAME="$INFRASTRUCTURE_NAME-$WAF_NAME-waf-$ENVIRONMENT-$WAF_NAME-acl"
-echo "==> Getting Web ACL '$WAF_WEB_ACL_NAME'..."
+log_info -l "Getting Web ACL '$WAF_WEB_ACL_NAME'..." -q "$QUIET_MODE"
 
 ACLS=$(aws wafv2 list-web-acls --scope "REGIONAL")
 ACL_SUMMARY=$(echo "$ACLS" | jq -r --arg acl_name "$WAF_WEB_ACL_NAME" '.WebACLs[] | select(.Name == $acl_name)')
@@ -103,7 +103,7 @@ echo "Found target Web ACL $ACL_ID"
 ACL_RULES=$(echo "$ACL" | jq -r '.WebACL.Rules')
 
 ACL_RULE_NAME="Custom$WAF_IP_SET_NAME"
-echo "==> Removing rule $ACL_RULE_NAME from Web ACL..."
+log_info -l "Removing rule $ACL_RULE_NAME from Web ACL..." -q "$QUIET_MODE"
 
 RULES=$(echo "$ACL_RULES" | jq -r --arg name "$ACL_RULE_NAME" 'del(.[] | select(.Name == $name))' | jq -c)
 
@@ -116,7 +116,7 @@ ACL=$(aws wafv2 update-web-acl --scope "REGIONAL" \
   --rules "$RULES"
 )
 
-echo "==> Getting IP Sets..."
+log_info -l "Getting IP Sets..." -q "$QUIET_MODE"
 IP_SETS=$(aws wafv2 list-ip-sets --scope "REGIONAL")
 IP_SET_SUMMARY=$(echo "$IP_SETS" | jq -r --arg ipset_name "$WAF_IP_SET_NAME" '.IPSets[] | select(.Name == $ipset_name)')
 IP_SET_ID=$(echo "$IP_SET_SUMMARY" | jq -r '.Id')
@@ -124,7 +124,7 @@ IP_SET_LOCK_TOKEN=$(echo "$IP_SET_SUMMARY" | jq -r '.LockToken')
 
 echo "Found target IP Set $IP_SET_ID"
 
-echo "==> Deleting IP Set '$WAF_IP_SET_NAME'..."
+log_info -l "Deleting IP Set '$WAF_IP_SET_NAME'..." -q "$QUIET_MODE"
 aws wafv2 delete-ip-set --scope "REGIONAL" \
   --name "$WAF_IP_SET_NAME" \
   --id "$IP_SET_ID" \

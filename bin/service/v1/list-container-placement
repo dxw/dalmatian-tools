@@ -49,7 +49,7 @@ then
   usage
 fi
 
-echo "==> Finding containers..."
+log_info -l "Finding containers..." -q "$QUIET_MODE"
 
 CLUSTER="$INFRASTRUCTURE_NAME-$ENVIRONMENT"
 if [ "$SERVICE_NAME" == "all" ]

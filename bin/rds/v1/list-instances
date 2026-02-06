@@ -43,7 +43,7 @@ then
   usage
 fi
 
-echo "==> Getting RDS instances in $INFRASTRUCTURE_NAME $ENVIRONMENT..."
+log_info -l "Getting RDS instances in $INFRASTRUCTURE_NAME $ENVIRONMENT..." -q "$QUIET_MODE"
 
 RDS_IDENTIFIER_SEARCH="${INFRASTRUCTURE_NAME//-/}.*${ENVIRONMENT//-/}"
 

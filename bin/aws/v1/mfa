@@ -4,6 +4,24 @@
 set -e
 set -o pipefail
 
+if [ -z "$APP_ROOT" ]; then
+  APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/../../.. && pwd -P)"
+fi
+
+if ! command -v log_info > /dev/null; then
+  for f in "$APP_ROOT"/lib/bash-functions/*; do
+    if [ -f "$f" ]; then
+      #shellcheck disable=SC1090
+      source "$f"
+      while IFS='' read -r function_name; do
+        export -f "${function_name?}"
+      done < <(grep "^function" "$f" | cut -d" " -f2)
+    fi
+  done
+fi
+
+QUIET_MODE="${QUIET_MODE:-0}"
+
 DALMATIAN_MFA_CREDENTIALS_FILE="$HOME/.config/dalmatian/mfa_credentials.json"
 
 usage() {
@@ -17,8 +35,7 @@ usage() {
 
 EXPORT_TO_STDOUT=0
 
-while getopts "m:eh" opt;
-do
+while getopts "m:eh" opt; do
   case $opt in
     m)
       MFA_CODE=$OPTARG
@@ -35,6 +52,10 @@ do
   esac
 done
 
+if [ -z "$MFA_CODE" ]; then
+  usage
+fi
+
 USERNAME=$(aws sts get-caller-identity | jq -r .Arn | rev | cut -f1 -d'/' | rev)
 MFA_DEVICE=$(aws iam list-mfa-devices --user-name "$USERNAME" | jq -r .MFADevices[0].SerialNumber)
 SESSION_TOKEN_JSON=$(aws sts get-session-token --serial-number "$MFA_DEVICE" --token-code "$MFA_CODE")
@@ -43,20 +64,19 @@ AWS_SECRET_ACCESS_KEY=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.SecretAc
 AWS_SESSION_TOKEN=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.SessionToken)
 AWS_SESSION_EXPIRATION=$(echo "$SESSION_TOKEN_JSON" | jq -r .Credentials.Expiration | awk -F':' -v OFS=':' '{ print $1, $2, $3$4 }')
 
-if [ "$EXPORT_TO_STDOUT" == 1 ];
-then
+if [ "$EXPORT_TO_STDOUT" == 1 ]; then
   echo "export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID"
   echo "export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY"
   echo "export AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN"
 else
-  echo "==> Storing MFA credentials in $DALMATIAN_MFA_CREDENTIALS_FILE"
+  log_info -l "Storing MFA credentials in $DALMATIAN_MFA_CREDENTIALS_FILE" -q "$QUIET_MODE"
   MFA_CREDENTIALS_JSON_STRING=$(
     jq -n \
-    --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
-    --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
-    --arg aws_session_token "$AWS_SESSION_TOKEN" \
-    --arg aws_session_expiration "$AWS_SESSION_EXPIRATION" \
-    '{
+      --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
+      --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
+      --arg aws_session_token "$AWS_SESSION_TOKEN" \
+      --arg aws_session_expiration "$AWS_SESSION_EXPIRATION" \
+      '{
       aws_access_key_id: $aws_access_key_id,
       aws_secret_access_key: $aws_secret_access_key,
       aws_session_token: $aws_session_token,

@@ -48,7 +48,7 @@ then
   usage
 fi
 
-echo "==> Retrieving env vars for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT from Parameter Store..."
+log_info -l "Retrieving env vars for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT from Parameter Store..." -q "$QUIET_MODE"
 
 aws ssm get-parameters-by-path \
   --path "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/" \

@@ -10,6 +10,15 @@ set -o pipefail
 # @param -e <environment_name>     An infrastructure's environment name
 # @param -a <dalmatian_account>    A Dalmatian Account name
 function resolve_aws_profile {
+  local INFRASTRUCTURE_NAME
+  local ENVIRONMENT_NAME
+  local DALMATIAN_ACCOUNT
+  local ACCOUNT_INFRASTRUCTURES
+  local ACCOUNT_WORKSPACE
+  local PROFILE_NAME
+  local PROFILE_EXISTS
+  local PROFILE
+
   OPTIND=1
   while getopts "i:e:a:" opt; do
     case $opt in
@@ -24,7 +33,7 @@ function resolve_aws_profile {
         ;;
       *)
         echo "Invalid \`resolve_aws_profile\` function usage" >&2
-        exit 1
+        return 1
         ;;
     esac
   done
@@ -68,7 +77,7 @@ function resolve_aws_profile {
   then
     echo "Error: Profile does not exist for $INFRASTRUCTURE_NAME $ENVIRONMENT_NAME $DALMATIAN_ACCOUNT" >&2
     echo "Try running \`dalmatian aws generate-config\` first" >&2
-    exit 1
+    return 1
   fi
   echo "$PROFILE_NAME"
 }

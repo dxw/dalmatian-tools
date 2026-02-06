@@ -75,7 +75,7 @@ fi
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
-echo "==> Retrieving RDS root password from Parameter Store..."
+log_info -l "Retrieving RDS root password from Parameter Store..." -q "$QUIET_MODE"
 
 RDS_ROOT_PASSWORD_PARAMETER=$(
   aws ssm get-parameters \
@@ -87,7 +87,7 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-echo "==> Getting RDS info..."
+log_info -l "Getting RDS info..." -q "$QUIET_MODE"
 
 RDS_INFO=$(
   aws rds describe-db-instances \
@@ -97,17 +97,17 @@ RDS_ENGINE=$(echo "$RDS_INFO" | jq -r .DBInstances[0].Engine)
 RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBInstances[0].MasterUsername)
 RDS_VPC=$(echo "$RDS_INFO" | jq -r .DBInstances[0].DBSubnetGroup.VpcId)
 
-echo "Engine: $RDS_ENGINE"
-echo "Root username: $RDS_ROOT_USERNAME"
-echo "VPC ID: $RDS_VPC"
+log_msg -l "Engine: $RDS_ENGINE" -q "$QUIET_MODE"
+log_msg -l "Root username: $RDS_ROOT_USERNAME" -q "$QUIET_MODE"
+log_msg -l "VPC ID: $RDS_VPC" -q "$QUIET_MODE"
 
 ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
 
-echo "ECS instance ID: $ECS_INSTANCE_ID"
+log_msg -l "ECS instance ID: $ECS_INSTANCE_ID" -q "$QUIET_MODE"
 
 if [ ! -f "$DB_DUMP_FILE" ];
 then
-    echo "$DB_DUMP_FILE not found ..."
+    err "$DB_DUMP_FILE not found ..."
     exit 1
 fi
 
@@ -122,38 +122,38 @@ then
   DB_DUMP_FILE="$OUTPUT_PATH/$DB_DUMP_FILE"
 fi
 
-echo "--------------------------------------------------"
-echo "The RDS:"
-echo "  $RDS_IDENTIFIER"
-echo "in the infrastructure:"
-echo "  $INFRASTRUCTURE_NAME"
-echo "in environment:"
-echo "  $ENVIRONMENT"
-echo "will have the database:"
-echo "  $DATABASE_NAME"
-echo "overwritten with the file:"
-echo "  $DB_DUMP_FILE"
-echo "--------------------------------------------------"
-echo ""
-echo "Are you sure?"
-echo ""
+log_msg -l "--------------------------------------------------" -q "$QUIET_MODE"
+log_msg -l "The RDS:" -q "$QUIET_MODE"
+log_msg -l "  $RDS_IDENTIFIER" -q "$QUIET_MODE"
+log_msg -l "in the infrastructure:" -q "$QUIET_MODE"
+log_msg -l "  $INFRASTRUCTURE_NAME" -q "$QUIET_MODE"
+log_msg -l "in environment:" -q "$QUIET_MODE"
+log_msg -l "  $ENVIRONMENT" -q "$QUIET_MODE"
+log_msg -l "will have the database:" -q "$QUIET_MODE"
+log_msg -l "  $DATABASE_NAME" -q "$QUIET_MODE"
+log_msg -l "overwritten with the file:" -q "$QUIET_MODE"
+log_msg -l "  $DB_DUMP_FILE" -q "$QUIET_MODE"
+log_msg -l "--------------------------------------------------" -q "$QUIET_MODE"
+log_msg -l "" -q "$QUIET_MODE"
+log_msg -l "Are you sure?" -q "$QUIET_MODE"
+log_msg -l "" -q "$QUIET_MODE"
 
-echo "Continue (Yes/No)"
+log_msg -l "Continue (Yes/No)" -q "$QUIET_MODE"
 read -r -p " > " choice
 case "$choice" in
-  Yes ) echo "==> Importing ...";;
+  Yes ) log_info -l "Importing ..." -q "$QUIET_MODE";;
   * ) err "You must specify 'Yes' to continue. The import has been cancelled."
     exit 1
     ;;
 esac
 
-echo "Uploading $DB_DUMP_FILE ..."
+log_info -l "Uploading $DB_DUMP_FILE ..." -q "$QUIET_MODE"
 
 "$APP_ROOT/bin/ecs/v1/file-upload" -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$DB_DUMP_FILE" -t "/tmp/$(basename "$DB_DUMP_FILE")" -I "$ECS_INSTANCE_ID"
 
-echo "==> Uploading complete!"
+log_info -l "Uploading complete!" -q "$QUIET_MODE"
 
-echo "==> Starting import of $RDS_ENGINE $DB_DUMP_FILE file into $RDS_IDENTIFIER..."
+log_info -l "Starting import of $RDS_ENGINE $DB_DUMP_FILE file into $RDS_IDENTIFIER..." -q "$QUIET_MODE"
 
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \

@@ -31,7 +31,7 @@ metadata=$(aws iam list-access-keys --user-name "$AWS_CALLER_IDENTITY_USERNAME")
 # Check if any access keys were found
 if [[ $(echo "$metadata" | jq '.AccessKeyMetadata | length') == 0 ]]
 then
-  echo "No Access Keys were found for user '$AWS_CALLER_IDENTITY_USERNAME'"
+  err "No Access Keys were found for user '$AWS_CALLER_IDENTITY_USERNAME'"
   exit 1
 fi
 
@@ -51,6 +51,6 @@ for key in $(echo "$metadata" | jq -r '.AccessKeyMetadata[] | @base64'); do
   # Check if access key is more than 180 days old and prompt user to rotate if it is
   if [[ $age -gt 180 ]]
   then
-    echo "[i] Warning: Access key is more than 180 days old and should be rotated."
+    warning "Access key is more than 180 days old and should be rotated."
   fi
 done

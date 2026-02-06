@@ -27,7 +27,7 @@ while getopts "irh" opt; do
   esac
 done
 
->&2 echo "==> Getting AWS credentials for $INFRASTRUCTURE_NAME"
+log_info -l "Getting AWS credentials for $INFRASTRUCTURE_NAME" -q "$QUIET_MODE"
 if [ "$RAW" = "true" ]
 then
 env | grep AWS

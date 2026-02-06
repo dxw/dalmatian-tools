@@ -85,7 +85,7 @@ SOURCE_IP_LABEL=$(echo "$SOURCE_IP" | tr ./ -)
 WAF_IP_SET_NAME="Dalmatian$ACTION$SOURCE_IP_LABEL"
 # e.g. DalmatianBlock123-123-123-123-32
 
-echo "==> Creating new IP Set..."
+log_info -l "Creating new IP Set..." -q "$QUIET_MODE"
 IP_SET_SUMMARY=$(aws wafv2 create-ip-set --scope "REGIONAL" \
   --name "$WAF_IP_SET_NAME" \
   --ip-address-version "IPV4" \
@@ -95,7 +95,7 @@ IP_SET_ID=$(echo "$IP_SET_SUMMARY" | jq -r '.Id')
 echo "Created IP Set $IP_SET_ID"
 
 WAF_WEB_ACL_NAME="$INFRASTRUCTURE_NAME-$WAF_NAME-waf-$ENVIRONMENT-$WAF_NAME-acl"
-echo "==> Getting Web ACL '$WAF_WEB_ACL_NAME'..."
+log_info -l "Getting Web ACL '$WAF_WEB_ACL_NAME'..." -q "$QUIET_MODE"
 
 # WAF ACLs that we will need to attach the IP Set to
 ACLS=$(aws wafv2 list-web-acls --scope "REGIONAL")
@@ -120,7 +120,7 @@ PRIORITY_COUNT=$((ACL_RULES_COUNT + 1))
 
 echo "New rule will be given Priority $PRIORITY_COUNT"
 
-echo "==> Generating new ACL Rule..."
+log_info -l "Generating new ACL Rule..." -q "$QUIET_MODE"
 ACL_RULE_NAME="Custom$WAF_IP_SET_NAME"
 JSON_ACL_RULE=$(jq -n \
   --arg nm  "$ACL_RULE_NAME" \
@@ -152,7 +152,7 @@ echo "Created ACL Rule $ACL_RULE_NAME"
 
 RULES=$(echo "$ACL_RULES" | jq --argjson json "$JSON_ACL_RULE" -r '. += [$json]' | jq -c)
 
-echo "==> Adding new Rule to WAF Ruleset..."
+log_info -l "Adding new Rule to WAF Ruleset..." -q "$QUIET_MODE"
 ACL=$(aws wafv2 update-web-acl --scope "REGIONAL" \
   --name "$WAF_WEB_ACL_NAME" \
   --id "$ACL_ID" \

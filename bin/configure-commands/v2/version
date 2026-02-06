@@ -69,17 +69,17 @@ fi
 log_info -l "Dalmatian Tools $VERSION" -q "$QUIET_MODE"
 if [ "$VERSION" == "v1" ]
 then
-  log_info -l "The tooling available in v1 is to be used with infrastructure" -q "$QUIET_MODE"
-  log_info -l "launched with the dxw/dalmatian repo, which is private and internal" -q "$QUIET_MODE"
-  log_info -l "To use tooling for use with infrastructures deployed via dalmatian-tools," -q "$QUIET_MODE"
-  log_info -l "switch to 'v2' by running 'dalmatian version -v 2'" -q "$QUIET_MODE"
+  log_msg -l "The tooling available in v1 is to be used with infrastructure" -q "$QUIET_MODE"
+  log_msg -l "launched with the dxw/dalmatian repo, which is private and internal" -q "$QUIET_MODE"
+  log_msg -l "To use tooling for use with infrastructures deployed via dalmatian-tools," -q "$QUIET_MODE"
+  log_msg -l "switch to 'v2' by running 'dalmatian version -v 2'" -q "$QUIET_MODE"
 fi
 if [ "$VERSION" == "v2" ]
 then
   RELEASE=$(git -C "$APP_ROOT" describe --tags)
-  log_info -l "(Release: $RELEASE)"
-  log_info -l "The tooling available in v2 is to be used with infrastructures" -q "$QUIET_MODE"
-  log_info -l "deployed via dalmatian-tools" -q "$QUIET_MODE"
-  log_info -l "To use tooling for use with infrastructures launched with the dxw/dalmatian repo," -q "$QUIET_MODE"
-  log_info -l "switch to 'v1' by running 'dalmatian version -v 1'" -q "$QUIET_MODE"
+  log_info -l "(Release: $RELEASE)" -q "$QUIET_MODE"
+  log_msg -l "The tooling available in v2 is to be used with infrastructures" -q "$QUIET_MODE"
+  log_msg -l "deployed via dalmatian-tools" -q "$QUIET_MODE"
+  log_msg -l "To use tooling for use with infrastructures launched with the dxw/dalmatian repo," -q "$QUIET_MODE"
+  log_msg -l "switch to 'v1' by running 'dalmatian version -v 1'" -q "$QUIET_MODE"
 fi

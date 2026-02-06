@@ -60,7 +60,7 @@ fi
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 # Retrieve the list of recovery points for the file system
-echo "Retrieving recovery points for the file system..."
+log_info -l "Retrieving recovery points for the file system..." -q "$QUIET_MODE"
 RECOVERY_POINTS=$(aws backup list-recovery-points-by-resource --resource-arn "arn:aws:elasticfilesystem:eu-west-2:${ACCOUNT_ID}:file-system/${FILE_SYSTEM_ID}" --query "RecoveryPoints[].RecoveryPointArn" --output json)
 
 if [[ -z "$RECOVERY_POINTS" ]]; then
@@ -75,11 +75,11 @@ if [[ "$LATEST_RECOVERY_POINT_ARN" == "null" ]]; then
   err "No latest recovery point found for the specified file system."
   exit 1
 else
-  echo "Latest Recovery Point Arn >>> $LATEST_RECOVERY_POINT_ARN"
+  log_info -l "Latest Recovery Point Arn >>> $LATEST_RECOVERY_POINT_ARN" -q "$QUIET_MODE"
 fi
 
 # Modify the metadata JSON file with the specific file or directory to restore
-echo "Modifying the metadata JSON file"
+log_info -l "Modifying the metadata JSON file" -q "$QUIET_MODE"
 METADATA_FILE="/tmp/$(date +%s).metadata.json"
 
 # Create a temporary metadata file based on the template and replace placeholders with actual values
@@ -87,7 +87,7 @@ touch "$METADATA_FILE"
 echo "{\"file-system-id\": \"$FILE_SYSTEM_ID\", \"itemsToRestore\": \"[\\\"$FILE_PATH\\\"]\", \"newFileSystem\": \"false\"}" > "$METADATA_FILE"
 
 # Restore the file using the retrieved file system ID and metadata JSON file
-echo "Starting backup restore job"
+log_info -l "Starting backup restore job" -q "$QUIET_MODE"
 aws backup start-restore-job --no-cli-pager --recovery-point-arn "$LATEST_RECOVERY_POINT_ARN" --metadata "file://${METADATA_FILE}" --resource-type "EFS" --iam-role-arn "arn:aws:iam::${ACCOUNT_ID}:role/service-role/AWSBackupDefaultServiceRole"
 
 # Remove the temporary metadata file

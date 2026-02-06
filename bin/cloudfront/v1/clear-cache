@@ -54,7 +54,7 @@ then
   usage
 fi
 
-echo "==> Finding CloudFront distribution..."
+log_info -l "Finding CloudFront distribution..." -q "$QUIET_MODE"
 
 DISTRIBUTIONS=$(aws cloudfront list-distributions)
 DISTRIBUTION=$(echo "$DISTRIBUTIONS" | jq -r --arg origin "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-default-origin" '.DistributionList.Items[] | select(.Origins.Items[].Id==$origin)')
@@ -62,7 +62,7 @@ DISTRIBUTION_ID=$(echo "$DISTRIBUTION" | jq -r '.Id')
 DISTRIBUTION_ALIAS=$(echo "$DISTRIBUTION" | jq -r '.Aliases.Items[0]')
 DISTRIBUTION_DOMAIN=$(echo "$DISTRIBUTION" | jq -r '.DomainName')
 
-echo "==> Running invalidation on distribution $DISTRIBUTION_ID ( $DISTRIBUTION_ALIAS, $DISTRIBUTION_DOMAIN ) ..."
+log_info -l "Running invalidation on distribution $DISTRIBUTION_ID ( $DISTRIBUTION_ALIAS, $DISTRIBUTION_DOMAIN ) ..." -q "$QUIET_MODE"
 
 DISTRIBUTION_INVALIDATION=$(aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "$PATHS")
 DISTRIBUTION_INVALIDATION_ID=$(echo "$DISTRIBUTION_INVALIDATION" | jq -r '.Invalidation.Id')
