@@ -48,7 +48,7 @@ then
   usage
 fi
 
-echo "==> deploying $SERVICE_NAME in $ENVIRONMENT"
+log_info -l "deploying $SERVICE_NAME in $ENVIRONMENT" -q "$QUIET_MODE"
 
 aws codepipeline get-pipeline-state --name "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT-build-and-deploy" |  jq -r '.stageStates[] | "Action: \(.actionStates[].actionName) \n Status: \(.actionStates[].latestExecution.status) \n Time:\(.actionStates[].latestExecution.lastStatusChange)  \n pipeline id: \(.latestExecution.pipelineExecutionId)\n"'
  

@@ -64,7 +64,7 @@ RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 S3_BUCKET_NAME="$INFRASTRUCTURE_NAME-$RDS_IDENTIFIER-sql-backup"
 TODAY=$(gdate +%Y-%m-%d)
 
-echo "==> Listing SQL backups in $INFRASTRUCTURE_NAME $RDS_NAME $ENVIRONMENT..."
+log_info -l "Listing SQL backups in $INFRASTRUCTURE_NAME $RDS_NAME $ENVIRONMENT..." -q "$QUIET_MODE"
 
 if [ -z "$DATE" ]
 then
@@ -78,11 +78,11 @@ OBJECTS="$(aws s3api list-objects-v2 \
 
 BACKUP_COUNT="$(echo "$OBJECTS" | jq -r 'length')"
 
-echo "Found $BACKUP_COUNT backups from $DATE"
+log_info -l "Found $BACKUP_COUNT backups from $DATE" -q "$QUIET_MODE"
 
 if [ "$BACKUP_COUNT" -lt 1 ];
 then
-  echo "Please specify a different date."
+  err "Please specify a different date."
   exit 1
 fi
 
@@ -110,9 +110,8 @@ then
   OUTPUT_FILE_PATH="$HOME/Downloads/$SQL_FILE_NAME"
 fi
 
-echo "[i] You've chosen option number $n: '$SQL_FILE_NAME'"
-echo
+log_info -l "You've chosen option number $n: '$SQL_FILE_NAME'" -q "$QUIET_MODE"
 
-echo "==> Starting download of $SQL_FILE_NAME from s3 bucket $S3_BUCKET_NAME..."
+log_info -l "Starting download of $SQL_FILE_NAME from s3 bucket $S3_BUCKET_NAME..." -q "$QUIET_MODE"
 
 aws s3 cp "s3://$S3_BUCKET_NAME/$SQL_FILE_NAME" "$OUTPUT_FILE_PATH"

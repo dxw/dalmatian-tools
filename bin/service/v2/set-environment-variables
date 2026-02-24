@@ -82,7 +82,7 @@ ENVIRONMENT_FILE_META_JSON="$(
 
 if [[ "$ENVIRONMENT_FILE_META_JSON" ]]
 then
-  log_info -l "Downloading and opening '$ENVIRONMENT_FILE_S3_URI' ..."
+  log_info -l "Downloading and opening '$ENVIRONMENT_FILE_S3_URI' ..." -q "$QUIET_MODE"
 
   "$APP_ROOT/bin/dalmatian" aws run-command \
     -p "$PROFILE" \
@@ -102,16 +102,16 @@ rm "$LOCAL_ENVIRONMENT_FILE-orig"
 
 if [[ -z "$DIFF" ]]
 then
-  log_info -l "No changes were made to the environment file, exiting ..."
+  log_info -l "No changes were made to the environment file, exiting ..." -q "$QUIET_MODE"
   rm "$LOCAL_ENVIRONMENT_FILE"
   exit 0
 fi
 
-log_info -l "The following changes will be made to the environment file:"
+log_info -l "The following changes will be made to the environment file:" -q "$QUIET_MODE"
 
-echo ""
-echo "$DIFF" | tail -n +3
-echo ""
+log_msg -l "" -q "$QUIET_MODE"
+log_msg -l "$(echo "$DIFF" | tail -n +3)" -q "$QUIET_MODE"
+log_msg -l "" -q "$QUIET_MODE"
 
 if ! yes_no "Do you want to upload these changes?" "y"
 then
@@ -119,7 +119,7 @@ then
   exit 0
 fi
 
-log_info -l "Uploading then removing $LOCAL_ENVIRONMENT_FILE ..."
+log_info -l "Uploading then removing $LOCAL_ENVIRONMENT_FILE ..." -q "$QUIET_MODE"
 
 "$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \

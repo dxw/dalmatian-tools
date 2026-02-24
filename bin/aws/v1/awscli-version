@@ -4,6 +4,24 @@
 set -e
 set -o pipefail
 
+if [ -z "$APP_ROOT" ]; then
+  APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/../../.. && pwd -P)"
+fi
+
+if ! command -v log_info > /dev/null; then
+  for f in "$APP_ROOT"/lib/bash-functions/*; do
+    if [ -f "$f" ]; then
+      # shellcheck disable=SC1090
+      source "$f"
+      while IFS='' read -r function_name; do
+        export -f "${function_name?}"
+      done < <(grep "^function" "$f" | cut -d" " -f2)
+    fi
+  done
+fi
+
+QUIET_MODE="${QUIET_MODE:-0}"
+
 usage() {
   echo "Check if awscli is installed and compatible with dalmatian-tools"
   exit 1

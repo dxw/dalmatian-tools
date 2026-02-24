@@ -4,17 +4,17 @@
 set -e
 set -o pipefail
 
-log_info -l "----------------------------------------------------" -q "$QUIET_MODE"
-log_info -l "| To enable us to deploy the resources across      |" -q "$QUIET_MODE"
-log_info -l "| multiple AWS accounts, we will configure AWS SSO |" -q "$QUIET_MODE"
-log_info -l "| and store the required AWS profiles, and other   |" -q "$QUIET_MODE"
-log_info -l "| configuration within:                            |" -q "$QUIET_MODE"
-log_info -l "| \`\$HOME/.config/dalmatian\`                        |" -q "$QUIET_MODE"
-log_info -l "|                                                  |" -q "$QUIET_MODE"
-log_info -l "| This configuration will then be automatically    |" -q "$QUIET_MODE"
-log_info -l "| loaded and used when running other dalmatian     |" -q "$QUIET_MODE"
-log_info -l "| tools commands                                   |" -q "$QUIET_MODE"
-log_info -l "----------------------------------------------------" -q "$QUIET_MODE"
+log_msg -l "----------------------------------------------------" -q "$QUIET_MODE"
+log_msg -l "| To enable us to deploy the resources across      |" -q "$QUIET_MODE"
+log_msg -l "| multiple AWS accounts, we will configure AWS SSO |" -q "$QUIET_MODE"
+log_msg -l "| and store the required AWS profiles, and other   |" -q "$QUIET_MODE"
+log_msg -l "| configuration within:                            |" -q "$QUIET_MODE"
+log_msg -l "| \`\$HOME/.config/dalmatian\`                        |" -q "$QUIET_MODE"
+log_msg -l "|                                                  |" -q "$QUIET_MODE"
+log_msg -l "| This configuration will then be automatically    |" -q "$QUIET_MODE"
+log_msg -l "| loaded and used when running other dalmatian     |" -q "$QUIET_MODE"
+log_msg -l "| tools commands                                   |" -q "$QUIET_MODE"
+log_msg -l "----------------------------------------------------" -q "$QUIET_MODE"
 
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$CONFIG_CACHE_DIR"
@@ -104,7 +104,7 @@ read_prompt_with_setup_default -p "AWS SSO Default administrative role name" -d 
 read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.registration_scopes" -s
 
 log_info -l "-- Backend Configuration --" -q "$QUIET_MODE"
-log_info -l "Enter the S3 backend configuration parameters" -q "$QUIET_MODE"
+log_msg -l "Enter the S3 backend configuration parameters" -q "$QUIET_MODE"
 BACKEND_S3_BUCKET_NAME=$(read_prompt_with_setup_default -p "Bucket Name" -d "backend.s3.bucket_name")
 BACKEND_S3_BUCKET_REGION=$(read_prompt_with_setup_default -p "Bucket Region" -d "backend.s3.bucket_region")
 

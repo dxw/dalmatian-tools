@@ -66,13 +66,13 @@ do
     NODES=$(echo "$CLUSTERS" |  jq --arg "cluster_id" "$CLUSTER" -r '.CacheClusters[] | select(.CacheClusterId == $cluster_id).CacheNodes[].CacheNodeId')
     if [[ -n "$VERBOSE" ]];
     then
-      echo "Rebooting node(s) $(echo "$NODES" | tr ' ' ',') in Elasticache cluster $NICE_NAME (id: $CLUSTER)..."
+      log_info -l "Rebooting node(s) $(echo "$NODES" | tr ' ' ',') in Elasticache cluster $NICE_NAME (id: $CLUSTER)..." -q "$QUIET_MODE"
     else
-      echo "Rebooting all nodes in Elasticache cluster $NICE_NAME..."
+      log_info -l "Rebooting all nodes in Elasticache cluster $NICE_NAME..." -q "$QUIET_MODE"
     fi
     aws elasticache reboot-cache-cluster --cache-cluster-id "$CLUSTER" --cache-node-ids-to-reboot "$NODES"
   elif [[ -n "$VERBOSE" ]];
   then
-    echo "Skipping $NICE_NAME."
+    log_info -l "Skipping $NICE_NAME." -q "$QUIET_MODE"
   fi
 done

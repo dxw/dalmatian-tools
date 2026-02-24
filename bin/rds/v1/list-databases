@@ -53,7 +53,7 @@ fi
 # need to remove them here to get the correct identifier.
 RDS_IDENTIFIER="${INFRASTRUCTURE_NAME//-/}${RDS_NAME//-/}${ENVIRONMENT//-/}"
 
-echo "==> Retrieving RDS root password from Parameter Store..."
+log_info -l "Retrieving RDS root password from Parameter Store..." -q "$QUIET_MODE"
 
 RDS_ROOT_PASSWORD_PARAMETER=$(
   aws ssm get-parameters \
@@ -65,7 +65,7 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-echo "==> Getting RDS info..."
+log_info -l "Getting RDS info..." -q "$QUIET_MODE"
 
 RDS_INFO=$(
   aws rds describe-db-instances \
@@ -73,7 +73,7 @@ RDS_INFO=$(
 )
 RDS_VPC=$(echo "$RDS_INFO" | jq -r .DBInstances[0].DBSubnetGroup.VpcId)
 
-echo "==> Finding ECS instance..."
+log_info -l "Finding ECS instance..." -q "$QUIET_MODE"
 
 ECS_INSTANCES=$(
   aws ec2 describe-instances \
@@ -84,13 +84,13 @@ ECS_INSTANCE_ID=$(
     | jq -r .Reservations[0].Instances[0].InstanceId
 )
 
-echo "ECS instance ID: $ECS_INSTANCE_ID"
+log_info -l "ECS instance ID: $ECS_INSTANCE_ID" -q "$QUIET_MODE"
 
-echo "==> Listing databases..."
+log_info -l "Listing databases..." -q "$QUIET_MODE"
 
 aws ssm start-session \
   --target "$ECS_INSTANCE_ID" \
   --document-name "$RDS_IDENTIFIER-rds-db-list" \
   --parameters "RootPassword=$RDS_ROOT_PASSWORD"
 
-echo "Success!"
+log_info -l "Success!" -q "$QUIET_MODE"

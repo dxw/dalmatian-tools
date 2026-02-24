@@ -51,15 +51,15 @@ then
   usage
 fi
 
-echo "==> Finding Docker image..."
+log_info -l "Finding Docker image..." -q "$QUIET_MODE"
 
 IMAGE_URL=$(aws ecr describe-repositories --repository-name "$INFRASTRUCTURE_NAME-$SERVICE_NAME-$ENVIRONMENT" | jq -r '.repositories[0].repositoryUri')
 ECR_ENDPOINT=$(echo "$IMAGE_URL" | cut -d '/' -f1)
 
-echo "==> Logging into AWS ECR..."
+log_info -l "Logging into AWS ECR..." -q "$QUIET_MODE"
 
 aws ecr get-login-password | docker login --username AWS --password-stdin "$ECR_ENDPOINT" | sed 's/^/  /'
 
-echo "==> Pulling image $IMAGE_URL"
+log_info -l "Pulling image $IMAGE_URL" -q "$QUIET_MODE"
 
 docker pull "$IMAGE_URL" | sed 's/^/  /'

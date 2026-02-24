@@ -54,9 +54,9 @@ then
   usage
 fi
 
-echo "==> deleting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT ..."
+log_info -l "deleting environment variable $KEY for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT ..." -q "$QUIET_MODE"
 
 aws ssm delete-parameter \
   --name "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/$KEY"
 
-echo "==> deleted"
+log_info -l "deleted" -q "$QUIET_MODE"

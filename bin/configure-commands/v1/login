@@ -1,5 +1,27 @@
 #!/bin/bash
 
+# exit on failures
+set -e
+set -o pipefail
+
+if [ -z "$APP_ROOT" ]; then
+  APP_ROOT="$( cd "$(dirname "${BASH_SOURCE[0]}")"/../../.. && pwd -P)"
+fi
+
+if ! command -v log_info > /dev/null; then
+  for f in "$APP_ROOT"/lib/bash-functions/*; do
+    if [ -f "$f" ]; then
+      # shellcheck disable=SC1090
+      source "$f"
+      while IFS='' read -r function_name; do
+        export -f "${function_name?}"
+      done < <(grep "^function" "$f" | cut -d" " -f2)
+    fi
+  done
+fi
+
+QUIET_MODE="${QUIET_MODE:-0}"
+
 echo "Note: You must have a Dalmatian Admin account to use Dalmatian Tools"
 echo
 
@@ -13,7 +35,7 @@ if ! is_installed "brew"; then
       exit 1
     fi
   else
-    echo "Please install Homebrew before trying again"
+    err "Please install Homebrew before trying again"
     exit 1
   fi
 fi
@@ -50,8 +72,7 @@ then
   echo "    https://gpgtools.org/ is recommended for MacOS"
   exit 1
 fi
-echo "For added security, your credentials and MFA secret will be"
-echo "encrypted with GPG"
+log_info -l "For added security, your credentials and MFA secret will be encrypted with GPG" -q "$QUIET_MODE"
 echo ""
 read -rp "Email associated with GPG key: " GPG_ENCRYPT_EMAIL
 read -rp "AWS Access Key ID: " AWS_ACCESS_KEY_ID
@@ -62,11 +83,11 @@ echo "https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-dec
 read -rsp "AWS MFA Secret: " AWS_MFA_SECRET
 echo ""
 
-echo "==> Checking credentials..."
+log_info -l "Checking credentials..." -q "$QUIET_MODE"
 if [ ${#AWS_MFA_SECRET} -lt 7 ]
 then
-  echo "==> please enter your MFA secret not your generated MFA code"
-  echo "==> please see https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
+  err "please enter your MFA secret not your generated MFA code"
+  err "please see https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
   exit 1
 fi
 
@@ -79,9 +100,9 @@ USER_ID=$(echo "$CALLER_ID" | jq -r '.UserId')
 ACCOUNT_ID=$(echo "$CALLER_ID" | jq -r '.Account')
 USER_ARN=$(echo "$CALLER_ID" | jq -r '.Arn')
 
-echo "  User ID: $USER_ID"
-echo "  Account: $ACCOUNT_ID"
-echo "  Arn:     $USER_ARN"
+log_info -l "User ID: $USER_ID" -q "$QUIET_MODE"
+log_info -l "Account: $ACCOUNT_ID" -q "$QUIET_MODE"
+log_info -l "Arn:     $USER_ARN" -q "$QUIET_MODE"
 
 #echo "==> Checking access key age"
 #if ! "$APP_ROOT/bin/aws/key-age"
@@ -89,7 +110,7 @@ echo "  Arn:     $USER_ARN"
 #  exit 1
 #fi
 
-echo "==> Saving configuration settings in $DALMATIAN_CONFIG_FILE ..."
+log_info -l "Saving configuration settings in $DALMATIAN_CONFIG_FILE ..." -q "$QUIET_MODE"
 
 CONFIG_JSON_STRING=$(
   jq -n \
@@ -105,7 +126,7 @@ CONFIG_JSON_STRING=$(
 
 echo "$CONFIG_JSON_STRING" > "$DALMATIAN_CONFIG_FILE"
 
-echo "==> Attempting MFA..."
+log_info -l "Attempting MFA..." -q "$QUIET_MODE"
 
 MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
 
@@ -121,9 +142,8 @@ export AWS_SECRET_ACCESS_KEY
 
 if "$APP_ROOT/bin/aws/v1/mfa" -m "$MFA_CODE"
 then
-  echo "==> Login success!"
-  echo "==> Storing credentials in $DALMATIAN_CREDENTIALS_FILE"
-
+  log_info -l "Login success!" -q "$QUIET_MODE"
+  log_info -l "Storing credentials in $DALMATIAN_CREDENTIALS_FILE" -q "$QUIET_MODE"
   CREDENTIALS_JSON_STRING=$(
     jq -n \
     --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \

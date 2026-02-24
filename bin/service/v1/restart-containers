@@ -48,7 +48,7 @@ then
   usage
 fi
 
-echo "==> restarting containers for $SERVICE_NAME in $ENVIRONMENT"
+log_info -l "restarting containers for $SERVICE_NAME in $ENVIRONMENT" -q "$QUIET_MODE"
 
 DEPLOYMENT=$(aws ecs update-service --service "$SERVICE_NAME" --task-definition "$ENVIRONMENT-$INFRASTRUCTURE_NAME-$SERVICE_NAME" --cluster "$INFRASTRUCTURE_NAME-$ENVIRONMENT" --force-new-deployment)
 EVENT_ID_REGEX=$(echo "$DEPLOYMENT" | jq -r '.service.events[] | .id' | tr '\n' '|' | sed 's/.$//')
