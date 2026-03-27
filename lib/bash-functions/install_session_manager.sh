@@ -20,6 +20,7 @@ function install_session_manager {
 
   # Grab the installer...
   mkdir -p "$SESSION_MANAGER_INSTALL_DIR"
+  mkdir -p "$TMP_DIR"
   curl -fsSL "$SESSION_MANAGER_ZIP" -o "$TMP_DIR/session-manager-plugin.zip"
   unzip -o "$TMP_DIR/session-manager-plugin.zip" -d "$SESSION_MANAGER_INSTALL_DIR"
 
