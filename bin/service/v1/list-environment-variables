@@ -10,6 +10,7 @@ usage() {
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -s <service>           - service name "
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -j                     - output as JSON"
   exit 1
 }
 
@@ -19,7 +20,9 @@ then
  usage
 fi
 
-while getopts "i:e:s:h" opt; do
+JSON_OUTPUT=0
+
+while getopts "i:e:s:jh" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -29,6 +32,9 @@ while getopts "i:e:s:h" opt; do
       ;;
     s)
       SERVICE_NAME=$OPTARG
+      ;;
+    j)
+      JSON_OUTPUT=1
       ;;
     h)
       usage
@@ -50,9 +56,17 @@ fi
 
 log_info -l "Retrieving env vars for $INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT from Parameter Store..." -q "$QUIET_MODE"
 
-aws ssm get-parameters-by-path \
-  --path "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/" \
-  --recursive \
-  --with-decryption \
-  | jq -r '.Parameters |sort_by(.Name) | .[] | "\(.Name)=\(.Value)"' \
-  | sed -e "s#^/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/##"
+if [ "$JSON_OUTPUT" -eq 1 ]; then
+  aws ssm get-parameters-by-path \
+    --path "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/" \
+    --recursive \
+    --with-decryption \
+    | jq -c ".Parameters[] | {Name: .Name, Value: .Value} | .Name |= sub(\"^/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/\"; \"\")"
+else
+  aws ssm get-parameters-by-path \
+    --path "/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/" \
+    --recursive \
+    --with-decryption \
+    | jq -r '.Parameters |sort_by(.Name) | .[] | "\(.Name)=\(.Value)"' \
+    | sed -e "s#^/$INFRASTRUCTURE_NAME/$SERVICE_NAME/$ENVIRONMENT/##"
+fi

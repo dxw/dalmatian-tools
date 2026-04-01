@@ -1,0 +1,90 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "This command copies environment variables from one service/environment to another"
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - source infrastructure name"
+  echo "  -s <service>           - source service name"
+  echo "  -e <environment>       - source environment name"
+  echo "  -I <infrastructure>    - destination infrastructure name (defaults to source)"
+  echo "  -S <service>           - destination service name (defaults to source)"
+  echo "  -E <environment>       - destination environment name (defaults to source)"
+  echo "  -k <key>               - specific key to copy (optional)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+ usage
+fi
+
+while getopts "i:s:e:I:S:E:k:h" opt; do
+  case $opt in
+    i) SRC_INFRA=$OPTARG ;;
+    s) SRC_SERVICE=$OPTARG ;;
+    e) SRC_ENV=$OPTARG ;;
+    I) DST_INFRA=$OPTARG ;;
+    S) DST_SERVICE=$OPTARG ;;
+    E) DST_ENV=$OPTARG ;;
+    k) KEY_TO_COPY=$OPTARG ;;
+    h) usage ;;
+    *) usage ;;
+  esac
+done
+
+if [[ -z "$SRC_INFRA" || -z "$SRC_SERVICE" || -z "$SRC_ENV" ]]; then
+  err "Source infrastructure, service and environment must be specified (-i, -s, -e)"
+  usage
+fi
+
+DST_INFRA=${DST_INFRA:-$SRC_INFRA}
+DST_SERVICE=${DST_SERVICE:-$SRC_SERVICE}
+DST_ENV=${DST_ENV:-$SRC_ENV}
+
+if [[ "$SRC_INFRA" == "$DST_INFRA" && "$SRC_SERVICE" == "$DST_SERVICE" && "$SRC_ENV" == "$DST_ENV" ]]; then
+  err "Source and destination are the same"
+  exit 1
+fi
+
+copy_param() {
+  local key="$1"
+  local value="$2"
+  
+  log_info -l "Copying $key..." -q "$QUIET_MODE"
+  "$DIR/set-environment-variable" -i "$DST_INFRA" -s "$DST_SERVICE" -e "$DST_ENV" -k "$key" -v "$value"
+}
+
+if [[ -n "$KEY_TO_COPY" ]]; then
+  log_info -l "Copying $KEY_TO_COPY from $SRC_INFRA/$SRC_SERVICE/$SRC_ENV to $DST_INFRA/$DST_SERVICE/$DST_ENV..." -q "$QUIET_MODE"
+  VALUE=$(QUIET_MODE=1 "$DIR/get-environment-variable" -i "$SRC_INFRA" -s "$SRC_SERVICE" -e "$SRC_ENV" -k "$KEY_TO_COPY")
+  copy_param "$KEY_TO_COPY" "$VALUE"
+else
+  log_info -l "Copying all env vars from $SRC_INFRA/$SRC_SERVICE/$SRC_ENV to $DST_INFRA/$DST_SERVICE/$DST_ENV..." -q "$QUIET_MODE"
+  
+  COUNT=0
+  while read -r line; do
+    [[ -z "$line" ]] && continue
+    # Skip any log messages that might have leaked through
+    [[ "$line" == "==>"* ]] && continue
+    
+    key=$(echo "$line" | jq -r '.Name')
+    value=$(echo "$line" | jq -r '.Value')
+    
+    copy_param "$key" "$value"
+    ((COUNT++))
+  done < <(QUIET_MODE=1 "$DIR/list-environment-variables" -i "$SRC_INFRA" -s "$SRC_SERVICE" -e "$SRC_ENV" -j)
+  
+  if [ "$COUNT" -eq 0 ]; then
+    log_info -l "No environment variables found to copy." -q "$QUIET_MODE"
+  else
+    log_info -l "Successfully copied $COUNT environment variables." -q "$QUIET_MODE"
+  fi
+fi
