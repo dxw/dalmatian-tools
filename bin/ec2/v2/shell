@@ -145,7 +145,10 @@ else
       INSTANCE_NAME=$(echo "$OPT" | cut -d'|' -f2 | xargs)
     else
       # Store instances in an array for selection
-      mapfile -t INSTANCE_LIST < <(echo "$AVAILABLE_INSTANCES")
+      INSTANCE_LIST=()
+      while IFS= read -r line; do
+        INSTANCE_LIST+=("$line")
+      done < <(echo "$AVAILABLE_INSTANCES")
       
       PS3="Select an instance (1-${#INSTANCE_LIST[@]}): "
       select OPT in "${INSTANCE_LIST[@]}"
