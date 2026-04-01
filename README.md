@@ -147,3 +147,6 @@ source /path/to/dalmatian-tools/support/zsh-completion.sh
   Set a path to dalmatian.yml to override the use of the checkout used by the
   tools by default. Useful if bringing up a service or infrastructure whose
   config hasn't been merged in yet.
+
+- DALMATIAN_FZF_ENABLED
+  Set to 0 to disable fzf support for interactive selections. Defaults to 1.
