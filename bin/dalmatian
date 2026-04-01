@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # exit on failures
 set -e
@@ -81,6 +81,8 @@ do
     export -f "${function_name?}"
   done < <(grep "^function" "$bash_function_file" | cut -d" " -f2)
 done
+
+check_bash_version
 
 if [ "${1:0:1}" == "-" ]
 then

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Redirect command
 COMMAND_ARGS=( "${@:2}" )

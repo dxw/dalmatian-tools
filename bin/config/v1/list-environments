@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 "$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
 usage() {
   echo "List environment names (e.g. 'staging' or 'prod') for an infrastructure"

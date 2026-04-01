@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 _dalmatian_completion() {
   if ! command -v dalmatian > /dev/null
   then

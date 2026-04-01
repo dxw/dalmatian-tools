@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Redirect command. Pass on all arguments except "aurora download-sql-backup"
 "$APP_ROOT/bin/dalmatian" rds download-sql-backup "${@:1}"

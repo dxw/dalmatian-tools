@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 _dalmatian_completions_filter() {
   local words="$1"
   local cur=${COMP_WORDS[COMP_CWORD]}
