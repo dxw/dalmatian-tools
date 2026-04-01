@@ -14,6 +14,7 @@ usage() {
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -l                     - list available ec2 instance ids (optional)"
   echo "  -I <instance_id>       - ec2 instance id (optional)"
+  echo "  -c                     - interactive choice (if multiple instances found)"
   exit 1
 }
 
@@ -32,7 +33,9 @@ then
   exit 1
 fi
 
-while getopts "i:e:I:lh" opt; do
+CHOOSE=""
+
+while getopts "i:e:I:lch" opt; do
   case $opt in
     i)
       INFRASTRUCTURE_NAME=$OPTARG
@@ -45,6 +48,9 @@ while getopts "i:e:I:lh" opt; do
       ;;
     I)
       INSTANCE_ID=$OPTARG
+      ;;
+    c)
+      CHOOSE=1
       ;;
     h)
       usage
@@ -75,9 +81,49 @@ fi
 
 if [ -z "$INSTANCE_ID" ];
 then
-  # If an instance ID isn't specified, just connect to the first one
-  INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
-  INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
+  # Count instances
+  INSTANCE_COUNT=$(echo "$INSTANCES" | jq -r '[.Reservations[].Instances[]] | length')
+
+  if [[ "$INSTANCE_COUNT" -gt 1 && -n "$CHOOSE" ]]
+  then
+    # Interactive choice
+    log_msg -l "Multiple instances found. Please choose one:" -q "$QUIET_MODE"
+
+    if [[ "${DALMATIAN_FZF_ENABLED:-1}" == "1" ]] && command -v fzf > /dev/null
+    then
+      OPT=$(echo "$AVAILABLE_INSTANCES" | fzf --height 40% --reverse --header "Select an instance")
+      if [ -z "$OPT" ]
+      then
+        err "No instance selected"
+        exit 1
+      fi
+      INSTANCE_ID=$(echo "$OPT" | cut -d' ' -f1)
+      INSTANCE_NAME=$(echo "$OPT" | cut -d'|' -f2 | xargs)
+    else
+      # Store instances in an array for selection
+      INSTANCE_LIST=()
+      while IFS= read -r line; do
+        INSTANCE_LIST+=("$line")
+      done < <(echo "$AVAILABLE_INSTANCES")
+
+      PS3="Select an instance (1-${#INSTANCE_LIST[@]}): "
+      select OPT in "${INSTANCE_LIST[@]}"
+      do
+        if [ -n "$OPT" ]
+        then
+          INSTANCE_ID=$(echo "$OPT" | cut -d' ' -f1)
+          INSTANCE_NAME=$(echo "$OPT" | cut -d'|' -f2 | xargs)
+          break
+        else
+          echo "Invalid selection"
+        fi
+      done
+    fi
+  else
+    # If an instance ID isn't specified, just connect to the first one
+    INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
+    INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
+  fi
 else
   # If an instance ID is specified, ensure it exists by trying to get the name
   INSTANCE_NAME=$(echo "$INSTANCES" | jq -r --arg i "$INSTANCE_ID" '.Reservations[].Instances[] | select(.InstanceId == $i) | .Tags[] | select(.Key == "Name") | .Value')

@@ -58,8 +58,11 @@ then
     exit 1
   fi
 
-  WORKSPACE_INDEX=0
-  while IFS='' read -r workspace
+  ALL_WORKSPACES=()
+  while IFS= read -r line; do
+    ALL_WORKSPACES+=("$line")
+  done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" "$WORKSPACE_LIST_FLAG" -q)
+  for workspace in "${ALL_WORKSPACES[@]}"
   do
     workspace=${workspace/\*/ }
     workspace=$(echo "$workspace" | xargs)
@@ -68,29 +71,41 @@ then
       -n "$workspace"
     ]]
     then
-      WORKSPACE_INDEX=$(( WORKSPACE_INDEX+1 ))
       WORKSPACES+=("$workspace")
-      echo "$WORKSPACE_INDEX) $workspace"
-    fi
-  done < <("$APP_ROOT/bin/dalmatian" terraform-dependencies run-terraform-command -c "workspace list" "$WORKSPACE_LIST_FLAG" -q)
-
-  while true
-  do
-    read -rp "Select workspace: " ACCOUNT_INDEX
-
-    if [[
-      "$ACCOUNT_INDEX" -eq "$ACCOUNT_INDEX" &&
-      "$ACCOUNT_INDEX" -gt 0 &&
-      "$ACCOUNT_INDEX" -le "$WORKSPACE_INDEX"
-    ]]
-    then
-      break
-    else
-      err "Invalid selection"
     fi
   done
 
-  SELECTED_WORKSPACE="${WORKSPACES[((ACCOUNT_INDEX-1))]}"
+  if [[ "${DALMATIAN_FZF_ENABLED:-1}" == "1" ]] && command -v fzf > /dev/null
+  then
+    SELECTED_WORKSPACE=$(printf "%s\n" "${WORKSPACES[@]}" | fzf --height 40% --reverse --header "Select workspace")
+    if [ -z "$SELECTED_WORKSPACE" ]
+    then
+      err "No workspace selected"
+      exit 1
+    fi
+  else
+    for i in "${!WORKSPACES[@]}"
+    do
+      echo "$((i+1))) ${WORKSPACES[$i]}"
+    done
+
+    while true
+    do
+      read -rp "Select workspace: " ACCOUNT_INDEX
+
+      if [[
+        "$ACCOUNT_INDEX" -eq "$ACCOUNT_INDEX" &&
+        "$ACCOUNT_INDEX" -gt 0 &&
+        "$ACCOUNT_INDEX" -le "${#WORKSPACES[@]}"
+      ]]
+      then
+        SELECTED_WORKSPACE="${WORKSPACES[((ACCOUNT_INDEX-1))]}"
+        break
+      else
+        err "Invalid selection"
+      fi
+    done
+  fi
 fi
 
 if [[
