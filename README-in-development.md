@@ -17,7 +17,7 @@ default identity source.
 1. Install the dependencies
 
    ```
-   ./bin/setup
+   brew bundle install
    ```
 
 1. Add the dalmatian-tools `bin` directory to your `$PATH`
