@@ -150,3 +150,8 @@ source /path/to/dalmatian-tools/support/zsh-completion.sh
 
 - DALMATIAN_FZF_ENABLED
   Set to 0 to disable fzf support for interactive selections. Defaults to 1.
+
+- DALMATIAN_SKIP_UPDATE_PROMPT
+  Set to 1 to skip the update prompt when there are local changes or the current
+  version tag is newer than the remote. Useful when running a development
+  version.

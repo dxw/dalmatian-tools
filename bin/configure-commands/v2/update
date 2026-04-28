@@ -82,9 +82,12 @@ then
   then
     err "There may be a newer version of $GIT_DALMATIAN_TOOLS_OWNER/$GIT_DALMATIAN_TOOLS_REPO ($CURRENT_LOCAL_TAG -> $LATEST_REMOTE_TAG) but cant update!"
     err "This is because you have local changes in $APP_ROOT"
-    if ! yes_no "Do you want to continue without updating? (Y/N)" "N"
+    if [ "$DALMATIAN_SKIP_UPDATE_PROMPT" != "1" ]
     then
-      exit 1
+      if ! yes_no "Do you want to continue without updating? (Y/N)" "N"
+      then
+        exit 1
+      fi
     fi
     exit 0
   fi
