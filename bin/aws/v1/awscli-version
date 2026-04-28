@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # exit on failures
 set -e
@@ -19,6 +19,8 @@ if ! command -v log_info > /dev/null; then
     fi
   done
 fi
+
+check_bash_version
 
 QUIET_MODE="${QUIET_MODE:-0}"
 

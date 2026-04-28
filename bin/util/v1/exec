@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 usage() {
   echo "Run any cli command in an infrastructure or the main dalmatian account"

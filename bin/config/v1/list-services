@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 "$APP_ROOT/bin/dalmatian-refresh-config" > /dev/null
 usage() {
   echo "List all services or list services for an infrastructure"

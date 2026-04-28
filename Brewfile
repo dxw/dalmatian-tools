@@ -1,4 +1,5 @@
 brew "awscli"
+brew "bash"
 brew "colordiff"
 brew "coreutils"
 brew "gnupg"
