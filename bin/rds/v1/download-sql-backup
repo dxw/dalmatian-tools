@@ -89,21 +89,38 @@ fi
 STR="$(echo "$OBJECTS" | jq -r '. | join(",")')"
 IFS=',' read -r -a array <<< "$STR"
 
-echo
-cat -n < <(printf "%s\n" "${array[@]}")
-echo
+if [[ "${DALMATIAN_FZF_ENABLED:-1}" == "1" ]] && command -v fzf > /dev/null
+then
+  SQL_FILE_NAME=$(printf "%s\n" "${array[@]}" | fzf --height 40% --reverse --header "Select backup to download")
+  if [ -z "$SQL_FILE_NAME" ]
+  then
+    err "No backup selected"
+    exit 1
+  fi
+  # Find the index of the selected file for logging purposes
+  for i in "${!array[@]}"; do
+     if [[ "${array[$i]}" = "${SQL_FILE_NAME}" ]]; then
+         n=$((i+1))
+         break
+     fi
+  done
+else
+  echo
+  cat -n < <(printf "%s\n" "${array[@]}")
+  echo
 
-n=""
-while true; do
-    read -rp 'Select backup to download: ' n
-    # If $n is an integer between one and $count...
-    if [ "$n" -eq "$n" ] && [ "$n" -gt 0 ] && [ "$n" -le "$BACKUP_COUNT" ]; then
-        break
-    fi
-done
+  n=""
+  while true; do
+      read -rp 'Select backup to download: ' n
+      # If $n is an integer between one and $count...
+      if [ "$n" -eq "$n" ] && [ "$n" -gt 0 ] && [ "$n" -le "$BACKUP_COUNT" ]; then
+          break
+      fi
+  done
 
-i=$((n-1)) # Arrays are zero-indexed
-SQL_FILE_NAME="${array[$i]}"
+  i=$((n-1)) # Arrays are zero-indexed
+  SQL_FILE_NAME="${array[$i]}"
+fi
 
 if [ -z "$OUTPUT_FILE_PATH" ];
 then
