@@ -5,7 +5,7 @@ set -o pipefail
 # This script is sourced by dalmatian and subcommands.
 # It ensures that a modern version of Bash is used.
 
-function check_bash_version() {
+function check_bash_version {
   if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
     echo "Error: Bash 4.0 or newer is required." >&2
     echo "You appear to be running Bash ${BASH_VERSION}." >&2
