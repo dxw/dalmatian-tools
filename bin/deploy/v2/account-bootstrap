@@ -10,6 +10,7 @@ usage() {
   echo "  -l                     - List accounts (shortcut to \`deploy list-accounts\`)"
   echo "  -a <dalmatian-account> - Dalmatian account name (Optional - By default all accounts will be cycled through)"
   echo "  -p                     - Run terraform plan rather than apply"
+  echo "  -d                     - Enable deletion of default resources"
   echo "  -N                     - Non-interactive mode (auto-approves terraform apply)"
   exit 1
 }
@@ -17,12 +18,13 @@ usage() {
 DALMATIAN_ACCOUNT=""
 NON_INTERACTIVE_MODE=0
 PLAN=0
+ENABLE_DELETE=0
 LIST_ACCOUNTS=0
 MAIN_DALMATIAN_ACCOUNT_ID="$(jq -r '.main_dalmatian_account_id' < "$CONFIG_SETUP_JSON_FILE")"
 DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
 MAIN_DALMATIAN_ACCOUNT="$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main"
 
-while getopts "la:Nph" opt; do
+while getopts "la:Npdh" opt; do
   case $opt in
     l)
       LIST_ACCOUNTS=1
@@ -32,6 +34,9 @@ while getopts "la:Nph" opt; do
       ;;
     p)
       PLAN=1
+      ;;
+    d)
+      ENABLE_DELETE=1
       ;;
     N)
       NON_INTERACTIVE_MODE=1
@@ -97,9 +102,12 @@ do
     then
       if echo "$TERRAFORM_RESOURCES" | grep -q "aws_lambda_function.delete_default_resources\[0\]"
       then
-        if yes_no "Do you want to delete all the Default resources in the AWS account? [y/n]" "y"
+        if [ "$ENABLE_DELETE" -eq 1 ]
         then
-          "$APP_ROOT/bin/dalmatian" deploy delete-default-resources -a "$workspace"
+          if yes_no "Do you want to delete all the Default resources in the AWS account? [y/n]" "y"
+          then
+            "$APP_ROOT/bin/dalmatian" deploy delete-default-resources -a "$workspace"
+          fi
         fi
       fi
     fi

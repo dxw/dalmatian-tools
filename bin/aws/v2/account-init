@@ -9,6 +9,7 @@ usage() {
   echo "  -h                     - help"
   echo "  -i <aws_account_id>    - AWS Account ID"
   echo "  -r <deefault_region>   - AWS Default region"
+  echo "  -d                     - Enable deletion of default resources"
   echo "  -n <account_name>      - A lower case hyphenated friendly name"
   echo "  -e <external>          - Configure as an 'External' AWS Account (An account not part of the SSO Org)"
   exit 1
@@ -19,9 +20,9 @@ if [ $# -eq 0 ]
 then
  usage
 fi
-
+ENABLE_DELETE=0
 ACCOUNT_EXTERNAL=0
-while getopts "i:r:n:eh" opt; do
+while getopts "i:r:n:edh" opt; do
   case $opt in
     i)
       AWS_ACCOUNT_ID=$OPTARG
@@ -34,6 +35,9 @@ while getopts "i:r:n:eh" opt; do
       ;;
     e)
       ACCOUNT_EXTERNAL=1
+      ;;
+    d)
+      ENABLE_DELETE=1
       ;;
     h)
       usage
@@ -121,12 +125,18 @@ fi
 
 "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars
 
+BOOTSTRAP_COMMAND_OPTION=""
+if [ "$ENABLE_DELETE" -eq 1 ]
+then
+  BOOTSTRAP_COMMAND_OPTION="-d"
+fi
+
 if [ "$ACCOUNT_NAME" != "dalmatian-main" ]
 then
   log_info -l "Running account bootstrap on the main Dalmatian account to upload tfvars ..." -q "$QUIET_MODE"
   DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
-  "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main" -N
+  "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main" -N "$BOOTSTRAP_COMMAND_OPTION"
 fi
 
 log_info -l "Running account bootstrap on $NEW_WORKSPACE_NAME" -q "$QUIET_MODE"
-"$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$NEW_WORKSPACE_NAME"
+"$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$NEW_WORKSPACE_NAME" "$BOOTSTRAP_COMMAND_OPTION"

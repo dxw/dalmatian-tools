@@ -73,6 +73,13 @@ default identity source.
    Using either of these options will provide defaults for the prompts, so you
    should be able to press Enter for all values.
 
+1. Starting a dalmatian project
+
+   Run `dalmatian setup -b` or set the `DALMATIAN_BOOTSTRAP` environment variable to `true`
+   before running `dalmatian setup`. This will automatically bootstrap the main dalmatian account
+   after the initial setup. If you do not do this, you can always run `dalmatian deploy account-bootstrap`
+   at a later date to bootstrap the account.
+
 ## Usage
 
 ### Help
