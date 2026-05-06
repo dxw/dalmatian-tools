@@ -75,11 +75,15 @@ default identity source.
 
 1. Starting a dalmatian project
 
-   Run `dalmatian setup -b` or set the `DALMATIAN_BOOTSTRAP` environment variable to `true`
-   before running `dalmatian setup` This will prompt you during the initial setup to run the
-   `dalmatian deploy account-bootstrap` command to set up the main dalmatian account. If you
-   do not do this, you can always run `dalmatian deploy account-bootstrap` at a later date
-   to bootstrap the account.
+   Run `dalmatian setup -b`, or set the `DALMATIAN_BOOTSTRAP` environment variable to `true`
+    before running `dalmatian setup`.
+    This prompts you during the initial setup to run the
+    `dalmatian deploy account-bootstrap` command to set up the main dalmatian account.
+    When bootstrap mode is enabled this way, setup currently passes `-d` to
+    `aws account-init`, which enables the prompt to delete default resources during
+    bootstrap.
+    If you do not do this during setup, you can always run
+    `dalmatian deploy account-bootstrap` at a later date to bootstrap the account.
 
 ## Usage
 
