@@ -23,18 +23,27 @@ usage() {
   echo "Usage: dalmatian $(basename "$0") [OPTIONS]" 1>&2
   echo "  -h                     - help"
   echo "  -f <setup_filepath>    - Setup Filepath (Optional)"
+  echo "  -b                     - Enable bootstrap (Optional)"
   echo "  -u <setup_url>         - Setup URL (Optional)"
   exit 1
 }
+ENABLE_BOOTSTRAP=0
+if [ "$DALMATIAN_BOOTSTRAP" == "true" ]
+then
+  ENABLE_BOOTSTRAP=1
+fi
 
 SETUP_FILE_PATH=""
-while getopts "f:u:h" opt; do
+while getopts "f:u:bh" opt; do
   case $opt in
     f)
       SETUP_FILE_PATH="$OPTARG"
       ;;
     u)
       SETUP_FILE_URL="$OPTARG"
+      ;;
+    b)
+      ENABLE_BOOTSTRAP=1
       ;;
     h)
       usage
@@ -131,12 +140,23 @@ MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian ac
 
 "$APP_ROOT/bin/dalmatian" aws generate-config
 
-"$APP_ROOT/bin/dalmatian" aws account-init -i "$MAIN_DALMATIAN_ACCOUNT_ID" -r "$DEFAULT_REGION" -n "dalmatian-main"
+INIT_COMMAND_OPTION=""
+if [ "$ENABLE_BOOTSTRAP" -eq 1 ]
+then
+  INIT_COMMAND_OPTION="-d"
+fi
+"$APP_ROOT/bin/dalmatian" aws account-init -i "$MAIN_DALMATIAN_ACCOUNT_ID" -r "$DEFAULT_REGION" -n "dalmatian-main" $INIT_COMMAND_OPTION
+
+if [ "$ENABLE_BOOTSTRAP" -eq 1 ]
+then
+  log_info -l "It is highly recommended to run the first account bootstrap for the main dalmatian account now, using \`dalmatian deploy account-bootstrap -a $MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main\`" -q "$QUIET_MODE"
+  read -rp "Do you want to run this now? [y/n]: " DEPLOY_NOW
+  if [[ "$DEPLOY_NOW" == "y" || "$DEPLOY_NOW" == "Y" ]]
+  then
+    "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main"
+  else
+    log_info -l "You can run this at a later date by running: \`dalmatian deploy account-bootstrap -a $MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main\`" -q "$QUIET_MODE"
+  fi
+fi
 
 log_info -l "Setup complete!" -q "$QUIET_MODE"
-log_info -l "It is highly recommended to run the first account bootstrap for the main dalmatian account now, using \`dalmatian deploy account-bootstrap -a $MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main\`" -q "$QUIET_MODE"
-read -rp "Do you want to run this now? [y/n]: " DEPLOY_NOW
-if [[ "$DEPLOY_NOW" == "y" || "$DEPLOY_NOW" == "Y" ]]
-then
-  "$APP_ROOT/bin/dalmatian" deploy account-bootstrap -a "$MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main"
-fi
