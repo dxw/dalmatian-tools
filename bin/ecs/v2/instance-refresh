@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+while getopts "i:e:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+
+log_info -l "Refreshing instances on $INFRASTRUCTURE_NAME $ENVIRONMENT..." -q "$QUIET_MODE"
+
+ASGS=$("$APP_ROOT/bin/dalmatian" aws run-command \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  autoscaling describe-auto-scaling-groups)
+
+AUTO_SCALING_GROUP_NAME=$(echo "$ASGS" | jq -r \
+  --arg p "$PROJECT_NAME" \
+  --arg e "$ENVIRONMENT" \
+  --arg i "$INFRASTRUCTURE_NAME" \
+  '.AutoScalingGroups[] | select(.AutoScalingGroupName | test("\($p)-\($i)-\($e).*")) | .AutoScalingGroupName' | head -n 1)
+
+if [ -z "$AUTO_SCALING_GROUP_NAME" ]
+then
+  err "Could not find Auto Scaling Group matching pattern '$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT.*'"
+  exit 1
+fi
+
+INSTANCE_REFRESH_OUTPUT=$("$APP_ROOT/bin/dalmatian" aws run-command \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  autoscaling start-instance-refresh \
+  --auto-scaling-group-name "$AUTO_SCALING_GROUP_NAME")
+
+INSTANCE_REFRESH_ID=$(echo "$INSTANCE_REFRESH_OUTPUT" | jq -r '.InstanceRefreshId')
+
+STATUS=""
+STATUS_REASON=""
+while [ "$STATUS" != "Successful" ]
+do
+  REFRESHES_OUTPUT=$("$APP_ROOT/bin/dalmatian" aws run-command \
+    -i "$INFRASTRUCTURE_NAME" \
+    -e "$ENVIRONMENT" \
+    autoscaling describe-instance-refreshes \
+    --auto-scaling-group-name "$AUTO_SCALING_GROUP_NAME")
+  
+  REFRESH_STATUS=$(echo "$REFRESHES_OUTPUT" | jq -r --arg i "$INSTANCE_REFRESH_ID" '.InstanceRefreshes[] | select(.InstanceRefreshId==$i)')
+  STATUS=$(echo "$REFRESH_STATUS" | jq -r '.Status')
+  NEW_STATUS_REASON=$(echo "$REFRESH_STATUS" | jq -r '.StatusReason')
+  PERCENT_COMPLETE=$(echo "$REFRESH_STATUS" | jq -r '.PercentageComplete')
+  INSTANCES_TO_UPDATE=$(echo "$REFRESH_STATUS" | jq -r '.InstancesToUpdate')
+  
+  if [ "$NEW_STATUS_REASON" != "$STATUS_REASON" ]
+  then
+    if [ "$NEW_STATUS_REASON" != "null" ]
+    then
+      log_info -l "$NEW_STATUS_REASON" -q "$QUIET_MODE"
+    fi
+    STATUS_REASON="$NEW_STATUS_REASON"
+  fi
+  
+  log_info -l "Status: $STATUS, Percent Complete: ${PERCENT_COMPLETE:-0}, Instances to update: ${INSTANCES_TO_UPDATE:-0}" -q "$QUIET_MODE"
+  
+  if [[ "$STATUS" == "Failed" || "$STATUS" == "Cancelled" || "$STATUS" == "RollbackSuccessful" || "$STATUS" == "RollbackFailed" ]]
+  then
+    err "Instance refresh failed with status: $STATUS"
+    exit 1
+  fi
+
+  if [ "$STATUS" != "Successful" ]
+  then
+    sleep 30
+  fi
+done
+
+log_info -l "Instance refresh successful." -q "$QUIET_MODE"
