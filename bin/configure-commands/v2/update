@@ -52,7 +52,7 @@ then
   exit 1
 fi
 
-LATEST_REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.name')
+LATEST_REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
 CURRENT_LOCAL_TAG=$(git -C "$APP_ROOT" describe --tags)
 LOCAL_CHANGES=$(git -C "$APP_ROOT" status -uno --porcelain)
 if [[
