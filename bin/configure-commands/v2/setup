@@ -101,21 +101,54 @@ else
   )
 fi
 echo "$SETUP_JSON" > "$CONFIG_SETUP_JSON_FILE"
-
 log_info -l "-- Dalmatian Setup --" -q "$QUIET_MODE"
-read_prompt_with_setup_default -p "Dalmatian project name" -d "project_name" -s
-DEFAULT_REGION=$(read_prompt_with_setup_default -p "Default AWS Region" -d "default_region")
+log_info -l "Dalmatian project name: $(jq -r '.project_name' "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_info -l "Default AWS region: $(jq -r '.default_region' "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
 
 log_info -l "-- AWS SSO configration --" -q "$QUIET_MODE"
-read_prompt_with_setup_default -p "AWS SSO start URL" -d "aws_sso.start_url" -s
-read_prompt_with_setup_default -p "AWS SSO Region" -d "aws_sso.region" -s
-read_prompt_with_setup_default -p "AWS SSO Default administrative role name" -d "aws_sso.default_admin_role_name" -s
-read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.registration_scopes" -s
+log_info -l "AWS SSO start URL: $(jq -r '.aws_sso.start_url' "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_info -l "AWS SSO Region: $(jq -r '.aws_sso.region' "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_info -l "AWS SSO Default administrative role name: $(jq -r '.aws_sso.default_admin_role_name' "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_info -l "AWS SSO Registration Scopes: $(jq -r '.aws_sso.registration_scopes' "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
 
 log_info -l "-- Backend Configuration --" -q "$QUIET_MODE"
-log_msg -l "Enter the S3 backend configuration parameters" -q "$QUIET_MODE"
-BACKEND_S3_BUCKET_NAME=$(read_prompt_with_setup_default -p "Bucket Name" -d "backend.s3.bucket_name")
-BACKEND_S3_BUCKET_REGION=$(read_prompt_with_setup_default -p "Bucket Region" -d "backend.s3.bucket_region")
+log_info -l "Bucket name: $(jq -r '.backend.s3.bucket_name' "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_info -l "Bucket region: $(jq -r '.backend.s3.bucket_region' "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+
+log_info -l "--- Dalmatian account configuration ---" -q "$QUIET_MODE"
+log_info -l "Main dalmatian account ID: $(jq -r '.main_dalmatian_account_id' "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+
+read -rp "Does this information look correct? [y/n]: " CONTINUE
+if [[ "$CONTINUE" != "y" && "$CONTINUE" != "Y" ]] || [[ "$CONTINUE" == "" ]]
+then 
+  log_info -l "-- Dalmatian Setup --" -q "$QUIET_MODE"
+  read_prompt_with_setup_default -p "Dalmatian project name" -d "project_name" -s
+  DEFAULT_REGION=$(read_prompt_with_setup_default -p "Default AWS Region" -d "default_region")
+
+  log_info -l "-- AWS SSO configration --" -q "$QUIET_MODE"
+  read_prompt_with_setup_default -p "AWS SSO start URL" -d "aws_sso.start_url" -s
+  read_prompt_with_setup_default -p "AWS SSO Region" -d "aws_sso.region" -s
+  read_prompt_with_setup_default -p "AWS SSO Default administrative role name" -d "aws_sso.default_admin_role_name" -s
+  read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.registration_scopes" -s
+
+  log_info -l "-- Backend Configuration --" -q "$QUIET_MODE"
+  log_msg -l "Enter the S3 backend configuration parameters" -q "$QUIET_MODE"
+  BACKEND_S3_BUCKET_NAME=$(read_prompt_with_setup_default -p "Bucket Name" -d "backend.s3.bucket_name")
+  BACKEND_S3_BUCKET_REGION=$(read_prompt_with_setup_default -p "Bucket Region" -d "backend.s3.bucket_region")
+
+
+
+  log_info -l "--- Dalmatian account configuration ---" -q "$QUIET_MODE"
+  MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
+fi
+log_msg -l "This should be the end of the setup" -q "$QUIET_MODE"
+
+# Create backend config files if the backend config is set
+
+BACKEND_S3_BUCKET_NAME=$(jq -r '.backend.s3.bucket_name' "$CONFIG_SETUP_JSON_FILE")
+BACKEND_S3_BUCKET_REGION=$(jq -r '.backend.s3.bucket_region' "$CONFIG_SETUP_JSON_FILE")
+MAIN_DALMATIAN_ACCOUNT_ID=$(jq -r '.main_dalmatian_account_id' "$CONFIG_SETUP_JSON_FILE")
+DEFAULT_REGION=$(jq -r '.default_region' "$CONFIG_SETUP_JSON_FILE")
 
 cat <<EOT > "$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
 bucket               = "$BACKEND_S3_BUCKET_NAME"
@@ -134,9 +167,6 @@ region               = "$BACKEND_S3_BUCKET_REGION"
 profile              = "dalmatian-main"
 encrypt              = true
 EOT
-
-log_info -l "--- Dalmatian account configuration ---" -q "$QUIET_MODE"
-MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
 
 "$APP_ROOT/bin/dalmatian" aws generate-config
 
