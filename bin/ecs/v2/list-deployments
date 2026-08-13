@@ -1,0 +1,170 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <service_name>      - specific service to show (optional)"
+  echo "  -d                     - include Deployment ID (optional)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+SHOW_DEPLOYMENT_ID=0
+SERVICE_NAME=""
+while getopts "i:e:s:dh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    d)
+      SHOW_DEPLOYMENT_ID=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+CLUSTER="$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT-infrastructure"
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+
+log_info -l "Fetching deployments for cluster $CLUSTER in the last week..." -q "$QUIET_MODE"
+
+if [ -n "$SERVICE_NAME" ]; then
+  SERVICE_ARNS="$SERVICE_NAME"
+else
+  SERVICE_ARNS=$(
+    "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    ecs list-services \
+    --cluster "$CLUSTER" \
+    | jq -r '.serviceArns[]'
+  )
+fi
+
+if [ -z "$SERVICE_ARNS" ]; then
+  log_info -l "No services found in cluster $CLUSTER" -q "$QUIET_MODE"
+  exit 0
+fi
+
+if command -v gdate >/dev/null 2>&1; then
+  DATE_CMD="gdate"
+  DATE_STR=$($DATE_CMD -d "7 days ago" +"%Y-%m-%d %H:%M:%S")
+else
+  DATE_CMD="date"
+  # macOS/BSD date
+  DATE_STR=$($DATE_CMD -v-7d +"%Y-%m-%d %H:%M:%S")
+fi
+
+# We'll collect all deployments in a JSON array to sort them globally at the end
+ALL_DEPLOYMENTS="[]"
+
+for service_arn in $SERVICE_ARNS; do
+  current_service_name=$(basename "$service_arn")
+  
+  # Fetch recent deployments for this service using AWS native filtering
+  deployments_json=$(
+    "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    ecs list-service-deployments \
+    --cluster "$CLUSTER" \
+    --service "$current_service_name" \
+    --created-at after="$DATE_STR" \
+    --max-results 20 | jq -c --arg service "$current_service_name" '.serviceDeployments | map(. + {serviceName: $service})' 2>/dev/null
+  ) || true
+
+  if [ -n "$deployments_json" ] && [ "$deployments_json" != "null" ]; then
+    ALL_DEPLOYMENTS=$(echo "$ALL_DEPLOYMENTS" | jq -c --argjson new "$deployments_json" '. + $new')
+  fi
+done
+
+# Check if we have any deployments
+if [ "$(echo "$ALL_DEPLOYMENTS" | jq 'length')" -eq 0 ]; then
+  log_info -l "No deployments found in the last week." -q "$QUIET_MODE"
+  exit 0
+fi
+
+# Print Header
+if [ "$SHOW_DEPLOYMENT_ID" -eq 1 ]; then
+  printf "%-30s %-10s %-20s %-12s %-20s\n" "SERVICE" "DURATION" "CREATED AT" "STATUS" "DEPLOYMENT ID"
+  echo "------------------------------------------------------------------------------------------------------------------------"
+else
+  printf "%-30s %-10s %-20s %-12s\n" "SERVICE" "DURATION" "CREATED AT" "STATUS"
+  echo "------------------------------------------------------------------------------------------"
+fi
+
+# Process and sort all deployments globally by createdAt (descending)
+echo "$ALL_DEPLOYMENTS" | jq -c 'sort_by(.createdAt) | reverse | .[]' | while IFS= read -r deployment; do
+  name=$(echo "$deployment" | jq -r '.serviceName')
+  created_at=$(echo "$deployment" | jq -r '.createdAt')
+  deployment_arn=$(echo "$deployment" | jq -r '.serviceDeploymentArn')
+  deployment_id=$(echo "$deployment_arn" | rev | cut -d'/' -f1 | rev)
+  status=$(echo "$deployment" | jq -r '.status')
+  finished_at=$(echo "$deployment" | jq -r '.finishedAt // empty')
+  
+  # Convert timestamps for duration calculation
+  if [[ "$created_at" =~ ^[0-9.]+$ ]]; then
+    created_ts=$(printf "%.0f" "$created_at")
+  else
+    created_ts=$($DATE_CMD -d "$created_at" +%s 2>/dev/null || $DATE_CMD -j -f "%Y-%m-%dT%H:%M:%S%z" "${created_at/%.[0-9]*/}" +%s 2>/dev/null || echo 0)
+  fi
+
+  duration="-"
+  if [[ -n "$finished_at" ]]; then
+    if [[ "$finished_at" =~ ^[0-9.]+$ ]]; then
+      finished_ts=$(printf "%.0f" "$finished_at")
+    else
+      finished_ts=$($DATE_CMD -d "$finished_at" +%s 2>/dev/null || $DATE_CMD -j -f "%Y-%m-%dT%H:%M:%S%z" "${finished_at/%.[0-9]*/}" +%s 2>/dev/null || echo 0)
+    fi
+    
+    if [ "$finished_ts" -gt 0 ] && [ "$created_ts" -gt 0 ]; then
+      diff=$((finished_ts - created_ts))
+      if [ "$diff" -lt 0 ]; then diff=0; fi
+      min=$((diff / 60))
+      sec=$((diff % 60))
+      duration="${min}m ${sec}s"
+    fi
+  fi
+
+  # Human readable created at
+  if [[ "$created_at" =~ ^[0-9.]+$ ]]; then
+    created_human=$($DATE_CMD -d "@$created_ts" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || $DATE_CMD -r "$created_ts" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "$created_at")
+  else
+    created_human=$(echo "$created_at" | sed 's/T/ /; s/Z//; s/\..*//; s/+.*//')
+  fi
+
+  if [ "$SHOW_DEPLOYMENT_ID" -eq 1 ]; then
+    printf "%-30s %-10s %-20s %-12s %-20s\n" "$name" "$duration" "$created_human" "$status" "${deployment_id:0:19}"
+  else
+    printf "%-30s %-10s %-20s %-12s\n" "$name" "$duration" "$created_human" "$status"
+  fi
+done
