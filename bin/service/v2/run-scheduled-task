@@ -1,0 +1,452 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -t <task_name>         - scheduled task name (Optional, picker shown if omitted)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+while getopts "i:e:t:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    t)
+      TASK_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE" || -z "$ENVIRONMENT" ]]
+then
+  usage
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+RESOURCE_PREFIX="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT"
+
+log_info -l "Finding scheduled tasks for $RESOURCE_PREFIX ..." -q "$QUIET_MODE"
+
+RULE_NAMES="$("$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  events list-rules \
+  --name-prefix "$RESOURCE_PREFIX-" \
+  | jq -r \
+  '[.Rules[] | select(.ScheduleExpression != null) | .Name] | .[]')"
+
+if [ -z "$RULE_NAMES" ]
+then
+  err "No scheduled tasks found for $RESOURCE_PREFIX"
+  exit 1
+fi
+
+if [ -n "$TASK_NAME" ]
+then
+  if ! echo "$RULE_NAMES" | grep -Fxq "$TASK_NAME"
+  then
+    err "Scheduled task '$TASK_NAME' not found. Available scheduled tasks:"
+    echo "$RULE_NAMES" 1>&2
+    exit 1
+  fi
+  SELECTED_RULE="$TASK_NAME"
+else
+  RULE_COUNT="$(echo "$RULE_NAMES" | wc -l | tr -d ' ')"
+  if [ "$RULE_COUNT" -eq 1 ]
+  then
+    SELECTED_RULE="$RULE_NAMES"
+  elif [[ "${DALMATIAN_FZF_ENABLED:-1}" == "1" ]] && command -v fzf > /dev/null
+  then
+    # A cancelled fzf exits non-zero, which would otherwise abort the script
+    # via 'set -e' before the quit message below.
+    SELECTED_RULE="$(echo "$RULE_NAMES" | fzf --height 40% --reverse --header "Select a scheduled task (esc to quit)")" || true
+    if [ -z "$SELECTED_RULE" ]
+    then
+      log_msg -l "No scheduled task selected, quitting" -q "$QUIET_MODE"
+      exit 0
+    fi
+  else
+    log_msg -l "Multiple scheduled tasks found. Please choose one:" -q "$QUIET_MODE"
+    RULE_LIST=()
+    while IFS= read -r line; do
+      RULE_LIST+=("$line")
+    done < <(echo "$RULE_NAMES")
+    PS3="Select a scheduled task (1-${#RULE_LIST[@]}, or 'q' to quit): "
+    select SELECTED_RULE in "${RULE_LIST[@]}"
+    do
+      [ -n "$SELECTED_RULE" ] && break
+      # 'q' quits, as does EOF (which ends the select loop by itself)
+      [[ "$REPLY" =~ ^[qQ]$ ]] && break
+      warning "Invalid selection"
+    done
+    if [ -z "$SELECTED_RULE" ]
+    then
+      log_msg -l "No scheduled task selected, quitting" -q "$QUIET_MODE"
+      exit 0
+    fi
+  fi
+fi
+
+log_info -l "Reading target for scheduled task '$SELECTED_RULE' ..." -q "$QUIET_MODE"
+
+TARGET="$("$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  events list-targets-by-rule \
+  --rule "$SELECTED_RULE" \
+  | jq -r \
+  '[.Targets[] | select(.EcsParameters != null)] | .[0]')"
+
+if [[ -z "$TARGET" || "$TARGET" == "null" ]]
+then
+  err "Scheduled task '$SELECTED_RULE' has no ECS target"
+  exit 1
+fi
+
+CLUSTER_ARN="$(echo "$TARGET" | jq -r '.Arn')"
+TASK_DEFINITION="$(echo "$TARGET" | jq -r '.EcsParameters.TaskDefinitionArn')"
+LAUNCH_TYPE="$(echo "$TARGET" | jq -r '.EcsParameters.LaunchType // empty')"
+PLATFORM_VERSION="$(echo "$TARGET" | jq -r '.EcsParameters.PlatformVersion // empty')"
+PROPAGATE_TAGS="$(echo "$TARGET" | jq -r '.EcsParameters.PropagateTags // empty')"
+INPUT="$(echo "$TARGET" | jq -r '.Input // empty')"
+
+# The events NetworkConfiguration uses PascalCase keys; ecs run-task expects
+# camelCase. Translate it if present.
+NETWORK_CONFIGURATION="$(echo "$TARGET" | jq -c \
+  'if (.EcsParameters.NetworkConfiguration.awsvpcConfiguration
+        // .EcsParameters.NetworkConfiguration.AwsvpcConfiguration) then
+     (.EcsParameters.NetworkConfiguration.awsvpcConfiguration
+        // .EcsParameters.NetworkConfiguration.AwsvpcConfiguration) as $c
+     | {
+         awsvpcConfiguration: {
+           subnets: ($c.subnets // $c.Subnets),
+           securityGroups: ($c.securityGroups // $c.SecurityGroups),
+           assignPublicIp: ($c.assignPublicIp // $c.AssignPublicIp)
+         }
+       }
+   else empty end')"
+
+# EventBridge accepts (and ignores) override keys that `ecs run-task` rejects
+# with a parameter validation error, so only forward the keys the ECS API
+# supports.
+ALLOWED_TASK_OVERRIDE_KEYS='[
+  "containerOverrides",
+  "cpu",
+  "ephemeralStorage",
+  "executionRoleArn",
+  "inferenceAcceleratorOverrides",
+  "memory",
+  "taskRoleArn"
+]'
+ALLOWED_CONTAINER_OVERRIDE_KEYS='[
+  "command",
+  "cpu",
+  "environment",
+  "environmentFiles",
+  "memory",
+  "memoryReservation",
+  "name",
+  "resourceRequirements"
+]'
+
+OVERRIDES=""
+if [[ -n "$INPUT" && "$INPUT" != "{}" ]]
+then
+  if ! echo "$INPUT" | jq -e 'type == "object"' > /dev/null 2>&1
+  then
+    err "Scheduled task '$SELECTED_RULE' has a target input which is not a JSON object, so it cannot be replayed as task overrides:"
+    echo "$INPUT" 1>&2
+    exit 1
+  fi
+
+  UNSUPPORTED_OVERRIDE_KEYS="$(echo "$INPUT" | jq -r \
+    --argjson task_keys "$ALLOWED_TASK_OVERRIDE_KEYS" \
+    --argjson container_keys "$ALLOWED_CONTAINER_OVERRIDE_KEYS" \
+    '[
+       (keys_unsorted[] | select(. as $key | $task_keys | index($key) | not)),
+       (.containerOverrides[]? | keys_unsorted[]
+         | select(. as $key | $container_keys | index($key) | not))
+     ] | unique | join(", ")')"
+
+  if [ -n "$UNSUPPORTED_OVERRIDE_KEYS" ]
+  then
+    warning "Ignoring override(s) which 'ecs run-task' does not support: $UNSUPPORTED_OVERRIDE_KEYS"
+  fi
+
+  OVERRIDES="$(echo "$INPUT" | jq -c \
+    --argjson task_keys "$ALLOWED_TASK_OVERRIDE_KEYS" \
+    --argjson container_keys "$ALLOWED_CONTAINER_OVERRIDE_KEYS" \
+    'with_entries(select(.key as $key | $task_keys | index($key)))
+     | if has("containerOverrides") then
+         .containerOverrides |= map(
+           with_entries(select(.key as $key | $container_keys | index($key)))
+         )
+       else . end')"
+fi
+
+RUN_TASK_ARGS=(
+  ecs run-task
+  --cluster "$CLUSTER_ARN"
+  --task-definition "$TASK_DEFINITION"
+)
+
+if [ -n "$LAUNCH_TYPE" ]
+then
+  RUN_TASK_ARGS+=(--launch-type "$LAUNCH_TYPE")
+fi
+
+if [ -n "$PLATFORM_VERSION" ]
+then
+  RUN_TASK_ARGS+=(--platform-version "$PLATFORM_VERSION")
+fi
+
+if [ -n "$PROPAGATE_TAGS" ]
+then
+  RUN_TASK_ARGS+=(--propagate-tags "$PROPAGATE_TAGS")
+fi
+
+if [ -n "$NETWORK_CONFIGURATION" ]
+then
+  RUN_TASK_ARGS+=(--network-configuration "$NETWORK_CONFIGURATION")
+fi
+
+# Only pass overrides when the target actually defines them.
+if [[ -n "$OVERRIDES" && "$OVERRIDES" != "{}" ]]
+then
+  RUN_TASK_ARGS+=(--overrides "$OVERRIDES")
+fi
+
+describe_task() {
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    ecs describe-tasks \
+    --cluster "$CLUSTER_ARN" \
+    --tasks "$TASK_ARN" \
+    | jq -r '.tasks[0] // empty'
+}
+
+# Print why a task stopped, including the reason each container gave. ECS
+# surfaces launch failures (image pull errors, missing secrets, no capacity)
+# here rather than in the `run-task` response.
+report_task_status() {
+  local task="$1"
+
+  echo "$task" | jq -r \
+    '"  last status: \(.lastStatus // "unknown")",
+     "  stop code: \(.stopCode // "unknown")",
+     "  stopped reason: \(.stoppedReason // "unknown")",
+     (.containers[]? |
+       "  container \(.name // "unknown"): exit code \(.exitCode // "none"), reason \(.reason // "none")")' \
+    1>&2
+}
+
+# Exit codes are only meaningful once a container has actually run; a task
+# which never started has no exit code at all.
+task_failed() {
+  local task="$1"
+
+  echo "$task" | jq -e \
+    '(.stopCode? // "") == "TaskFailedToStart"
+     or ([.containers[]? | .exitCode // 1] | any(. != 0))' \
+    > /dev/null
+}
+
+log_info -l "Running scheduled task '$SELECTED_RULE' ..." -q "$QUIET_MODE"
+
+set +e
+TASK="$("$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  "${RUN_TASK_ARGS[@]}")"
+RUN_TASK_EXIT_CODE=$?
+set -e
+
+if [ "$RUN_TASK_EXIT_CODE" != "0" ]
+then
+  err "Failed to run scheduled task '$SELECTED_RULE': the 'ecs run-task' call was rejected by AWS (see the error above)"
+  exit 1
+fi
+
+TASK_ARN="$(echo "$TASK" | jq -r '.tasks[0].taskArn // empty')"
+RUN_TASK_FAILURES="$(echo "$TASK" | jq -r \
+  '[.failures[]? | "  \(.arn // "unknown"): \(.reason // "unknown") \(.detail // "")"] | join("\n")')"
+
+if [ -z "$TASK_ARN" ]
+then
+  err "Failed to start scheduled task '$SELECTED_RULE': ECS did not start a task"
+  if [ -n "$RUN_TASK_FAILURES" ]
+  then
+    echo "$RUN_TASK_FAILURES" 1>&2
+  fi
+  exit 1
+fi
+
+if [ -n "$RUN_TASK_FAILURES" ]
+then
+  warning "ECS reported failures when starting scheduled task '$SELECTED_RULE':"
+  echo "$RUN_TASK_FAILURES" 1>&2
+fi
+
+TASK_ID="$(echo "$TASK_ARN" | cut -d'/' -f3)"
+
+log_info -l "Waiting for task to start running ..." -q "$QUIET_MODE"
+
+set +e
+"$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  ecs wait tasks-running \
+  --cluster "$CLUSTER_ARN" \
+  --tasks "$TASK_ARN"
+WAIT_RUNNING_EXIT_CODE=$?
+set -e
+
+TASK_RUNNING=1
+TASK_DESCRIPTION=""
+if [ "$WAIT_RUNNING_EXIT_CODE" != "0" ]
+then
+  TASK_RUNNING=0
+  TASK_DESCRIPTION="$(describe_task)"
+
+  if [ -z "$TASK_DESCRIPTION" ]
+  then
+    err "Task $TASK_ID did not start running and can no longer be described"
+    exit 1
+  fi
+
+  # A short-lived task can stop before the waiter observes it running, which
+  # is only a failure if it also stopped unsuccessfully.
+  if [[ "$(echo "$TASK_DESCRIPTION" | jq -r '.lastStatus // empty')" != "STOPPED" ]]
+  then
+    err "Timed out waiting for task $TASK_ID to start running:"
+    report_task_status "$TASK_DESCRIPTION"
+    exit 1
+  fi
+
+  if task_failed "$TASK_DESCRIPTION"
+  then
+    err "Scheduled task '$SELECTED_RULE' failed to run (task $TASK_ID):"
+    report_task_status "$TASK_DESCRIPTION"
+    exit 1
+  fi
+
+  log_info -l "Task $TASK_ID stopped before it could be observed running" -q "$QUIET_MODE"
+fi
+
+# Attempt to derive an awslogs log group from the task definition so we can
+# tail. Not all scheduled tasks (e.g. EC2/bridge-mode service tasks) log to
+# CloudWatch with a predictable stream, so tailing is best-effort.
+CONTAINER_DEFINITION="$("$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  ecs describe-task-definition \
+  --task-definition "$TASK_DEFINITION" \
+  | jq -r \
+  '.taskDefinition.containerDefinitions[0] // empty')"
+
+LOG_GROUP=""
+LOG_STREAM_PREFIX=""
+CONTAINER_NAME=""
+if [[ -n "$CONTAINER_DEFINITION" && "$(echo "$CONTAINER_DEFINITION" | jq -r '.logConfiguration.logDriver // empty')" == "awslogs" ]]
+then
+  LOG_GROUP="$(echo "$CONTAINER_DEFINITION" | jq -r '.logConfiguration.options["awslogs-group"] // empty')"
+  LOG_STREAM_PREFIX="$(echo "$CONTAINER_DEFINITION" | jq -r '.logConfiguration.options["awslogs-stream-prefix"] // empty')"
+  CONTAINER_NAME="$(echo "$CONTAINER_DEFINITION" | jq -r '.name // empty')"
+fi
+
+LOG_STREAM=""
+if [[ -n "$LOG_GROUP" && -n "$LOG_STREAM_PREFIX" && -n "$CONTAINER_NAME" ]]
+then
+  LOG_STREAM="$LOG_STREAM_PREFIX/$CONTAINER_NAME/$TASK_ID"
+fi
+
+LOG_PID=""
+stop_log_tail() {
+  if [ -n "$LOG_PID" ]
+  then
+    kill "$LOG_PID" 2> /dev/null || true
+    LOG_PID=""
+  fi
+}
+trap stop_log_tail EXIT
+
+if [[ "$TASK_RUNNING" == "1" && -n "$LOG_STREAM" ]]
+then
+  log_info -l "Tailing logs ..." -q "$QUIET_MODE"
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    logs tail "$LOG_GROUP" \
+    --log-stream-names "$LOG_STREAM" \
+    --format short \
+    --follow &
+  LOG_PID=$!
+elif [ "$TASK_RUNNING" == "1" ]
+then
+  log_info -l "Task $TASK_ID started (log tailing unavailable for this task)" -q "$QUIET_MODE"
+fi
+
+if [ "$TASK_RUNNING" == "1" ]
+then
+  set +e
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    ecs wait tasks-stopped \
+    --cluster "$CLUSTER_ARN" \
+    --tasks "$TASK_ARN"
+  WAIT_STOPPED_EXIT_CODE=$?
+  set -e
+
+  stop_log_tail
+
+  if [ "$WAIT_STOPPED_EXIT_CODE" != "0" ]
+  then
+    err "Timed out waiting for task $TASK_ID to stop. Check $TASK_ARN in the ECS console"
+    exit 1
+  fi
+
+  TASK_DESCRIPTION="$(describe_task)"
+else
+  # The task stopped before logs could be followed, so print whatever it wrote.
+  if [ -n "$LOG_STREAM" ]
+  then
+    "$APP_ROOT/bin/dalmatian" aws run-command \
+      -p "$PROFILE" \
+      logs tail "$LOG_GROUP" \
+      --log-stream-names "$LOG_STREAM" \
+      --format short \
+      || warning "Could not read logs for task $TASK_ID"
+  fi
+fi
+
+if [ -z "$TASK_DESCRIPTION" ]
+then
+  warning "Task $TASK_ID can no longer be described, so its result is unknown"
+  exit 0
+fi
+
+if task_failed "$TASK_DESCRIPTION"
+then
+  err "Scheduled task '$SELECTED_RULE' failed (task $TASK_ID):"
+  report_task_status "$TASK_DESCRIPTION"
+  exit 1
+fi
+
+log_info -l "Scheduled task '$SELECTED_RULE' completed successfully" -q "$QUIET_MODE"
