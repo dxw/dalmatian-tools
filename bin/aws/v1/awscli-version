@@ -47,14 +47,31 @@ then
   exit 1
 fi
 
-# Suppress errors and capture the major version number
-version=$(aws --version 2>/dev/null | grep -oE 'aws-cli/([1-2])\.' | grep -oE '[1-2]')
+AWSCLI_MINIMUM_MAJOR_VERSION=2
+AWSCLI_MINIMUM_MINOR_VERSION=9
 
-log_info -l "Detected AWS CLI major version: $version" -q "$QUIET_MODE"
+# Suppress errors and capture the full version number, eg "2.36.22"
+version=$(aws --version 2>/dev/null | grep -oE 'aws-cli/[0-9]+\.[0-9]+\.[0-9]+' | cut -d '/' -f 2 || true)
 
-if [[ ! $version == "2"* ]];
+if [ -z "$version" ]
 then
-  err "awscli version 2 is not installed which is required for dalmatian-tools"
+  err "Could not determine the installed awscli version"
+  exit 1
+fi
+
+major_version=$(echo "$version" | cut -d '.' -f 1)
+minor_version=$(echo "$version" | cut -d '.' -f 2)
+
+# major_version/minor_version are safe to use in the arithmetic comparisons
+# below only because the `grep -oE` above guarantees a full x.y.z match and
+# the `-z` check above rejects a non-match; do not loosen either without
+# re-checking this
+
+log_info -l "Detected AWS CLI version: $version" -q "$QUIET_MODE"
+
+if [ "$major_version" -lt "$AWSCLI_MINIMUM_MAJOR_VERSION" ]
+then
+  err "awscli version $AWSCLI_MINIMUM_MAJOR_VERSION is not installed which is required for dalmatian-tools"
 
   if [ "$QUIET_MODE" == "0" ]
   then
@@ -66,6 +83,24 @@ then
     echo "If you installed it using Homebrew, you should run:"
     echo "    brew remove awscli awscli@1"
     echo "    brew install awscli"
+  fi
+
+  exit 1
+fi
+
+if [[
+  "$major_version" -eq "$AWSCLI_MINIMUM_MAJOR_VERSION" &&
+  "$minor_version" -lt "$AWSCLI_MINIMUM_MINOR_VERSION"
+]]
+then
+  err "awscli $version is installed, but $AWSCLI_MINIMUM_MAJOR_VERSION.$AWSCLI_MINIMUM_MINOR_VERSION or later is required for dalmatian-tools"
+  err "\`aws configure export-credentials\`, which Dalmatian's AWS SSO support requires, was added in awscli $AWSCLI_MINIMUM_MAJOR_VERSION.$AWSCLI_MINIMUM_MINOR_VERSION"
+
+  if [ "$QUIET_MODE" == "0" ]
+  then
+    echo
+    echo "If you installed it using Homebrew, you should run:"
+    echo "    brew upgrade awscli"
   fi
 
   exit 1
