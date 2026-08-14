@@ -53,7 +53,16 @@ log_info -l "Attempting AWS SSO login ..." -q "$QUIET_MODE"
 if [ -n "$EXPIRES_AT" ]
 then
   EXPIRES_AT_SEC="$(gdate -d "$EXPIRES_AT" +%s)"
-  EPOCH="$(aws_epoch)"
+  # aws_epoch shells out to an NTP server, so an unreachable/firewalled server
+  # must not block this check. `aws_epoch || gdate +%s` isn't reliable on its
+  # own: bash suppresses `set -e` for the whole body of a function that's
+  # tested by `||`, so a failed NTP lookup can still return 0 with empty or
+  # bogus output rather than a non-zero status. Validate the output instead.
+  EPOCH="$(aws_epoch 2>/dev/null || true)"
+  if ! [[ "$EPOCH" =~ ^[0-9]+$ ]]
+  then
+    EPOCH="$(gdate +%s)"
+  fi
 fi
 if [[
   "$EPOCH" -gt "$EXPIRES_AT_SEC" ||
@@ -66,7 +75,13 @@ then
   AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || true)"
   EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
   EXPIRES_AT_SEC="$(gdate -d "$EXPIRES_AT" +%s)"
-  EPOCH="$(aws_epoch)"
+  # Same fallback as above: the SSO login just succeeded, don't fail this
+  # check just because AWS NTP is unreachable
+  EPOCH="$(aws_epoch 2>/dev/null || true)"
+  if ! [[ "$EPOCH" =~ ^[0-9]+$ ]]
+  then
+    EPOCH="$(gdate +%s)"
+  fi
   if [[
     "$EPOCH" -gt "$EXPIRES_AT_SEC" ||
     -z "$EXPIRES_AT"
