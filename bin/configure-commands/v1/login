@@ -24,7 +24,7 @@ check_bash_version
 
 QUIET_MODE="${QUIET_MODE:-0}"
 
-echo "Note: You must have a Dalmatian Admin account to use Dalmatian Tools"
+echo "Note: You must have a Dalmatian admin account in the dxw AWS IAM Identity Center to use Dalmatian Tools"
 echo
 
 # Check to see if Homebrew is installed, and prompt to install it if it isn't
@@ -58,6 +58,36 @@ if ! "$APP_ROOT/bin/aws/v1/awscli-version"
 then
   exit 1
 fi
+
+if dalmatian_v1_sso_available
+then
+  log_info -l "Signing in with AWS SSO ..." -q "$QUIET_MODE"
+  "$APP_ROOT/bin/dalmatian" aws login
+
+  # `aws sts get-caller-identity` needs a region, and this script does not go
+  # through the credential setup in `bin/dalmatian` that would provide one
+  export AWS_DEFAULT_REGION="eu-west-2"
+
+  log_info -l "Exporting AWS SSO credentials..." -q "$QUIET_MODE"
+  # Assign before evaluating: a command substitution used as a command argument
+  # discards its exit status, so `eval "$(...)"` would silently continue with no
+  # credentials if credential resolution failed. An assignment propagates it.
+  DALMATIAN_CREDENTIAL_EXPORTS="$("$APP_ROOT/bin/aws/v1/export-credentials")"
+  eval "$DALMATIAN_CREDENTIAL_EXPORTS"
+  # An AWS_PROFILE inherited from the user's environment would take precedence
+  # over the credentials exported above
+  unset AWS_PROFILE
+
+  CALLER_ID=$(aws sts get-caller-identity)
+  log_info -l "User ID: $(echo "$CALLER_ID" | jq -r '.UserId')" -q "$QUIET_MODE"
+  log_info -l "Account: $(echo "$CALLER_ID" | jq -r '.Account')" -q "$QUIET_MODE"
+  log_info -l "Arn:     $(echo "$CALLER_ID" | jq -r '.Arn')" -q "$QUIET_MODE"
+  log_info -l "Login success!" -q "$QUIET_MODE"
+  exit 0
+fi
+
+warning "Dalmatian v1 is being configured with a deprecated IAM user access key and MFA secret"
+warning "Run \`dalmatian version -v 2 && dalmatian setup\` to switch to AWS SSO"
 
 DALMATIAN_CONFIG_STORE="$HOME/.config/dalmatian"
 DALMATIAN_CONFIG_FILE="$DALMATIAN_CONFIG_STORE/config.json"
