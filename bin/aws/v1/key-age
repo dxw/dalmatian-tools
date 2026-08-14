@@ -20,6 +20,13 @@ while getopts "i:h" opt; do
   esac
 done
 
+if dalmatian_v1_sso_available
+then
+  err "Access key rotation does not apply when Dalmatian is signing in with AWS SSO"
+  err "Your AWS credentials are short-lived and are issued by AWS IAM Identity Center"
+  exit 1
+fi
+
 if [ -z "$AWS_CALLER_IDENTITY_USERNAME" ];
 then
   read -r -p "Enter your AWS username: " AWS_CALLER_IDENTITY_USERNAME
