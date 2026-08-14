@@ -38,48 +38,78 @@ CLI tools to help with working with Dalmatian
 
    Or you can run `source ~/.bashrc` or `source ~/.zshrc` on all open terminals
 
+1. Configure AWS SSO
+
+  Dalmatian signs in with AWS IAM Identity Center. The configuration is written
+  by `dalmatian setup`, and is shared by v1 and v2:
+
+  ```
+  $ dalmatian version -v 2
+  $ dalmatian setup
+  $ dalmatian version -v 1
+  ```
+
+  `dalmatian setup` is a v2 tool, and is what writes the AWS SSO configuration
+  that v1 also reads, so switch back to v1 once it's done: the rest of this
+  guide, and Dalmatian Tools by default, use v1.
+
+  You only need to do this once. See
+  [README-in-development.md](README-in-development.md) for what `dalmatian setup`
+  asks for.
+
 1. Login to dalmatian
 
-  Run the `dalmatian login` command
-
-  You can find your AWS Access Key and Secret Key in the AWS console by heading
-  to the [IAM users list](https://console.aws.amazon.com/iamv2/home#/users),
-  choosing your `dalmatian-user-admin`, and selecting the "Security credentials"
-  tab. You will need to create a new Access Key. *Do not close this dialog*
-  until you have successfully logged in, as this is the only time you can view
-  your Secret Key.
-
-  When prompted for your MFA secret, this is _not_ the six numbers from 2FA.
-  Instead, you will need the secret key used to generate this. See below for the
-  FAQ if you don't know how to get this.
+  Run the `dalmatian login` command. It installs and updates the dependencies
+  Dalmatian Tools needs, then signs you in with AWS SSO, opening your browser if
+  your session has expired.
 
   ```
   $ dalmatian login
-  Note: You must have a Dalmatian Admin account to use Dalmatian Tools
+  Note: You must have a Dalmatian admin account in the dxw AWS IAM Identity Center to use Dalmatian Tools
 
-  For added security, your credentials and MFA secret will be
-  encrypted with GPG
-
-  Email associated with GPG key: alex@example.com
-  AWS Access Key ID: XXXXXXXXXXXXXXXXXXXX
-  AWS Secret Access Key:
-  AWS MFA Secret:
-  ==> Checking credentials...
-    User ID: XXXXXXXXXXXXXXXXXXXXX
-    Account: XXXXXXXXXXXX
-    Arn:     arn:aws:iam::XXXXXXXXXXXX:user/dalmatian_admins/<user-name>
-  ==> Saving configuration settings in /Users/alex/.config/dalmatian/config.json ...
-  ==> Storing credentials in /Users/alex/.config/dalmatian/credentials.json.enc ...
-  ==> Attempting MFA...
-  ==> Storing MFA credentials in /Users/alex/.config/dalmatian/mfa_credentials.json
+  ==> Updating brew packages ...
+  ==> Installing AWS Session Manager Plugin into /Users/alex/Applications/session-manager-plugin
+  ==> Ensuring tfenv is configured ...
+  ==> Checking AWS CLI is the correct version ...
+  ==> Detected AWS CLI version: 2.36.22
+  ==> Signing in with AWS SSO ...
+  ==> Attempting AWS SSO login ...
+  ==> You're already logged in. Your existing session will expire on 2026-08-13T22:15:31Z
+  ==> Exporting AWS SSO credentials...
+  ==> User ID: XXXXXXXXXXXXXXXXXXXXX:alex
+  ==> Account: XXXXXXXXXXXX
+  ==> Arn:     arn:aws:sts::XXXXXXXXXXXX:assumed-role/AWSReservedSSO_admin_XXXXXXXXXXXXXXXX/alex
   ==> Login success!
   ```
 
-  Once you're signed in you can safely close the AWS Access Key dialog.
+  Your session lasts about 8 hours. Any `dalmatian` command refreshes it for you
+  when it expires, or you can run `dalmatian aws login` yourself.
+
+  To use the credentials in your own shell, run this v1 command:
+
+  ```
+  $ eval "$(dalmatian aws export-credentials)"
+  ```
+
+### Deprecated: IAM user credentials
+
+Before AWS SSO, Dalmatian v1 signed in with a long-lived IAM user access key and
+a TOTP MFA secret, held GPG-encrypted in
+`~/.config/dalmatian/credentials.json.enc`. That path still works, and is used
+automatically if no AWS SSO configuration is found, but it is deprecated and
+will be removed, though no removal date is set yet. If you see
+
+```
+[!] Warning: Dalmatian v1 is using a deprecated IAM user access key and MFA secret
+```
+
+run `dalmatian version -v 2 && dalmatian setup` to switch to AWS SSO.
 
 ## FAQ
 
 ### Why am I seeing "oathtool: base32 decoding failed: Base32 string is invalid"
+
+This applies only to the deprecated IAM user credentials described above.
 
 Probably you've entered your 6 digit MFA code rather than the underlying MFA
 secret which is a long alphanumeric string. This secret is available:
