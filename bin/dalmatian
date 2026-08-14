@@ -186,6 +186,24 @@ then
   usage
 fi
 
+# Configuration paths shared by v1 and v2. v1 reads the AWS SSO configuration
+# that `dalmatian setup` writes, but never writes it itself.
+export CONFIG_DIR="$HOME/.config/dalmatian"
+export CONFIG_SETUP_JSON_FILE="$CONFIG_DIR/setup.json"
+export CONFIG_AWS_SSO_FILE="$CONFIG_DIR/dalmatian-sso.config"
+
+# These AWS environment variables take precedence when authenticating, which
+# can cause errors if they are not related to Dalmatian
+unset AWS_SESSION_TOKEN
+unset AWS_SECRET_ACCESS_KEY
+unset AWS_ACCESS_KEY_ID
+unset AWS_DEFAULT_REGION
+unset AWS_DEFAULT_OUTPUT
+unset AWS_REGION
+unset AWS_ROLE_ARN
+unset AWS_ROLE_SESSION_NAME
+unset AWS_PROFILE
+
 if [[
   (
     -f "$APP_ROOT/bin/configure-commands/$VERSION/$SUBCOMMAND" ||
@@ -206,11 +224,8 @@ if [[
   "$VERSION" == "v2"
 ]]
 then
-  export CONFIG_DIR="$HOME/.config/dalmatian"
-  export CONFIG_SETUP_JSON_FILE="$CONFIG_DIR/setup.json"
   export CONFIG_UPDATE_CHECK_JSON_FILE="$CONFIG_DIR/update-check.json"
   export CONFIG_CACHE_DIR="$CONFIG_DIR/.cache"
-  export CONFIG_AWS_SSO_FILE="$CONFIG_DIR/dalmatian-sso.config"
   export CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE="$CONFIG_DIR/account-bootstrap-backend.vars"
   export CONFIG_INFRASTRUCTURE_BACKEND_VARS_FILE="$CONFIG_DIR/infrastructure-backend.vars"
   export CONFIG_TFVARS_DIR="$CONFIG_CACHE_DIR/tfvars"
@@ -253,16 +268,6 @@ then
   then
     export PAGER="less"
   fi
-  # These AWS environment variables take precedence when authenticating, which
-  # can cause errors if they are not related to Dalmatian
-  unset AWS_SESSION_TOKEN
-  unset AWS_SECRET_ACCESS_KEY
-  unset AWS_ACCESS_KEY_ID
-  unset AWS_DEFAULT_REGION
-  unset AWS_DEFAULT_OUTPUT
-  unset AWS_REGION
-  unset AWS_ROLE_ARN
-  unset AWS_ROLE_SESSION_NAME
 
   if [[
     "$SUBCOMMAND" != "update" &&
@@ -343,145 +348,183 @@ then
 fi
 
 
-DALMATIAN_CONFIG_STORE="$HOME/.config/dalmatian"
+DALMATIAN_CONFIG_STORE="$CONFIG_DIR"
 DALMATIAN_CONFIG_FILE="$DALMATIAN_CONFIG_STORE/config.json"
 DALMATIAN_CREDENTIALS_FILE="$DALMATIAN_CONFIG_STORE/credentials.json.enc"
 DALMATIAN_MFA_CREDENTIALS_FILE="$DALMATIAN_CONFIG_STORE/mfa_credentials.json"
 DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE="$DALMATIAN_CONFIG_STORE/assume_role_credentials.json"
-MFA_CONFIGURED=0
-ASSUME_MAIN_ROLE_CONFIGURED=0
-
-if [ ! -f "$DALMATIAN_CONFIG_FILE" ]
-then
-  err "You are not logged into Dalmatian. Run \`dalmatian login\` to continue"
-  exit 1
-fi
 
 AWS_DEFAULT_REGION="eu-west-2" # London
 export AWS_DEFAULT_REGION
 
-DALMATIAN_CONFIG_JSON_STRING=$(cat "$DALMATIAN_CONFIG_FILE")
-ACCOUNT_ID=$(echo "$DALMATIAN_CONFIG_JSON_STRING" | jq -r '.account_id')
-DALMATIAN_ROLE=$(echo "$DALMATIAN_CONFIG_JSON_STRING" | jq -r '.dalmatian_role')
-
-# If MFA credentials exist, check if they have expired
-if [ -f "$DALMATIAN_MFA_CREDENTIALS_FILE" ]
+# `aws login` and `aws export-credentials` have to be dispatched before any
+# credential setup, otherwise `aws export-credentials` recurses into itself
+if [[
+  "$SUBCOMMAND" == "aws" &&
+  ( "$COMMAND" == "login" || "$COMMAND" == "export-credentials" )
+]]
 then
+  "$APP_ROOT/bin/aws/$VERSION/$COMMAND" "${COMMAND_ARGS[@]}"
+  exit 0
+fi
+
+if dalmatian_v1_sso_available
+then
+  if [[ "$SUBCOMMAND" == "aws" && "$COMMAND" == "mfa" ]]
+  then
+    err "\`dalmatian aws mfa\` does not apply when Dalmatian is signing in with AWS SSO"
+    err "Run \`dalmatian aws login\` to refresh your AWS SSO session"
+    exit 1
+  fi
+
+  # Show the AWS SSO login output when dalmatian is called from another script
+  if [[ "$IS_PARENT_SCRIPT" == 1 && "$QUIET_MODE" == 0 ]]
+  then
+    "$APP_ROOT/bin/dalmatian" aws login
+  fi
+
+  # `export-credentials` writes nothing but `export` statements to stdout.
+  # Assign before evaluating: a command substitution used as a command argument
+  # discards its exit status, so `eval "$(...)"` would silently continue with no
+  # credentials if credential resolution failed. An assignment propagates it.
+  DALMATIAN_CREDENTIAL_EXPORTS="$("$APP_ROOT/bin/aws/$VERSION/export-credentials")"
+  eval "$DALMATIAN_CREDENTIAL_EXPORTS"
+  unset DALMATIAN_CREDENTIAL_EXPORTS
+
+  export_aws_caller_identity_username
+
+  # The AWS SSO 'admin' permission set already has full access to the main
+  # Dalmatian account, so there is no main-account role to assume
+else
+  MFA_CONFIGURED=0
+  ASSUME_MAIN_ROLE_CONFIGURED=0
+
+  if [ ! -f "$DALMATIAN_CONFIG_FILE" ]
+  then
+    err "No AWS SSO configuration was found, and you are not logged into Dalmatian"
+    err "Run \`dalmatian version -v 2 && dalmatian setup\` to switch to AWS SSO"
+    exit 1
+  fi
+
+  warning "Dalmatian v1 is using a deprecated IAM user access key and MFA secret"
+  warning "Run \`dalmatian version -v 2 && dalmatian setup\` to switch to AWS SSO"
+
+  DALMATIAN_CONFIG_JSON_STRING=$(cat "$DALMATIAN_CONFIG_FILE")
+  ACCOUNT_ID=$(echo "$DALMATIAN_CONFIG_JSON_STRING" | jq -r '.account_id')
+  DALMATIAN_ROLE=$(echo "$DALMATIAN_CONFIG_JSON_STRING" | jq -r '.dalmatian_role')
+
+  # If MFA credentials exist, check if they have expired
+  if [ -f "$DALMATIAN_MFA_CREDENTIALS_FILE" ]
+  then
+    DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_MFA_CREDENTIALS_FILE")
+    DALMATIAN_MFA_EXPIRATION=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_expiration')
+    DALMATIAN_MFA_EXPIRATION_SECONDS=$(gdate -d "$DALMATIAN_MFA_EXPIRATION" +%s)
+    EPOCH=$(gdate +%s)
+    if [ "$DALMATIAN_MFA_EXPIRATION_SECONDS" -lt "$EPOCH" ]
+    then
+      err "MFA credentials have expired"
+    else
+      MFA_CONFIGURED=1
+    fi
+  fi
+
+  if [[ "$SUBCOMMAND" == "aws" && "$COMMAND" == "mfa" ]]
+  then
+    RUN_AWS_MFA=1
+  fi
+
+  # Update MFA credentials if needed, or if the dalmatian aws mfa command is ran
+  if [[ -n "$RUN_AWS_MFA" || "$MFA_CONFIGURED" == 0 ]]
+  then
+    DALMATIAN_CREDENTIALS_JSON_STRING=$(
+      gpg --decrypt \
+        --quiet \
+        < "$DALMATIAN_CREDENTIALS_FILE"
+    )
+
+    AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
+    AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
+    export AWS_ACCESS_KEY_ID
+    export AWS_SECRET_ACCESS_KEY
+
+    AWS_MFA_SECRET=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_mfa_secret')
+    MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
+
+    log_info -l "Requesting new MFA credentials..." -q "$QUIET_MODE"
+    "$APP_ROOT/bin/aws/$VERSION/mfa" -m "$MFA_CODE"
+
+    if [ -n "$RUN_AWS_MFA" ]
+    then
+      exit 0
+    fi
+  fi
+
+  # export MFA credentials
   DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_MFA_CREDENTIALS_FILE")
-  DALMATIAN_MFA_EXPIRATION=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_expiration')
-  if [ "${DALMATIAN_MFA_EXPIRATION: -1}" == "Z" ]
-  then
-    DALMATIAN_MFA_EXPIRATION_SECONDS=$(gdate -d "$DALMATIAN_MFA_EXPIRATION" +%s)
-  else
-    DALMATIAN_MFA_EXPIRATION_SECONDS=$(gdate -d "$DALMATIAN_MFA_EXPIRATION" +%s)
-  fi
-  EPOCH=$(gdate +%s)
-  if [ "$DALMATIAN_MFA_EXPIRATION_SECONDS" -lt "$EPOCH" ]
-  then
-    err "MFA credentials have expired"
-  else
-    MFA_CONFIGURED=1
-  fi
-fi
-
-if [[ "$SUBCOMMAND" == "aws" && "$COMMAND" == "mfa" ]]
-then
-  RUN_AWS_MFA=1
-fi
-
-# Update MFA credentials if needed, or if the dalmatian aws mfa command is ran
-if [[ -n "$RUN_AWS_MFA" || "$MFA_CONFIGURED" == 0 ]]
-then
-  DALMATIAN_CREDENTIALS_JSON_STRING=$(
-    gpg --decrypt \
-      --quiet \
-      < "$DALMATIAN_CREDENTIALS_FILE"
-  )
-
-  AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
-  AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
+  AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
+  AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
+  AWS_SESSION_TOKEN=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_token')
   export AWS_ACCESS_KEY_ID
   export AWS_SECRET_ACCESS_KEY
+  export AWS_SESSION_TOKEN
 
-  AWS_MFA_SECRET=$(echo "$DALMATIAN_CREDENTIALS_JSON_STRING" | jq -r '.aws_mfa_secret')
-  MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
+  export_aws_caller_identity_username
 
-  log_info -l "Requesting new MFA credentials..." -q "$QUIET_MODE"
-  "$APP_ROOT/bin/aws/$VERSION/mfa" -m "$MFA_CODE"
-
-  if [ -n "$RUN_AWS_MFA" ]
+  # Check if the assume role credentials have expired
+  if [ -f "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE" ]
   then
-    exit 0
+    DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE")
+    DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION=$(echo "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_expiration')
+    DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS=$(gdate -d "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION" +%s)
+    EPOCH=$(gdate +%s)
+    if [ "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS" -lt "$EPOCH" ]
+    then
+      err "'Assume role' credentials have expired"
+    else
+      ASSUME_MAIN_ROLE_CONFIGURED=1
+    fi
   fi
-fi
 
-# export MFA credentials
-DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_MFA_CREDENTIALS_FILE")
-AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
-AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
-AWS_SESSION_TOKEN=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_token')
-export AWS_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY
-export AWS_SESSION_TOKEN
-
-AWS_CALLER_IDENTITY_ARN="$(aws sts get-caller-identity | jq '.Arn')"
-IFS='/' read -r -a array <<< "$AWS_CALLER_IDENTITY_ARN"
-export AWS_CALLER_IDENTITY_USERNAME="${array[2]%?}"
-
-# Check if the assume role credentials have expired
-if [ -f "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE" ]
-then
-  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE")
-  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION=$(echo "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_expiration')
-  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS=$(gdate -d "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION" +%s)
-  EPOCH=$(gdate +%s)
-  if [ "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_EXPIRATION_SECONDS" -lt "$EPOCH" ]
+  # Update assume role credentials if needed
+  if [ "$ASSUME_MAIN_ROLE_CONFIGURED" == "0" ]
   then
-    err "'Assume role' credentials have expired"
-  else
-    ASSUME_MAIN_ROLE_CONFIGURED=1
+    log_info -l "Requesting 'Assume Role' credentials ..." -q "$QUIET_MODE"
+    ASSUME_ROLE_RESULT=$(
+      aws sts assume-role \
+      --role-arn "arn:aws:iam::$ACCOUNT_ID:role/$DALMATIAN_ROLE" \
+      --role-session-name dalmatian-tools \
+      --external-id dalmatian-tools
+    )
+    AWS_ACCESS_KEY_ID=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.AccessKeyId')
+    AWS_SECRET_ACCESS_KEY=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.SecretAccessKey')
+    AWS_SESSION_TOKEN=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.SessionToken')
+    AWS_SESSION_EXPIRATION=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.Expiration' | awk -F':' -v OFS=':' '{ print $1, $2, $3$4 }')
+    DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING=$(
+      jq -n \
+      --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
+      --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
+      --arg aws_session_token "$AWS_SESSION_TOKEN" \
+      --arg aws_session_expiration "$AWS_SESSION_EXPIRATION" \
+      '{
+        aws_access_key_id: $aws_access_key_id,
+        aws_secret_access_key: $aws_secret_access_key,
+        aws_session_token: $aws_session_token,
+        aws_session_expiration: $aws_session_expiration
+      }'
+    )
+
+    echo "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING" > "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE"
   fi
+
+  # export assume role credentials
+  DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE")
+  AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
+  AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
+  AWS_SESSION_TOKEN=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_token')
+  export AWS_ACCESS_KEY_ID
+  export AWS_SECRET_ACCESS_KEY
+  export AWS_SESSION_TOKEN
 fi
-
-# Update assume role credentials if needed
-if [ "$ASSUME_MAIN_ROLE_CONFIGURED" == "0" ]
-then
-  log_info -l "Requesting 'Assume Role' credentials ..." -q "$QUIET_MODE"
-  ASSUME_ROLE_RESULT=$(
-    aws sts assume-role \
-    --role-arn "arn:aws:iam::$ACCOUNT_ID:role/$DALMATIAN_ROLE" \
-    --role-session-name dalmatian-tools \
-    --external-id dalmatian-tools
-  )
-  AWS_ACCESS_KEY_ID=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.AccessKeyId')
-  AWS_SECRET_ACCESS_KEY=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.SecretAccessKey')
-  AWS_SESSION_TOKEN=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.SessionToken')
-  AWS_SESSION_EXPIRATION=$(echo "$ASSUME_ROLE_RESULT" | jq -r '.Credentials.Expiration' | awk -F':' -v OFS=':' '{ print $1, $2, $3$4 }')
-  DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING=$(
-    jq -n \
-    --arg aws_access_key_id "$AWS_ACCESS_KEY_ID" \
-    --arg aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" \
-    --arg aws_session_token "$AWS_SESSION_TOKEN" \
-    --arg aws_session_expiration "$AWS_SESSION_EXPIRATION" \
-    '{
-      aws_access_key_id: $aws_access_key_id,
-      aws_secret_access_key: $aws_secret_access_key,
-      aws_session_token: $aws_session_token,
-      aws_session_expiration: $aws_session_expiration
-    }'
-  )
-
-  echo "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_JSON_STRING" > "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE"
-fi
-
-# export assume role credentials
-DALMATIAN_MFA_CREDENTIALS_JSON_STRING=$(cat "$DALMATIAN_ASSUME_MAIN_ROLE_CREDENTIALS_FILE")
-AWS_ACCESS_KEY_ID=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_access_key_id')
-AWS_SECRET_ACCESS_KEY=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_secret_access_key')
-AWS_SESSION_TOKEN=$(echo "$DALMATIAN_MFA_CREDENTIALS_JSON_STRING" | jq -r '.aws_session_token')
-export AWS_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY
-export AWS_SESSION_TOKEN
 
 i=1
 for a in "${COMMAND_ARGS[@]}"
