@@ -30,14 +30,39 @@ while getopts "p:fh" opt; do
   esac
 done
 
-START_URL="$(aws configure get sso_start_url --profile dalmatian-login)"
+# v1 does not export AWS_CONFIG_FILE globally, so default it here
+if [ -z "$AWS_CONFIG_FILE" ]
+then
+  AWS_CONFIG_FILE="${CONFIG_AWS_SSO_FILE:-$HOME/.config/dalmatian/dalmatian-sso.config}"
+  export AWS_CONFIG_FILE
+fi
+
+START_URL="$(aws configure get sso_start_url --profile dalmatian-login || true)"
+if [ -z "$START_URL" ]
+then
+  err "Could not read 'sso_start_url' for the 'dalmatian-login' profile from $AWS_CONFIG_FILE"
+  err "Run \`dalmatian version -v 2 && dalmatian setup\` to switch to AWS SSO"
+  exit 1
+fi
+
 AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || true)"
-EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
+EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r 'select(.expiresAt != null) | .expiresAt' || true)"
+EPOCH=0
+EXPIRES_AT_SEC=0
 log_info -l "Attempting AWS SSO login ..." -q "$QUIET_MODE"
 if [ -n "$EXPIRES_AT" ]
 then
   EXPIRES_AT_SEC="$(gdate -d "$EXPIRES_AT" +%s)"
-  EPOCH="$(aws_epoch)"
+  # aws_epoch shells out to an NTP server, so an unreachable/firewalled server
+  # must not block this check. `aws_epoch || gdate +%s` isn't reliable on its
+  # own: bash suppresses `set -e` for the whole body of a function that's
+  # tested by `||`, so a failed NTP lookup can still return 0 with empty or
+  # bogus output rather than a non-zero status. Validate the output instead.
+  EPOCH="$(aws_epoch 2>/dev/null || true)"
+  if ! [[ "$EPOCH" =~ ^[0-9]+$ ]]
+  then
+    EPOCH="$(gdate +%s)"
+  fi
 fi
 if [[
   "$EPOCH" -gt "$EXPIRES_AT_SEC" ||
@@ -50,6 +75,13 @@ then
   AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || true)"
   EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
   EXPIRES_AT_SEC="$(gdate -d "$EXPIRES_AT" +%s)"
+  # Same fallback as above: the SSO login just succeeded, don't fail this
+  # check just because AWS NTP is unreachable
+  EPOCH="$(aws_epoch 2>/dev/null || true)"
+  if ! [[ "$EPOCH" =~ ^[0-9]+$ ]]
+  then
+    EPOCH="$(gdate +%s)"
+  fi
   if [[
     "$EPOCH" -gt "$EXPIRES_AT_SEC" ||
     -z "$EXPIRES_AT"
