@@ -6,5 +6,6 @@ if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
   exit 1
 fi
 
-find ./bin -path ./bin/tmp -prune -o -type f -exec shellcheck -x {} +
+# Hidden files (eg. bin/custom/v2/.gitkeep) are not scripts, so are not linted
+find ./bin -path ./bin/tmp -prune -o -name '.*' -prune -o -type f -exec shellcheck -x {} +
 find ./support -type f -exec shellcheck -x {} +
