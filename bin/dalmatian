@@ -271,7 +271,8 @@ then
 
   if [[
     "$SUBCOMMAND" != "update" &&
-    "$SUBCOMMAND" != "setup"
+    "$SUBCOMMAND" != "setup" &&
+    "${DALMATIAN_SKIP_UPDATE_CHECK:-0}" != "1"
   ]]
   then
     if [ "$IS_PARENT_SCRIPT" == 1 ]
