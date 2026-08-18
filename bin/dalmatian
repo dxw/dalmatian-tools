@@ -67,6 +67,14 @@ then
   VERSION=$("$APP_ROOT/bin/dalmatian" version -s -q)
 fi
 
+# Some subcommands only exist under one version, used to point users at the
+# version switch instead of a bare "not found" when that's the real problem
+OTHER_VERSION="v2"
+if [ "$VERSION" == "v2" ]
+then
+  OTHER_VERSION="v1"
+fi
+
 BASH_FUNCTION_DIR="$APP_ROOT/lib/bash-functions"
 for bash_function_file in "$BASH_FUNCTION_DIR"/*
 do
@@ -300,6 +308,35 @@ then
     exit 0
   fi
 
+  # If no COMMAND was specified, and SUBCOMMAND isn't an executable script
+  if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]] || [[ ! -f "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" && ! -L "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" ]]; then
+    if [ ! -d "$APP_ROOT/bin/$SUBCOMMAND/$VERSION" ]
+    then
+      if [ -d "$APP_ROOT/bin/$SUBCOMMAND/$OTHER_VERSION" ]
+      then
+        err "\`$SUBCOMMAND\` is not available in $VERSION"
+        err "Run \`dalmatian version -v ${OTHER_VERSION#v}\` to make it available"
+      else
+        err "\`$SUBCOMMAND\` is not a dalmatian subcommand"
+      fi
+      exit 1
+    fi
+
+    err "Command not found: $(basename "${0}") ${SUBCOMMAND} ${COMMAND:=""}"
+
+    echo
+    echo "Usage:"
+
+    while IFS=  read -r -d $'\0'; do
+      echo "  $(basename "${0}") ${SUBCOMMAND} $(basename "${REPLY}")"
+    done < <(find "${APP_ROOT}/bin/$SUBCOMMAND/$VERSION" -maxdepth 1 -type f -print0)
+    while IFS=  read -r -d $'\0'; do
+      echo "  $(basename "${0}") ${SUBCOMMAND} $(basename "${REPLY}")"
+    done < <(find "${APP_ROOT}/bin/$SUBCOMMAND/$VERSION" -maxdepth 1 -type l -print0)
+
+    exit 1
+  fi
+
   # Run specified command with args
   "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" "${COMMAND_ARGS[@]}"
   exit 0
@@ -465,6 +502,18 @@ fi
 
 # If no COMMAND was specified, and SUBCOMMAND isn't an executable script
 if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]] || [[ ! -f "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" && ! -L "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" ]]; then
+  if [ ! -d "$APP_ROOT/bin/$SUBCOMMAND/$VERSION" ]
+  then
+    if [ -d "$APP_ROOT/bin/$SUBCOMMAND/$OTHER_VERSION" ]
+    then
+      err "\`$SUBCOMMAND\` is not available in $VERSION"
+      err "Run \`dalmatian version -v ${OTHER_VERSION#v}\` to make it available"
+    else
+      err "\`$SUBCOMMAND\` is not a dalmatian subcommand"
+    fi
+    exit 1
+  fi
+
   err "Command not found: $(basename "${0}") ${SUBCOMMAND} ${COMMAND:=""}"
 
   echo
@@ -472,7 +521,10 @@ if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]] || [[ ! -f "$APP_ROOT/bin/$SUBC
 
   while IFS=  read -r -d $'\0'; do
     echo "  $(basename "${0}") ${SUBCOMMAND} $(basename "${REPLY}")"
-  done < <(find "${APP_ROOT}/bin/$SUBCOMMAND" -maxdepth 1 -type f -print0)
+  done < <(find "${APP_ROOT}/bin/$SUBCOMMAND/$VERSION" -maxdepth 1 -type f -print0)
+  while IFS=  read -r -d $'\0'; do
+    echo "  $(basename "${0}") ${SUBCOMMAND} $(basename "${REPLY}")"
+  done < <(find "${APP_ROOT}/bin/$SUBCOMMAND/$VERSION" -maxdepth 1 -type l -print0)
 
   exit 1
 fi
