@@ -87,3 +87,8 @@ SESSION_TOKEN=$(echo "$CREDENTIALS" | jq -r .Credentials.SessionToken)
 export AWS_ACCESS_KEY_ID=$ACCESS_KEY_ID
 export AWS_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY
 export AWS_SESSION_TOKEN=$SESSION_TOKEN
+
+# AWS_CREDENTIAL_EXPIRATION may still be set from an AWS SSO session (up to 8h
+# out); botocore's env credential provider trusts it over the actual
+# expiration of the 1h role credentials above, and reports them as expired
+unset AWS_CREDENTIAL_EXPIRATION
