@@ -185,3 +185,9 @@ source /path/to/dalmatian-tools/support/zsh-completion.sh
   Set to 1 to skip the update prompt when there are local changes or the current
   version tag is newer than the remote. Useful when running a development
   version.
+
+- DALMATIAN_SKIP_UPDATE_CHECK
+  Set to 1 to skip the automatic update check that runs before every command.
+  `dalmatian update` can still be run explicitly. Note that if the check can't
+  reach Github (network failure, API rate limit, etc), it is skipped with a
+  warning anyway.

@@ -41,18 +41,38 @@ fi
 
 UPDATE_CHECK_LAST_COMPLETE_STATUS=$(jq -r '.complete_status' < "$CONFIG_UPDATE_CHECK_JSON_FILE")
 
+# Give up on the update check without failing the calling command, unless the
+# update was explicitly forced
+skip_update_check() {
+  if [ "$FORCE_UPDATE" == 1 ]
+  then
+    err "$1"
+    exit 1
+  fi
+  warning "$1 Skipping the update check."
+  exit 0
+}
+
 log_info -l "Checking for newer version ..." -q "$QUIET_MODE"
-RELEASE_JSON=$(curl -s "$GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL" | jq -r)
-
-GITHUB_MESSAGE=$(echo "$RELEASE_JSON" | jq -r '.message')
-
-if [ "$GITHUB_MESSAGE" != "null" ]
+if ! RELEASE_JSON=$(curl -sS --max-time 10 "$GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL" 2>&1)
 then
-  err "Github: $GITHUB_MESSAGE"
-  exit 1
+  skip_update_check "Could not reach Github: $RELEASE_JSON"
 fi
 
-LATEST_REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+GITHUB_MESSAGE=$(echo "$RELEASE_JSON" | jq -r '.message // empty' 2>/dev/null || true)
+
+if [ -n "$GITHUB_MESSAGE" ]
+then
+  skip_update_check "Github: $GITHUB_MESSAGE"
+fi
+
+LATEST_REMOTE_TAG=$(echo "$RELEASE_JSON" | jq -r '.tag_name // empty' 2>/dev/null || true)
+
+if [ -z "$LATEST_REMOTE_TAG" ]
+then
+  skip_update_check "Github: unexpected response from $GIT_DALMATIAN_TOOLS_API_REPOS_LATEST_RELEASE_URL."
+fi
+
 CURRENT_LOCAL_TAG=$(git -C "$APP_ROOT" describe --tags)
 LOCAL_CHANGES=$(git -C "$APP_ROOT" status -uno --porcelain)
 if [[
