@@ -1,0 +1,1170 @@
+#!/usr/bin/env bash
+
+# Add a user to AWS IAM Identity Center (SSO).
+#
+# Creates the user in the identity store, adds them to groups, and grants
+# permission sets on specific accounts. Idempotent: re-running tops up whatever
+# is missing rather than failing.
+#
+# NOTE: there is no API to send the Identity Center invitation email. This
+# command creates and authorises the user; sending them their login must still
+# be done from the console. The command prints the URL when it finishes.
+#
+# Uses fzf if it is installed and DALMATIAN_FZF_ENABLED is not 0, and falls back
+# to a numbered menu otherwise.
+
+set -euo pipefail
+
+# The SSO profile used to administer Identity Center. It targets the
+# organisation's management account, which `dalmatian aws generate-config` does
+# not write a profile for, so resolve_identity_center_profile creates it.
+#
+# PROFILE_OVERRIDE is read by resolve_identity_center_profile, not by anything in
+# this file. It is exported only so shellcheck does not report SC2034 for a
+# variable it cannot see being used; exported functions run in the calling shell,
+# so a plain global would work just as well.
+IDENTITY_CENTER_PROFILE_NAME="dalmatian-identity-center"
+IDENTITY_CENTER_PROFILE=""
+export PROFILE_OVERRIDE=""
+EMAIL=""
+FIRST_NAME=""
+LAST_NAME=""
+
+HAVE_FZF=0
+INSTANCE_ARN=""
+IDENTITY_STORE_ID=""
+
+# Set by load_aws_sso_setup, which resolve_identity_center_profile calls. Read by
+# print_summary, which is the operator's only pointer at the console step this
+# command cannot do for them. AWS_SSO_START_URL, AWS_SSO_REGION and
+# AWS_SSO_ADMIN_ROLE_NAME are also set there but not read here, so they are
+# deliberately not declared.
+CONSOLE_USERS_URL=""
+GROUP_ARGS=()
+GRANT_ARGS=()
+DRY_RUN=0
+ASSUME_YES=0
+
+usage() {
+  cat >&2 <<EOF
+Usage: dalmatian aws add-user [-e email] [-f first] [-l last] [-g group]... [-a permset:account]... [-p profile] [-n] [-y]
+
+Adds a user to AWS IAM Identity Center. Any omitted input is prompted for.
+
+  -e <email>            email address; also used as the username
+  -f <first>            given name (derived from the email if omitted)
+  -l <last>             family name (derived from the email if omitted)
+  -g <group>            group display name to join; repeatable
+  -a <permset:account>  grant a permission set on an account; repeatable.
+                        account may be a 12-digit ID or an account name
+  -p <profile>          AWS profile to administer Identity Center with.
+                        Defaults to $IDENTITY_CENTER_PROFILE_NAME, which is
+                        created automatically if it does not already exist
+  -n                    dry run: print the plan, make no AWS changes. Note this
+                        still creates the local $IDENTITY_CENTER_PROFILE_NAME
+                        profile if it is missing
+  -y                    non-interactive: skip the confirmation prompt, and take
+                        groups and grants only from -g/-a. Does not skip the
+                        name prompts, so pass -f/-l too when scripting
+  -h                    this help
+
+Examples:
+  dalmatian aws add-user -e jane.doe@example.com
+  dalmatian aws add-user -e jane.doe@example.com -f Jane -l Doe -g contractors \\
+      -a admin:my-account -a read-only:123456789012 -y
+EOF
+  exit 1
+}
+
+# All AWS calls funnel through here, so the profile is named in exactly one
+# place. Set by resolve_identity_center_profile before any call is made.
+aws_admin() {
+  aws --profile "$IDENTITY_CENTER_PROFILE" "$@"
+}
+
+parse_args() {
+  local OPTIND OPTARG opt
+  while getopts "e:f:l:g:a:p:nyh" opt; do
+    case "$opt" in
+    e) EMAIL="$OPTARG" ;;
+    f) FIRST_NAME="$OPTARG" ;;
+    l) LAST_NAME="$OPTARG" ;;
+    g) GROUP_ARGS+=("$OPTARG") ;;
+    a) GRANT_ARGS+=("$OPTARG") ;;
+    p) PROFILE_OVERRIDE="$OPTARG" ;;
+    n) DRY_RUN=1 ;;
+    y) ASSUME_YES=1 ;;
+    h) usage ;;
+    *) usage ;;
+    esac
+  done
+}
+
+DERIVED_FIRST=""
+DERIVED_LAST=""
+REPLY_LINE=""
+
+validate_email() {
+  local email=${1:-}
+  [[ "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]
+}
+
+# Split firstname.lastname out of the local part. Anything else is not guessed —
+# the caller prompts instead. Sets DERIVED_FIRST / DERIVED_LAST.
+derive_names() {
+  local email=${1:-}
+  DERIVED_FIRST=""
+  DERIVED_LAST=""
+
+  local local_part=${email%%@*}
+  [[ "$local_part" == *.* ]] || return 1
+
+  local first=${local_part%%.*}
+  local last=${local_part#*.}
+  [[ "$last" == *.* ]] && return 1
+  [[ -n "$first" && -n "$last" ]] || return 1
+  [[ "$first" =~ ^[A-Za-z-]+$ && "$last" =~ ^[A-Za-z-]+$ ]] || return 1
+
+  first=${first,,}
+  last=${last,,}
+  DERIVED_FIRST=${first^}
+  DERIVED_LAST=${last^}
+  return 0
+}
+
+# Read one line from stdin into REPLY_LINE, treating EOF as fatal.
+# A bare `read` that hits EOF inside a `while [[ -z ... ]]` loop spins forever
+# whenever `set -e` is not in force, so EOF is handled explicitly rather than
+# left to the loop guard.
+read_line_or_die() {
+  printf '%s' "$1" >&2
+  if ! IFS= read -r REPLY_LINE; then
+    printf '\n' >&2
+    die "unexpected end of input"
+  fi
+  # Trim leading and trailing whitespace. `IFS= read` preserves it, which the
+  # plain `read -r` this replaced did not, so without trimming a reply of "   "
+  # satisfies the `[[ -z ... ]]` loop guards and a user whose given name is three
+  # spaces reaches identitystore create-user. "  Smith  " would likewise be stored
+  # with its padding.
+  REPLY_LINE="${REPLY_LINE#"${REPLY_LINE%%[![:space:]]*}"}"
+  REPLY_LINE="${REPLY_LINE%"${REPLY_LINE##*[![:space:]]}"}"
+}
+
+# Fill EMAIL / FIRST_NAME / LAST_NAME, prompting only for what is missing.
+# Names given via -f/-l are used as-is: never re-prompted, never overwritten, and
+# never displayed as though they were up for revision.
+prompt_identity() {
+  while [[ -z "$EMAIL" ]]; do
+    read_line_or_die 'Email address: '
+    EMAIL=$REPLY_LINE
+    if ! validate_email "$EMAIL"; then
+      printf 'Not a valid email address.\n' >&2
+      EMAIL=""
+    fi
+  done
+  validate_email "$EMAIL" || die "not a valid email address: $EMAIL"
+
+  # Nothing to do if both names came from flags.
+  [[ -z "$FIRST_NAME" || -z "$LAST_NAME" ]] || return 0
+
+  derive_names "$EMAIL" || true   # failure just means there is no default to offer
+
+  # Both missing, and a derivation to offer: confirm the pair in one keystroke.
+  # A bare enter accepts. ANY other input means "let me correct it" and falls
+  # through to the per-field prompts — the reply is deliberately not parsed, and
+  # deliberately not discarded either. An earlier draft treated only 'n' as
+  # "correct" and silently swallowed everything else, so an operator who typed
+  # "Ed" got "Edward Smith" with no indication their input was ignored.
+  if [[ -z "$FIRST_NAME" && -z "$LAST_NAME" && -n "$DERIVED_FIRST" ]]; then
+    read_line_or_die "Name looks like \"$DERIVED_FIRST $DERIVED_LAST\" — enter to accept, anything else to correct: "
+    if [[ -z "$REPLY_LINE" ]]; then
+      FIRST_NAME=$DERIVED_FIRST
+      LAST_NAME=$DERIVED_LAST
+      return 0
+    fi
+  fi
+
+  # Per-field prompts, each offering its derived value in brackets. No reply
+  # parsing, so a one-word answer cannot be misread as both names.
+  while [[ -z "$FIRST_NAME" ]]; do
+    read_line_or_die "Given name${DERIVED_FIRST:+ [$DERIVED_FIRST]}: "
+    FIRST_NAME=${REPLY_LINE:-$DERIVED_FIRST}
+  done
+  while [[ -z "$LAST_NAME" ]]; do
+    read_line_or_die "Family name${DERIVED_LAST:+ [$DERIVED_LAST]}: "
+    LAST_NAME=${REPLY_LINE:-$DERIVED_LAST}
+  done
+}
+
+preflight() {
+  require_visible_plan "$ASSUME_YES" "$DRY_RUN"
+
+  command -v aws >/dev/null 2>&1 || die "aws CLI not found on PATH"
+  command -v jq >/dev/null 2>&1 || die "jq not found on PATH"
+
+  # DALMATIAN_FZF_ENABLED=0 forces the numbered fallback, matching the
+  # convention in bin/ec2/v2/shell and bin/terraform-dependencies/v2/set-tfvars.
+  if [[ "${DALMATIAN_FZF_ENABLED:-1}" == "1" ]] && command -v fzf >/dev/null 2>&1; then
+    HAVE_FZF=1
+  else
+    HAVE_FZF=0
+  fi
+
+  resolve_identity_center_profile
+  identity_center_instance
+}
+
+# Print a numbered menu on stderr and echo the chosen items on stdout.
+# single=1 restricts the reply to one index; single=0 allows any number.
+_numbered_select() {
+  local prompt=$1 single=$2
+  shift 2
+  local -a items=("$@")
+
+  local i
+  for i in "${!items[@]}"; do
+    printf '%4d) %s\n' "$((i + 1))" "${items[i]}" >&2
+  done
+
+  if ((single)); then
+    printf '%s (number): ' "$prompt" >&2
+  else
+    printf '%s (comma-separated numbers, blank for none): ' "$prompt" >&2
+  fi
+
+  local reply
+  read -r reply || true
+  [[ -n "$reply" ]] || return 0
+
+  local -a picks=()
+  IFS=',' read -ra picks <<<"$reply"
+  ((single && ${#picks[@]} > 1)) && die "pick one, not ${#picks[@]}"
+
+  # A mistyped index aborts the whole run via `die` rather than re-prompting.
+  # Decided, not defaulted: nothing has been written to AWS yet at this point
+  # in the flow, so the cost is re-entering the email/names/earlier picks,
+  # not a partial change on the AWS side.
+  local n
+  for n in "${picks[@]}"; do
+    # Trim leading/trailing whitespace (spaces AND tabs) the same way
+    # read_line_or_die does; a bare `${n// /}` strips spaces only, so a
+    # tab-padded field ("1,\t2") would die with an invisible character in
+    # the message instead of being accepted.
+    n="${n#"${n%%[![:space:]]*}"}"
+    n="${n%"${n##*[![:space:]]}"}"
+    [[ "$n" =~ ^[0-9]+$ ]] || die "not a number: '$n'"
+    # Force base 10: "08" is a valid index but an invalid octal literal, and
+    # bare `((n >= 1))` on it throws "value too great for base" instead of
+    # the clean out-of-range/accepted result the operator typed.
+    n=$((10#$n))
+    ((n >= 1 && n <= ${#items[@]})) || die "out of range: $n"
+    printf '%s\n' "${items[n - 1]}"
+  done
+}
+
+# fzf exit statuses: 0 = something selected, 1 = no match, 130 = aborted with
+# Esc or Ctrl-C. All three legitimately mean "carry on with whatever was
+# selected, possibly nothing". Anything else is a real failure — 2 is an fzf
+# error, 126/127 mean the binary stopped being usable between preflight and
+# here, and an older fzf may reject an option. A bare `|| true` would report
+# every one of those as "the operator selected nothing" and silently continue
+# with no groups or no grants, which is precisely the wrong outcome for a
+# tool that grants access.
+fzf_status_or_die() {
+  case $1 in
+  0 | 1 | 130) return 0 ;;
+  *) die "fzf failed with exit status $1" ;;
+  esac
+}
+
+# fzf when available, else the numbered fallback. Items arrive as arguments
+# (not stdin) precisely so the fallback's `read` never competes with them.
+select_many() {
+  local prompt=$1
+  shift
+  (($#)) || return 0
+
+  if ((HAVE_FZF)); then
+    local out rc=0
+    out=$(printf '%s\n' "$@" | fzf --multi --height=40% --prompt="$prompt > ") || rc=$?
+    fzf_status_or_die "$rc"
+    [[ -z "$out" ]] || printf '%s\n' "$out"
+    return 0
+  fi
+  _numbered_select "$prompt" 0 "$@"
+}
+
+select_one() {
+  local prompt=$1
+  shift
+  (($#)) || return 0
+
+  if ((HAVE_FZF)); then
+    local out rc=0
+    out=$(printf '%s\n' "$@" | fzf --height=40% --prompt="$prompt > ") || rc=$?
+    fzf_status_or_die "$rc"
+    [[ -z "$out" ]] || printf '%s\n' "$out"
+    return 0
+  fi
+  _numbered_select "$prompt" 1 "$@"
+}
+
+declare -A GROUP_IDS=()
+declare -A GROUP_ID_TO_NAME=()
+declare -A PERMSET_ARNS=()
+declare -A PERMSET_ARN_TO_NAME=()
+declare -A ACCOUNT_IDS=()
+declare -A ACCOUNT_ID_TO_NAME=()
+GROUP_LIST=()
+PERMSET_LIST=()
+ACCOUNT_LIST=()
+
+# Fetches groups, permission sets and accounts and builds the lookup maps and
+# picker lists used by resolve_group/resolve_permission_set/resolve_account.
+# Safe to call more than once: it clears its own state first, rather than
+# accumulating, so a second call starts clean.
+#
+# Every response is checked three ways before use, applying the same lesson
+# preflight already learned: `jq` on unparseable input exits non-zero (killed
+# under `set -e` by the unchecked `count=$(jq ...)` idiom if not caught with
+# `||`), on a wrong-shaped-but-still-JSON body it can exit non-zero too (an
+# explicit array-type check below extends that to shapes jq itself would
+# otherwise accept, e.g. an object standing in for an array), and on
+# completely empty input it exits 0 with empty output — indistinguishable
+# from a genuinely empty list unless checked for separately.
+#
+# AWS CLI v2 paginates internally and merges into one array for --output json,
+# so none of these need explicit paging.
+#
+# jq's @tsv escapes literal tabs and backslashes in field values, so a group
+# or account name containing either lands in the corresponding _LIST array
+# already backslash-escaped and then fails to resolve. This fails closed
+# (an operator sees "unknown group", not a misresolved one) rather than
+# misresolving, and real names in this org are tame, so it is left as a
+# documented limitation rather than switched to NUL-separated fields.
+#
+# Group display names and permission set names are unique in Identity
+# Center, but that uniqueness is enforced case-sensitively, while the lookup
+# keys built below are lowercased — so two upstream names differing only by
+# case (e.g. "Admin" and "admin") would otherwise collide into one key, and
+# the picker would keep offering both while only one was ever reachable.
+# Unlike a duplicate account name, there is no id an operator could supply
+# instead of a group/permission-set name, so this dies immediately on such a
+# collision rather than deferring to resolve_group/resolve_permission_set.
+load_directory() {
+  GROUP_IDS=()
+  GROUP_ID_TO_NAME=()
+  PERMSET_ARNS=()
+  PERMSET_ARN_TO_NAME=()
+  ACCOUNT_IDS=()
+  ACCOUNT_ID_TO_NAME=()
+  GROUP_LIST=()
+  PERMSET_LIST=()
+  ACCOUNT_LIST=()
+
+  local json tsv line name id arn key
+
+  json=$(aws_admin identitystore list-groups \
+    --identity-store-id "$IDENTITY_STORE_ID" --output json) ||
+    die "failed to list groups"
+  [[ -n "$json" ]] || die "empty response from identitystore list-groups"
+  tsv=$(jq -r '
+      if (.Groups | type) != "array" then error("Groups is not an array")
+      else (.Groups | sort_by(.DisplayName) | .[] |
+            [(.DisplayName // ""), (.GroupId // "")] | @tsv)
+      end' <<<"$json" 2>/dev/null) ||
+    die "could not parse the response from identitystore list-groups"
+  # Guarded on $tsv being non-empty: an empty tsv means genuinely zero groups
+  # (a valid, empty `.Groups`), and `<<<""` still hands `read` one empty
+  # line, which must not be mistaken for a malformed row below.
+  if [[ -n "$tsv" ]]; then
+    # Split on the first tab with parameter expansion rather than
+    # `IFS=$'\t' read -r name id`: bash's `read` treats tab as "IFS
+    # whitespace" and silently strips a field that is empty AND adjacent to
+    # the delimiter, which for a leading empty DisplayName would misparse
+    # the row as if GroupId were the DisplayName and DisplayName were
+    # missing instead — the exact inversion the die message below exists to
+    # avoid. %%/# substring removal has no such whitespace-stripping
+    # behaviour.
+    while IFS= read -r line; do
+      name=${line%%$'\t'*}
+      id=${line#*$'\t'}
+      [[ -n "$name" && -n "$id" ]] ||
+        die "identitystore list-groups returned a group with a missing DisplayName or GroupId (DisplayName='$name', GroupId='$id')"
+      key=${name,,}
+      if [[ -n "${GROUP_IDS[$key]:-}" ]]; then
+        die "two groups differ only by case, which is indistinguishable once lowercased for lookup: '${GROUP_ID_TO_NAME[${GROUP_IDS[$key]}]:-<unknown>}' and '$name'. Rename one of them in Identity Center and re-run."
+      fi
+      GROUP_IDS["$key"]=$id
+      # Read by load_current_state to name the group an inherited grant came
+      # through.
+      GROUP_ID_TO_NAME["$id"]=$name
+      GROUP_LIST+=("$name")
+    done <<<"$tsv"
+  fi
+
+  # list-permission-sets returns ARNs only, so each needs a describe call for
+  # its name.
+  json=$(aws_admin sso-admin list-permission-sets \
+    --instance-arn "$INSTANCE_ARN" --output json) ||
+    die "failed to list permission sets"
+  [[ -n "$json" ]] || die "empty response from sso-admin list-permission-sets"
+  tsv=$(jq -r '
+      if (.PermissionSets | type) != "array" then error("PermissionSets is not an array")
+      else .PermissionSets[]
+      end' <<<"$json" 2>/dev/null) ||
+    die "could not parse the response from sso-admin list-permission-sets"
+  # This loop has no `if [[ -n "$tsv" ]]` empty-guard like the groups and
+  # accounts loops above and below, and uses `continue` rather than `die` for
+  # an empty $arn: `<<<""` still hands `read` one empty line, and an instance
+  # with genuinely zero permission sets must not be fatal. Deliberate
+  # asymmetry, not an oversight.
+  while IFS= read -r arn; do
+    [[ -n "$arn" ]] || continue
+    name=$(aws_admin sso-admin describe-permission-set \
+      --instance-arn "$INSTANCE_ARN" --permission-set-arn "$arn" \
+      --query 'PermissionSet.Name' --output text) ||
+      die "failed to describe permission set $arn"
+    # `--output text` prints the literal string "None" for a missing field,
+    # same class of gotcha as jq -r printing "null" — checked in preflight.
+    [[ -n "$name" && "$name" != "None" ]] ||
+      die "sso-admin describe-permission-set returned no name for $arn"
+    key=${name,,}
+    if [[ -n "${PERMSET_ARNS[$key]:-}" ]]; then
+      die "two permission sets differ only by case, which is indistinguishable once lowercased for lookup: '${PERMSET_ARN_TO_NAME[${PERMSET_ARNS[$key]}]:-<unknown>}' and '$name'. Rename one of them in Identity Center and re-run."
+    fi
+    PERMSET_ARNS["$key"]=$arn
+    # Read by parse_grant_arg to build the display name into each grant
+    # tuple.
+    PERMSET_ARN_TO_NAME["$arn"]=$name
+    PERMSET_LIST+=("$name")
+  done <<<"$tsv"
+
+  json=$(aws_admin organizations list-accounts --output json) ||
+    die "failed to list accounts"
+  [[ -n "$json" ]] || die "empty response from organizations list-accounts"
+  tsv=$(jq -r '
+      if (.Accounts | type) != "array" then error("Accounts is not an array")
+      else (.Accounts | map(select(.Status == "ACTIVE")) | sort_by(.Name) | .[] |
+            [(.Id // ""), (.Name // "")] | @tsv)
+      end' <<<"$json" 2>/dev/null) ||
+    die "could not parse the response from organizations list-accounts"
+  # Same reasoning as the groups guard above: an empty tsv is genuinely zero
+  # active accounts, not a malformed row.
+  #
+  # Unlike the groups/permission-sets guards, a malformed account row warns
+  # and skips rather than dying outright. For groups/permission-sets, `die`
+  # is the only option: the row is unreachable either way and there is no
+  # fallback. For accounts, one bad row in a large org would otherwise kill
+  # the whole tool, including the `-a 123456789012` escape hatch — which
+  # still works without the name map, since a 12-digit id needs no name
+  # lookup — so a hard die here is disproportionate to the original
+  # complaint (silent, invisible dropping). Warn to stderr and move on.
+  if [[ -n "$tsv" ]]; then
+    # Same reason as the groups loop above: substring removal, not
+    # `IFS=$'\t' read`, so a leading empty Id is not misparsed as Name.
+    while IFS= read -r line; do
+      id=${line%%$'\t'*}
+      name=${line#*$'\t'}
+      if [[ -z "$id" || -z "$name" ]]; then
+        warning "$(printf "organizations list-accounts returned an account with a missing Id or Name (Id='%s', Name='%s'); skipping this account." \
+          "$id" "$name")"
+        continue
+      fi
+      key=${name,,}
+      # Account names are not unique in an org. Flag collisions rather than
+      # silently resolving to whichever came last. An account genuinely named
+      # "AMBIGUOUS" is safe: the sentinel lives in the value namespace, where
+      # every real value is a 12-digit id, while account names are only ever
+      # used as keys here, never as values — so there is no way for a real
+      # name to collide with the sentinel itself.
+      if [[ -n "${ACCOUNT_IDS[$key]:-}" ]]; then
+        ACCOUNT_IDS["$key"]="AMBIGUOUS"
+      else
+        ACCOUNT_IDS["$key"]=$id
+      fi
+      ACCOUNT_ID_TO_NAME["$id"]=$name
+      # Format is "name (id)". collect_inputs parses the id back out of this
+      # string; account ids are always exactly 12 digits and never contain
+      # parentheses, so splitting on the LAST " (" and stripping the trailing
+      # ")" is unambiguous even for a name that itself contains parentheses.
+      ACCOUNT_LIST+=("$name ($id)")
+    done <<<"$tsv"
+  fi
+}
+
+# Group display names are unique in Identity Center, but that uniqueness is
+# case-sensitive while the lookup key here is lowercased; load_directory
+# already dies on the one way that could still collide (two names differing
+# only by case), so by the time this runs an exact case-insensitive match is
+# unambiguous. Matching is deliberately exact, not substring: a group named
+# "contractors" must never satisfy a lookup for "contract".
+resolve_group() {
+  local key=${1,,}
+  [[ -n "${GROUP_IDS[$key]:-}" ]] ||
+    die "unknown group '$1'. Available: $(IFS=,; printf '%s' "${GROUP_LIST[*]}")"
+  printf '%s\n' "${GROUP_IDS[$key]}"
+}
+
+# Permission set names are unique in Identity Center, same reasoning as
+# resolve_group: load_directory already dies on a case-only collision, so an
+# exact case-insensitive match here is unambiguous too.
+resolve_permission_set() {
+  local key=${1,,}
+  # Space-joined, not comma-joined like resolve_group's list: AWS restricts
+  # permission set names to [\w+=,.@-]+ (no spaces), so a space can never be
+  # part of a name and thus can never be confused with a name boundary here.
+  [[ -n "${PERMSET_ARNS[$key]:-}" ]] ||
+    die "unknown permission set '$1'. Available: ${PERMSET_LIST[*]}"
+  printf '%s\n' "${PERMSET_ARNS[$key]}"
+}
+
+# Accounts may be given as a 12-digit id or a name. Names are NOT guaranteed
+# unique in an org, so a name that collided during load_directory resolves to
+# the AMBIGUOUS sentinel here and must be re-supplied as an id — which still
+# works, since ACCOUNT_ID_TO_NAME is keyed per-id regardless of name
+# collisions.
+resolve_account() {
+  local in=$1
+  if [[ "$in" =~ ^[0-9]{12}$ ]]; then
+    [[ -n "${ACCOUNT_ID_TO_NAME[$in]:-}" ]] ||
+      die "account id '$in' is not an active account in this organisation"
+    printf '%s\n' "$in"
+    return 0
+  fi
+
+  local key=${in,,}
+  local id=${ACCOUNT_IDS[$key]:-}
+  [[ -n "$id" ]] ||
+    die "unknown account '$in'; use the 12-digit account ID, or omit -a to pick from a list"
+  [[ "$id" != "AMBIGUOUS" ]] ||
+    die "account name '$in' is ambiguous; use the 12-digit account ID instead"
+  printf '%s\n' "$id"
+}
+
+USER_ID=""
+USER_EXISTS=0
+TARGET_GROUP_IDS=()
+
+# Field separator for each GRANTS tuple (see parse_grant_arg below). '|' was
+# the original choice but is not provably safe: Organizations permits any
+# printable ASCII in an account name, which includes '|', and a permission
+# set ARN or account id can never contain it but an account NAME could. The
+# ASCII unit separator cannot appear in any AWS-supplied value, so it is used
+# for both joining and splitting instead.
+readonly GRANT_TUPLE_SEP=$'\x1f'
+
+GRANTS=()
+declare -A EXISTING_MEMBERSHIP=()
+declare -A DIRECT_ASSIGNMENT=()
+declare -A INHERITED_ASSIGNMENT=()
+
+# Key format shared by DIRECT_ASSIGNMENT/INHERITED_ASSIGNMENT (accountId,
+# permSetArn) below. GRANTS tuples use a different separator (GRANT_TUPLE_SEP)
+# AND the opposite field order (permSetArn, accountId) — a consumer that
+# builds its own "$arn|$acct" to probe these maps would transpose the fields
+# and silently miss every match. Routing both the producer here and any later
+# consumer through this one function makes that typo structurally impossible
+# instead of a reviewable convention.
+assignment_key() {
+  printf '%s|%s\n' "$1" "$2"
+}
+
+# Resolves EMAIL to an existing identity store user. Sets USER_ID and
+# USER_EXISTS=1 on a match. ResourceNotFoundException is the ordinary "this is
+# a new user" outcome, not an error: USER_ID/USER_EXISTS are cleared and this
+# returns 0 so the caller proceeds to create one. Any other failure — a typo'd
+# profile, an expired session, a throttled call — aborts instead, since
+# silently treating it as "new user" risks creating a duplicate account for
+# someone who already has one.
+lookup_user() {
+  USER_ID=""
+  USER_EXISTS=0
+
+  # Unlike load_current_state's list-account-assignments-for-principal call
+  # below, this folds aws's stderr into $out (2>&1) rather than letting it
+  # pass through untouched. That is deliberate here, not an oversight: the
+  # not-found classification just below needs the error text, and there is
+  # no separate variable to put it in without a second call. The asymmetry
+  # fails closed rather than open — a stray CLI warning on stderr during an
+  # otherwise-successful call would corrupt $out's JSON and be caught by the
+  # jq-parse-status check a few lines down, surfacing as "could not parse"
+  # rather than silently misreading a warning as part of the response.
+  local out rc=0
+  out=$(aws_admin identitystore get-user-id \
+    --identity-store-id "$IDENTITY_STORE_ID" \
+    --alternate-identifier "{\"UniqueAttribute\":{\"AttributePath\":\"UserName\",\"AttributeValue\":\"$EMAIL\"}}" \
+    --output json 2>&1) || rc=$?
+
+  if ((rc != 0)); then
+    # Matched against the CLI's stable error prefix, not a bare
+    # "ResourceNotFoundException" substring, so a message that merely
+    # mentions the exception name (e.g. inside a differently-shaped error)
+    # cannot be misread as the routine not-found outcome. A bogus
+    # IDENTITY_STORE_ID producing this same exception for an unrelated
+    # reason is not a concern here: it comes from preflight, which already
+    # validates it non-empty before this function can run.
+    [[ "$out" == *"An error occurred (ResourceNotFoundException)"* ]] && return 0
+    die "failed looking up user '$EMAIL': $out"
+  fi
+
+  # `// empty` plus an explicit jq-status check, same reasoning as preflight:
+  # `jq -r` alone would print the literal string "null" for a missing UserId
+  # and this would then quietly try to act on a user id of "null".
+  local id
+  id=$(jq -r '.UserId // empty' <<<"$out" 2>/dev/null) ||
+    die "could not parse the response from identitystore get-user-id"
+  [[ -n "$id" ]] ||
+    die "identitystore get-user-id returned no UserId for $EMAIL"
+
+  USER_ID=$id
+  USER_EXISTS=1
+}
+
+# Appends one GRANT_TUPLE_SEP-joined "permSetArn/accountId/permSetName/accountName"
+# entry to GRANTS for a single "-a PermissionSet:account" argument. The
+# permission set side cannot itself contain a colon (AWS restricts permission
+# set names to [\w+=,.@-]+), so splitting on the FIRST colon is unambiguous;
+# anything after it, however many further colons it contains, is passed whole
+# to resolve_account, which fails closed (unknown account) rather than
+# misparsing it. Neither side is trimmed: -a values arrive via getopts the
+# same way -e/-f/-l do, and those are never trimmed either, so a stray space
+# fails closed through resolve_permission_set/resolve_account's exact-match
+# lookups instead of being silently absorbed.
+parse_grant_arg() {
+  local arg=$1
+  [[ "$arg" == *:* ]] ||
+    die "invalid -a value '$arg', expected 'PermissionSet:account'"
+
+  local ps_name=${arg%%:*}
+  local acct_in=${arg#*:}
+  [[ -n "$ps_name" && -n "$acct_in" ]] ||
+    die "invalid -a value '$arg', expected 'PermissionSet:account'"
+
+  local arn account_id
+  arn=$(resolve_permission_set "$ps_name")
+  account_id=$(resolve_account "$acct_in")
+
+  GRANTS+=("$arn$GRANT_TUPLE_SEP$account_id$GRANT_TUPLE_SEP${PERMSET_ARN_TO_NAME[$arn]}$GRANT_TUPLE_SEP${ACCOUNT_ID_TO_NAME[$account_id]}")
+}
+
+# For an existing user only, populates:
+#   EXISTING_MEMBERSHIP[GroupId]=1               — already a member of this target group
+#   DIRECT_ASSIGNMENT[accountId|permSetArn]=1    — already holds this grant directly
+#   INHERITED_ASSIGNMENT[accountId|permSetArn]=name — holds it only via group membership
+#
+# list-account-assignments-for-principal --principal-type USER returns BOTH
+# the user's own direct grants AND grants they merely inherit through group
+# membership, distinguished only by each row's PrincipalType. A row counts as
+# direct only when PrincipalType == "USER" AND PrincipalId == USER_ID —
+# belt-and-braces on top of the account+permission-set key, matching what the
+# live directory actually returns (verified against it: an existing user's
+# response contained PrincipalType: GROUP rows). Treating account+permset
+# alone as "already has it directly" would make do_add_assignments skip creating a
+# grant the operator explicitly asked for.
+#
+# A brand-new user (USER_EXISTS=0) has nothing to fetch: return before any
+# AWS call so a fresh-user run never touches the network for this.
+load_current_state() {
+  EXISTING_MEMBERSHIP=()
+  DIRECT_ASSIGNMENT=()
+  INHERITED_ASSIGNMENT=()
+
+  ((USER_EXISTS)) || return 0
+
+  local gid out rc
+  for gid in ${TARGET_GROUP_IDS[@]+"${TARGET_GROUP_IDS[@]}"}; do
+    rc=0
+    out=$(aws_admin identitystore get-group-membership-id \
+      --identity-store-id "$IDENTITY_STORE_ID" \
+      --group-id "$gid" \
+      --member-id "{\"UserId\":\"$USER_ID\"}" 2>&1) || rc=$?
+
+    if ((rc == 0)); then
+      EXISTING_MEMBERSHIP["$gid"]=1
+    elif [[ "$out" == *"An error occurred (ResourceNotFoundException)"* ]]; then
+      : # not a member yet — nothing to record
+    else
+      # A genuine error (throttling, permissions, ...) must not be read as
+      # "not a member": that would have do_add_groups attempt to add a
+      # membership that may already exist. Matched against the CLI's stable
+      # error prefix, not a bare substring, for the same reason as
+      # lookup_user; a bogus IDENTITY_STORE_ID misclassifying here is
+      # unreachable too, for the same reason — preflight validates it
+      # non-empty before this function can run.
+      die "failed checking group membership for group '$gid': $out"
+    fi
+  done
+
+  # Deliberately not redirecting aws's stderr into the variable here, same
+  # reasoning as preflight's list-instances call: a real failure should reach
+  # the terminal untouched, not get folded into $json and corrupt the JSON.
+  local json
+  json=$(aws_admin sso-admin list-account-assignments-for-principal \
+    --instance-arn "$INSTANCE_ARN" \
+    --principal-id "$USER_ID" \
+    --principal-type USER \
+    --output json) || die "failed to list existing assignments"
+
+  # `(if has("AccountAssignments") ... else [] end)` treats a MISSING key as
+  # zero assignments — verified against the live API for a principal with
+  # direct grants, which does return the key populated; a group-only user
+  # (the commonest idempotent re-run target: every group-only grant is
+  # exactly this shape) was not reachable to confirm the empty/absent case
+  # against, and some AWS APIs omit empty collections entirely, so absence is
+  # treated the same as an empty `[]` rather than left to become a parse
+  # failure that would make the tool unusable for precisely that case. An
+  # explicit `null` value is still a parse failure, same as non-JSON:
+  # `has()` distinguishes "key absent" from "key present but null", which
+  # `// []` alone cannot, since both look identical to jq as `null`.
+  local tsv
+  tsv=$(jq -r '
+      (if has("AccountAssignments") then .AccountAssignments else [] end) as $aa |
+      if ($aa | type) != "array" then error("AccountAssignments is not an array")
+      else ($aa[] |
+            [(.AccountId // ""), (.PermissionSetArn // ""), (.PrincipalType // ""), (.PrincipalId // "")] | @tsv)
+      end' <<<"$json" 2>/dev/null) ||
+    die "could not parse the response from sso-admin list-account-assignments-for-principal"
+
+  # Guarded the same way load_directory guards its tsv loops: an empty $tsv
+  # means genuinely zero assignments, and `<<<""` still hands `read` one
+  # empty line that must not be mistaken for a malformed row.
+  if [[ -n "$tsv" ]]; then
+    # Split on tabs with parameter expansion, not `IFS=$'\t' read -r acct arn
+    # ptype pid`: tab is IFS *whitespace*, so bash's `read` silently drops an
+    # empty field adjacent to the delimiter and shifts every later field left
+    # by one — a missing AccountId would then land $arn's value in $acct,
+    # past the `[[ -n "$acct" ]]` guard below undetected. Same class of bug
+    # load_directory's groups/accounts loops already avoid with %%/#
+    # substring removal; verified this exact read pattern misparses both a
+    # leading and a middle empty field before replacing it.
+    local line rest acct arn ptype pid
+    while IFS= read -r line; do
+      acct=${line%%$'\t'*}
+      rest=${line#*$'\t'}
+      arn=${rest%%$'\t'*}
+      rest=${rest#*$'\t'}
+      ptype=${rest%%$'\t'*}
+      pid=${rest#*$'\t'}
+      [[ -n "$acct" ]] || continue
+      if [[ "$ptype" == "USER" && "$pid" == "$USER_ID" ]]; then
+        DIRECT_ASSIGNMENT[$(assignment_key "$acct" "$arn")]=1
+      elif [[ "$ptype" != "GROUP" && "$ptype" != "USER" ]]; then
+        # Neither USER nor GROUP, or PrincipalType absent entirely: drop the
+        # row rather than guess which map it belongs in. The fail-safe
+        # direction matters — dropping it means do_add_assignments attempts
+        # the grant anyway, rather than wrongly reporting it already held via
+        # a raw, unrecognised principal id and skipping a grant the operator
+        # asked for. Warned, not silent, matching load_directory's
+        # malformed-account-row precedent. Deliberately excludes a "USER"
+        # row for a different principal id (handled by the first branch's
+        # failing pid check, not here): that shape is a recognised type
+        # merely belonging to someone else, not a malformed row, so it is
+        # dropped silently just below rather than warned about.
+        warning "$(printf 'sso-admin list-account-assignments-for-principal returned an assignment with an unrecognised PrincipalType (AccountId=%s, PermissionSetArn=%s, PrincipalType=%s, PrincipalId=%s); treating it as not held.' \
+          "$acct" "$arn" "$ptype" "$pid")"
+      elif [[ "$ptype" == "GROUP" ]]; then
+        INHERITED_ASSIGNMENT[$(assignment_key "$acct" "$arn")]=${GROUP_ID_TO_NAME[$pid]:-$pid}
+      fi
+    done <<<"$tsv"
+  fi
+}
+
+# Renders the plan: what will be created versus reused, and which target
+# groups/grants are genuine changes versus already in place. This is the
+# operator's only chance to catch a mistake before any AWS write happens, so
+# every branch below must say plainly what WILL happen — under-reporting a
+# change (e.g. showing "already granted" for something that will actually be
+# created) is worse than no plan at all.
+#
+# Read-only: never mutates IDENTITY_CENTER_PROFILE/EMAIL/USER_EXISTS/
+# TARGET_GROUP_IDS/GRANTS/EXISTING_MEMBERSHIP/DIRECT_ASSIGNMENT/
+# INHERITED_ASSIGNMENT. The confirmation gate and (on a dry run) the caller
+# both run after this and need every one of them exactly as
+# load_current_state left it.
+#
+# Every dynamic value is passed to printf as an argument, never interpolated
+# into the format string itself, so a group/account/permission-set name
+# containing '%s', quotes, '*', or a leading '-' renders literally instead of
+# being reinterpreted as a printf directive.
+print_plan() {
+  esc_msg ""
+  esc_msg "Plan"
+  esc_msg "===="
+  # DRY_RUN only ever affects whether this plan is followed by real AWS
+  # writes or the operator simply reads it and exits; the classification of
+  # each group/grant below is identical either way, so this is the only place
+  # -n has any visible effect within this function.
+  #
+  # Blank-line-separated rather than folded in among profile:/username:
+  # below: every action line further down still reads ADD regardless of
+  # DRY_RUN, so without a banner that is hard to skim past, a dry-run plan
+  # is visually indistinguishable from a live one. `if` rather than
+  # `((DRY_RUN)) && log_msg ...`, so a false condition can never become the
+  # function's exit status under `set -e`.
+  if ((DRY_RUN)); then
+    esc_msg ""
+    esc_msg "  DRY RUN — no AWS changes will be made"
+    esc_msg ""
+  fi
+  esc_msg "$(printf '  profile:        %s' "$IDENTITY_CENTER_PROFILE")"
+  esc_msg "$(printf '  identity store: %s' "$IDENTITY_STORE_ID")"
+  esc_msg "$(printf '  username:       %s' "$EMAIL")"
+  esc_msg "$(printf '  display name:   %s %s' "$FIRST_NAME" "$LAST_NAME")"
+
+  if ((USER_EXISTS)); then
+    esc_msg "$(printf '  user:           REUSE existing user (%s)' "$USER_ID")"
+  else
+    esc_msg "  user:           CREATE new user"
+  fi
+
+  esc_msg ""
+  esc_msg "  Groups:"
+  if ((${#TARGET_GROUP_IDS[@]} == 0)); then
+    esc_msg "    (none)"
+  else
+    local gid gname
+    for gid in "${TARGET_GROUP_IDS[@]}"; do
+      gname=${GROUP_ID_TO_NAME[$gid]:-$gid}
+      if [[ -n "${EXISTING_MEMBERSHIP[$gid]:-}" ]]; then
+        esc_msg "$(printf "    skip   already a member of '%s'" "$gname")"
+      else
+        esc_msg "$(printf "    ADD    add to '%s'" "$gname")"
+      fi
+    done
+  fi
+
+  esc_msg ""
+  esc_msg "  Account grants:"
+  if ((${#GRANTS[@]} == 0)); then
+    esc_msg "    (none)"
+  else
+    # Field order is permSetArn/accountId/permSetName/accountName (see
+    # parse_grant_arg), joined on GRANT_TUPLE_SEP — NOT '|', which an account
+    # or permission-set name could legitimately contain. The lookup key into
+    # DIRECT_ASSIGNMENT/INHERITED_ASSIGNMENT is the opposite order
+    # (accountId, permSetArn); built via assignment_key rather than by hand
+    # so that ordering mistake cannot creep back in here.
+    local entry arn account_id ps_name account_name key via
+    for entry in "${GRANTS[@]}"; do
+      IFS="$GRANT_TUPLE_SEP" read -r arn account_id ps_name account_name <<<"$entry"
+      key=$(assignment_key "$account_id" "$arn")
+      if [[ -n "${DIRECT_ASSIGNMENT[$key]:-}" ]]; then
+        esc_msg "$(printf "    skip   already granted directly: '%s' on %s (%s)" \
+          "$ps_name" "$account_name" "$account_id")"
+      elif [[ -n "${INHERITED_ASSIGNMENT[$key]:-}" ]]; then
+        # Created anyway, not skipped: the operator explicitly asked for this
+        # grant, and if the group membership above is ever removed later,
+        # silently having skipped it here would revoke access nobody asked
+        # to revoke. Flagged so the operator knows it is currently redundant.
+        via=${INHERITED_ASSIGNMENT[$key]}
+        esc_msg "$(printf "    ADD    grant '%s' on %s (%s)  [redundant — inherited from group '%s']" \
+          "$ps_name" "$account_name" "$account_id" "$via")"
+      else
+        esc_msg "$(printf "    ADD    grant '%s' on %s (%s)" "$ps_name" "$account_name" "$account_id")"
+      fi
+    done
+  fi
+  esc_msg ""
+}
+
+FAILURES=0
+ASSIGNMENT_REQUESTS=()
+POLL_INTERVAL=2
+POLL_ATTEMPTS=60
+
+# The only fatal write: nothing downstream (group membership, grants) has a
+# principal to attach to without a UserId, so there is no useful way to
+# "continue past" a failure here the way do_add_groups/do_add_assignments do.
+do_create_user() {
+  if ((USER_EXISTS)); then
+    esc_info "$(printf 'Reusing existing user %s (%s)' "$EMAIL" "$USER_ID")"
+    return 0
+  fi
+
+  esc_info "$(printf 'Creating user %s' "$EMAIL")"
+
+  # --name is passed as JSON rather than the CLI's `Key=Value,Key=Value`
+  # shorthand. FIRST_NAME and LAST_NAME are free text — from -f/-l or a prompt —
+  # and are only whitespace-trimmed, never validated, so a name containing a
+  # comma ("Jane, Q") breaks shorthand parsing into an opaque failure, and one
+  # containing `=` could supply a duplicate or unintended key. jq -n quotes and
+  # escapes both values properly. --emails is left as shorthand because
+  # validate_email already excludes both `,` and `=` from EMAIL.
+  local name_json
+  name_json=$(jq -nc --arg given "$FIRST_NAME" --arg family "$LAST_NAME" \
+    '{GivenName: $given, FamilyName: $family}') ||
+    die "could not build the name JSON for $EMAIL"
+
+  USER_ID=$(aws_admin identitystore create-user \
+    --identity-store-id "$IDENTITY_STORE_ID" \
+    --user-name "$EMAIL" \
+    --name "$name_json" \
+    --display-name "$FIRST_NAME $LAST_NAME" \
+    --emails "Value=$EMAIL,Type=work,Primary=true" \
+    --query UserId --output text) ||
+    die "failed to create user $EMAIL"
+  [[ -n "$USER_ID" && "$USER_ID" != "None" ]] ||
+    die "identitystore create-user returned no UserId for $EMAIL"
+  esc_msg "$(printf '    UserId: %s' "$USER_ID")"
+}
+
+# Individual failures are reported and counted, not fatal: a malformed group
+# name must not cost the operator every other grant queued behind it.
+do_add_groups() {
+  ((${#TARGET_GROUP_IDS[@]})) || return 0
+
+  local gid gname out rc
+  for gid in "${TARGET_GROUP_IDS[@]}"; do
+    gname=${GROUP_ID_TO_NAME[$gid]:-$gid}
+    if [[ -n "${EXISTING_MEMBERSHIP[$gid]:-}" ]]; then
+      esc_info "$(printf "Already a member of '%s', skipping" "$gname")"
+      continue
+    fi
+
+    esc_info "$(printf "Adding to group '%s'" "$gname")"
+    rc=0
+    out=$(aws_admin identitystore create-group-membership \
+      --identity-store-id "$IDENTITY_STORE_ID" \
+      --group-id "$gid" \
+      --member-id "{\"UserId\":\"$USER_ID\"}" 2>&1) || rc=$?
+
+    if ((rc != 0)); then
+      # Belt and braces: load_current_state's pre-check is the primary
+      # idempotency mechanism, but state can still change underneath us
+      # between then and now.
+      if [[ "$out" == *ConflictException* ]]; then
+        esc_msg "    already a member, skipping"
+      else
+        err "$(printf "failed to add to group '%s': %s" "$gname" "$out")"
+        FAILURES=$((FAILURES + 1))
+      fi
+    fi
+  done
+}
+
+# Same non-fatal-per-item contract as do_add_groups. A grant that is only
+# INHERITED (via a group) is still created here, not skipped: the operator
+# explicitly asked for it, and removing the group later must not silently
+# revoke access nobody asked to revoke.
+do_add_assignments() {
+  ((${#GRANTS[@]})) || return 0
+
+  local entry arn account_id ps_name account_name key desc out rc request_id
+  for entry in "${GRANTS[@]}"; do
+    # GRANTS tuples are joined on GRANT_TUPLE_SEP, not '|' — an account or
+    # permission-set name could legitimately contain '|'. See its
+    # declaration and print_plan for the same split.
+    IFS="$GRANT_TUPLE_SEP" read -r arn account_id ps_name account_name <<<"$entry"
+    key=$(assignment_key "$account_id" "$arn")
+    desc="'$ps_name' on $account_name ($account_id)"
+
+    if [[ -n "${DIRECT_ASSIGNMENT[$key]:-}" ]]; then
+      esc_info "$(printf 'Already granted directly: %s, skipping' "$desc")"
+      continue
+    fi
+
+    esc_info "$(printf 'Granting %s' "$desc")"
+    rc=0
+    out=$(aws_admin sso-admin create-account-assignment \
+      --instance-arn "$INSTANCE_ARN" \
+      --target-id "$account_id" \
+      --target-type AWS_ACCOUNT \
+      --permission-set-arn "$arn" \
+      --principal-type USER \
+      --principal-id "$USER_ID" \
+      --query 'AccountAssignmentCreationStatus.RequestId' \
+      --output text 2>&1) || rc=$?
+
+    if ((rc != 0)); then
+      if [[ "$out" == *ConflictException* ]]; then
+        esc_msg "    already granted, skipping"
+      else
+        err "$(printf 'failed to grant %s: %s' "$desc" "$out")"
+        FAILURES=$((FAILURES + 1))
+      fi
+      continue
+    fi
+
+    request_id=$out
+    # Same "None"/empty gotcha as everywhere else `--output text` is used: a
+    # missing RequestId here would otherwise silently drop this assignment
+    # from wait_for_assignments, reporting overall success for a grant that
+    # was never actually confirmed.
+    if [[ -z "$request_id" || "$request_id" == "None" ]]; then
+      err "$(printf 'failed to grant %s: create-account-assignment returned no RequestId' "$desc")"
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+
+    ASSIGNMENT_REQUESTS+=("$request_id|$desc")
+  done
+}
+
+# Assignment creation is asynchronous, so returning immediately after the
+# create call would report success for something that later fails.
+wait_for_assignments() {
+  ((${#ASSIGNMENT_REQUESTS[@]})) || return 0
+
+  esc_info "$(printf 'Waiting for %d assignment(s) to provision' "${#ASSIGNMENT_REQUESTS[@]}")"
+
+  local entry request_id desc attempt status reason json
+  for entry in "${ASSIGNMENT_REQUESTS[@]}"; do
+    IFS='|' read -r request_id desc <<<"$entry"
+    attempt=0
+    local checked=0
+    while ((attempt < POLL_ATTEMPTS)); do
+      if ! json=$(aws_admin sso-admin describe-account-assignment-creation-status \
+        --instance-arn "$INSTANCE_ARN" \
+        --account-assignment-creation-request-id "$request_id" \
+        --output json 2>&1); then
+        warning "$(printf 'could not check %s (%s): %s' "$desc" "$request_id" "$json")"
+        FAILURES=$((FAILURES + 1))
+        checked=1
+        break
+      fi
+
+      # `|| status=""` matters under production `set -e`: without it, a
+      # malformed (non-JSON) response would kill the whole script on jq's
+      # own exit status right here rather than being handled by the `*)`
+      # branch below like every other unrecognised status.
+      status=$(jq -r '.AccountAssignmentCreationStatus.Status // empty' <<<"$json" 2>/dev/null) ||
+        status=""
+      case "$status" in
+      SUCCEEDED)
+        esc_msg "$(printf '    ok %s' "$desc")"
+        checked=1
+        break
+        ;;
+      FAILED)
+        reason=$(jq -r '.AccountAssignmentCreationStatus.FailureReason // "unknown"' <<<"$json" 2>/dev/null) ||
+          reason="unknown"
+        err "$(printf '%s: %s' "$desc" "$reason")"
+        FAILURES=$((FAILURES + 1))
+        checked=1
+        break
+        ;;
+      *)
+        attempt=$((attempt + 1))
+        ((POLL_INTERVAL > 0)) && sleep "$POLL_INTERVAL"
+        ;;
+      esac
+    done
+
+    if ((!checked)); then
+      warning "$(printf 'still in progress after timeout: %s (request %s)' \
+        "$desc" "$request_id")"
+      FAILURES=$((FAILURES + 1))
+    fi
+  done
+}
+
+# Turns -g/-a flags, or their interactive equivalents, into TARGET_GROUP_IDS
+# and GRANTS. All reads: no AWS calls of its own, only the pickers and
+# resolve_group/resolve_permission_set/resolve_account built on top of the
+# directory load_directory already fetched.
+collect_inputs() {
+  local name
+
+  if ((${#GROUP_ARGS[@]})); then
+    for name in "${GROUP_ARGS[@]}"; do
+      TARGET_GROUP_IDS+=("$(resolve_group "$name")")
+    done
+  elif ! ((ASSUME_YES)); then
+    # -y means non-interactive: with no -g given, that means no groups, not
+    # "ask anyway". Only reached without -y.
+    local selected
+    selected=$(select_many "Groups to join" ${GROUP_LIST[@]+"${GROUP_LIST[@]}"})
+    while IFS= read -r name; do
+      [[ -n "$name" ]] || continue
+      TARGET_GROUP_IDS+=("$(resolve_group "$name")")
+    done <<<"$selected"
+  fi
+
+  if ((${#GRANT_ARGS[@]})); then
+    for name in "${GRANT_ARGS[@]}"; do
+      parse_grant_arg "$name"
+    done
+    return 0
+  fi
+
+  ((ASSUME_YES)) && return 0
+
+  # Loop so the operator can give admin on some accounts and read-only on
+  # others in one run.
+  local ps_name accounts account_line account_id
+  while true; do
+    if ! yes_no "Add a permission set grant? (y/N)" "n"
+    then
+      break
+    fi
+
+    ps_name=$(select_one "Permission set" ${PERMSET_LIST[@]+"${PERMSET_LIST[@]}"})
+    [[ -n "$ps_name" ]] || continue
+
+    accounts=$(select_many "Accounts for '$ps_name'" ${ACCOUNT_LIST[@]+"${ACCOUNT_LIST[@]}"})
+    while IFS= read -r account_line; do
+      [[ -n "$account_line" ]] || continue
+      # ACCOUNT_LIST entries are "name (id)"; account ids are always exactly
+      # 12 digits and never contain parentheses, so splitting on the LAST
+      # "(" and stripping the trailing ")" is unambiguous even for a name
+      # that itself contains parentheses (see load_directory).
+      account_id=${account_line##*(}
+      account_id=${account_id%)}
+      parse_grant_arg "$ps_name:$account_id"
+    done <<<"$accounts"
+  done
+}
+
+print_summary() {
+  esc_msg ""
+  if ((FAILURES == 0)); then
+    esc_info "$(printf 'Done. %s is set up.' "$EMAIL")"
+  else
+    esc_info "$(printf 'Finished with %d failure(s). Re-run the same command to retry;' "$FAILURES")"
+    esc_msg "    every step is idempotent."
+  fi
+  esc_msg ""
+  esc_msg "REMINDER: no invitation email has been sent — there is no API for it."
+  esc_msg "$(printf 'Send it from the console: %s' "$CONSOLE_USERS_URL")"
+  esc_msg "$(printf 'Pick %s, then Reset password > "Send an email to the user".' "$EMAIL")"
+}
+
+main() {
+  parse_args "$@"
+  preflight
+  prompt_identity
+  load_directory
+  collect_inputs
+  lookup_user
+  load_current_state
+
+  print_plan
+
+  if ((DRY_RUN)); then
+    esc_info "Dry run (-n), nothing changed."
+    exit 0
+  fi
+
+  # `-y` means non-interactive, so it skips the gate outright. Otherwise the
+  # default is No: a stray keystroke must never be read as authorisation to
+  # grant access. `yes_no` re-prompts on unrecognised input rather than
+  # aborting, and on EOF falls through to the "n" default, so a closed stdin
+  # still aborts before anything is written.
+  if ((!ASSUME_YES)) && ! yes_no "Proceed? (y/N)" "n"
+  then
+    esc_info "Aborted, nothing changed."
+    exit 0
+  fi
+
+  do_create_user
+  do_add_groups
+  do_add_assignments
+  wait_for_assignments
+  print_summary
+
+  ((FAILURES == 0)) || exit 1
+}
+
+main "$@"
