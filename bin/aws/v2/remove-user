@@ -1,0 +1,586 @@
+#!/usr/bin/env bash
+
+# Remove a user from AWS IAM Identity Center.
+#
+# Revokes every direct account assignment, removes every group membership, then
+# deletes the user record. Prints a plan first and asks for confirmation.
+#
+# Order matters: assignments are revoked before the user is deleted, so an
+# interrupted run can never leave a deleted principal holding live grants. If any
+# teardown step fails, the user record is deliberately NOT deleted — that would
+# produce exactly the orphaned-assignment state this command exists to avoid, and
+# would destroy the UserId needed to find those grants again.
+#
+# NOTE: this cannot disable a user instead of deleting them. The identitystore
+# API exposes UserStatus as output only; UpdateUser rejects both `userStatus` and
+# `active` with "Updates for AttributePath: X is not supported". Disabling is a
+# console-only action.
+
+set -euo pipefail
+
+# The SSO profile used to administer Identity Center. See
+# lib/bash-functions/resolve_identity_center_profile.sh.
+#
+# PROFILE_OVERRIDE is read by resolve_identity_center_profile, not by anything in
+# this file. It is exported only so shellcheck does not report SC2034 for a
+# variable it cannot see being used; exported functions run in the calling shell,
+# so a plain global would work just as well.
+IDENTITY_CENTER_PROFILE_NAME="dalmatian-identity-center"
+IDENTITY_CENTER_PROFILE=""
+export PROFILE_OVERRIDE=""
+
+# AWS_SSO_START_URL, AWS_SSO_REGION, AWS_SSO_ADMIN_ROLE_NAME and
+# CONSOLE_USERS_URL are deliberately not declared here. load_aws_sso_setup
+# assigns them, and this command never reads them, so declaring them would be
+# dead code.
+
+INSTANCE_ARN=""
+IDENTITY_STORE_ID=""
+
+USERNAME=""
+DRY_RUN=0
+ASSUME_YES=0
+
+USER_ID=""
+GIVEN_NAME=""
+FAMILY_NAME=""
+USER_STATUS=""
+
+FAILURES=0
+
+# Tuple separator. The ASCII unit separator cannot appear in any AWS-supplied
+# value, and unlike a tab it is not IFS whitespace, so empty fields survive
+# splitting intact.
+readonly FIELD_SEP=$'\x1f'
+
+# membershipId, groupId, groupName
+MEMBERSHIPS=()
+# accountId, permissionSetArn, permissionSetName, accountName
+ASSIGNMENTS=()
+# requestId, description
+DELETION_REQUESTS=()
+
+POLL_INTERVAL=2
+POLL_ATTEMPTS=60
+
+usage() {
+  cat >&2 <<EOF
+Usage: dalmatian aws remove-user -e <username> [-p profile] [-n] [-y] [-h]
+
+Removes a user from AWS IAM Identity Center: revokes their direct account
+assignments, removes their group memberships, then deletes the user.
+
+  -e <username>         Identity Center username of the user to remove. This is
+                        whatever \`dalmatian aws list-users\` shows in the
+                        USERNAME column, which is not always an email address
+  -p <profile>          AWS profile to administer Identity Center with.
+                        Defaults to $IDENTITY_CENTER_PROFILE_NAME, which is
+                        created automatically if it does not already exist
+  -n                    dry run: print the plan, make no AWS changes
+  -y                    skip the confirmation prompt
+  -h                    this help
+
+This cannot disable a user. The API exposes UserStatus as read-only, so
+disabling remains a console action.
+
+Examples:
+  dalmatian aws remove-user -e jane.doe@example.com -n
+  dalmatian aws remove-user -e asmith -n
+  dalmatian aws remove-user -e jane.doe@example.com
+EOF
+  exit 1
+}
+
+parse_args() {
+  local OPTIND OPTARG opt
+  while getopts "e:p:nyh" opt; do
+    case "$opt" in
+    e) USERNAME="$OPTARG" ;;
+    p) PROFILE_OVERRIDE="$OPTARG" ;;
+    n) DRY_RUN=1 ;;
+    y) ASSUME_YES=1 ;;
+    h) usage ;;
+    *) usage ;;
+    esac
+  done
+
+  # Deliberately NOT validated as an email address. Identity Center does not
+  # require UserName to be an email, and in practice much of a directory is not:
+  # service and shorthand names like `asmith` or `ops-service` are common. An email
+  # regex here would make those users unremovable with this tool. add-user can
+  # impose the email-as-username convention on users it creates; this command
+  # operates on whatever already exists. A name that does not exist is reported by
+  # lookup_user via ResourceNotFoundException, which is a better error anyway.
+  [[ -n "$USERNAME" ]] || usage
+}
+
+# All AWS calls funnel through here, so the profile is named in exactly one
+# place. Set by resolve_identity_center_profile before any call is made.
+aws_admin() {
+  aws --profile "$IDENTITY_CENTER_PROFILE" "$@"
+}
+
+preflight() {
+  require_visible_plan "$ASSUME_YES" "$DRY_RUN"
+
+  command -v aws >/dev/null 2>&1 || die "aws CLI not found on PATH"
+  command -v jq >/dev/null 2>&1 || die "jq not found on PATH"
+
+  resolve_identity_center_profile
+  identity_center_instance
+}
+
+# Unlike add-user, a missing user is fatal: there is nothing to remove, and
+# exiting 0 would wrongly suggest the account had been cleaned up.
+lookup_user() {
+  # Built with jq rather than string interpolation. The username is arbitrary
+  # operator input and is no longer regex-validated, so a quote or backslash in
+  # it would otherwise produce malformed JSON.
+  local alt out rc=0
+  alt=$(jq -nc --arg value "$USERNAME" \
+    '{UniqueAttribute: {AttributePath: "UserName", AttributeValue: $value}}') ||
+    die "could not build the user lookup JSON"
+
+  out=$(aws_admin identitystore get-user-id \
+    --identity-store-id "$IDENTITY_STORE_ID" \
+    --alternate-identifier "$alt" \
+    --output json 2>&1) || rc=$?
+
+  if ((rc != 0))
+  then
+    # Matched against the CLI's stable error prefix, not a bare substring, so a
+    # message that merely mentions the exception name cannot be misread.
+    if [[ "$out" == *"An error occurred (ResourceNotFoundException)"* ]]
+    then
+      die "no Identity Center user with username '$USERNAME'. Nothing to remove."
+    fi
+    die "failed looking up user '$USERNAME': $out"
+  fi
+
+  USER_ID=$(jq -r '.UserId // empty' <<<"$out" 2>/dev/null) ||
+    die "could not parse the response from identitystore get-user-id"
+  [[ -n "$USER_ID" ]] ||
+    die "identitystore get-user-id returned no UserId for $USERNAME"
+}
+
+# Captured before deletion so the restore line can reproduce the user.
+load_user_details() {
+  local out
+  out=$(aws_admin identitystore describe-user \
+    --identity-store-id "$IDENTITY_STORE_ID" --user-id "$USER_ID" --output json) ||
+    die "failed to describe user $USERNAME"
+
+  GIVEN_NAME=$(jq -r '.Name.GivenName // empty' <<<"$out" 2>/dev/null) ||
+    die "could not parse the response from identitystore describe-user"
+  FAMILY_NAME=$(jq -r '.Name.FamilyName // empty' <<<"$out" 2>/dev/null) ||
+    die "could not parse the response from identitystore describe-user"
+  USER_STATUS=$(jq -r '.UserStatus // empty' <<<"$out" 2>/dev/null) ||
+    die "could not parse the response from identitystore describe-user"
+}
+
+load_memberships() {
+  MEMBERSHIPS=()
+
+  local member out rows line mid gid gname
+  # jq-built for the same reason as lookup_user, though USER_ID is an
+  # AWS-generated UUID and so is safe either way. Consistency beats a
+  # special case.
+  member=$(jq -nc --arg id "$USER_ID" '{UserId: $id}') ||
+    die "could not build the member lookup JSON"
+
+  out=$(aws_admin identitystore list-group-memberships-for-member \
+    --identity-store-id "$IDENTITY_STORE_ID" \
+    --member-id "$member" --output json) ||
+    die "failed to list group memberships for $USERNAME"
+
+  rows=$(jq -r '
+      (if has("GroupMemberships") then .GroupMemberships else [] end) as $m
+      | if ($m | type) != "array" then error("GroupMemberships is not an array")
+        else ($m[] | [(.MembershipId // ""), (.GroupId // "")] | join("\u001f"))
+        end' <<<"$out" 2>/dev/null) ||
+    die "could not parse the response from identitystore list-group-memberships-for-member"
+
+  [[ -n "$rows" ]] || return 0
+
+  while IFS= read -r line
+  do
+    [[ -n "$line" ]] || continue
+    IFS="$FIELD_SEP" read -r mid gid <<<"$line"
+    # Fatal, not skipped. A dropped row would never reach MEMBERSHIPS, so it
+    # would never appear in the plan, never be removed, and never increment
+    # FAILURES — which means do_delete_user would proceed and delete the identity
+    # while the membership was still live. Every other malformed-response path in
+    # this command fails closed; so does this one.
+    [[ -n "$mid" && -n "$gid" ]] ||
+      die "identitystore list-group-memberships-for-member returned a membership with no MembershipId or GroupId"
+
+    # Resolved on demand: a leaver belongs to a handful of groups, so this is
+    # cheaper than loading the whole directory. Falls back to the raw id rather
+    # than dying, since a name is only needed for display.
+    gname=$(aws_admin identitystore describe-group \
+      --identity-store-id "$IDENTITY_STORE_ID" --group-id "$gid" \
+      --query DisplayName --output text 2>/dev/null) || gname=""
+    [[ -n "$gname" && "$gname" != "None" ]] || gname=$gid
+
+    MEMBERSHIPS+=("$mid$FIELD_SEP$gid$FIELD_SEP$gname")
+  done <<<"$rows"
+}
+
+# Only DIRECT assignments. list-account-assignments-for-principal with
+# --principal-type USER also returns grants the user merely inherits through a
+# group, distinguished by PrincipalType. Removing an inherited grant would revoke
+# access for every other member of that group, so rows are kept only when
+# PrincipalType is USER and PrincipalId is this user.
+load_assignments() {
+  ASSIGNMENTS=()
+
+  local out rows line acct arn psname acctname
+  out=$(aws_admin sso-admin list-account-assignments-for-principal \
+    --instance-arn "$INSTANCE_ARN" \
+    --principal-id "$USER_ID" \
+    --principal-type USER \
+    --output json) ||
+    die "failed to list account assignments for $USERNAME"
+
+  rows=$(jq -r --arg uid "$USER_ID" '
+      (if has("AccountAssignments") then .AccountAssignments else [] end) as $aa
+      | if ($aa | type) != "array" then error("AccountAssignments is not an array")
+        else ($aa[]
+              | select(.PrincipalType == "USER" and .PrincipalId == $uid)
+              | [(.AccountId // ""), (.PermissionSetArn // "")] | join("\u001f"))
+        end' <<<"$out" 2>/dev/null) ||
+    die "could not parse the response from sso-admin list-account-assignments-for-principal"
+
+  [[ -n "$rows" ]] || return 0
+
+  while IFS= read -r line
+  do
+    [[ -n "$line" ]] || continue
+    IFS="$FIELD_SEP" read -r acct arn <<<"$line"
+    # Fatal for the same reason as the membership guard above: silently dropping
+    # an assignment here would let do_delete_user delete the user while that
+    # grant was still live, and destroy the UserId needed to find it again.
+    [[ -n "$acct" && -n "$arn" ]] ||
+      die "sso-admin list-account-assignments-for-principal returned an assignment with no AccountId or PermissionSetArn"
+
+    psname=$(aws_admin sso-admin describe-permission-set \
+      --instance-arn "$INSTANCE_ARN" --permission-set-arn "$arn" \
+      --query 'PermissionSet.Name' --output text 2>/dev/null) || psname=""
+    [[ -n "$psname" && "$psname" != "None" ]] || psname=$arn
+
+    acctname=$(aws_admin organizations describe-account --account-id "$acct" \
+      --query 'Account.Name' --output text 2>/dev/null) || acctname=""
+    [[ -n "$acctname" && "$acctname" != "None" ]] || acctname=$acct
+
+    ASSIGNMENTS+=("$acct$FIELD_SEP$arn$FIELD_SEP$psname$FIELD_SEP$acctname")
+  done <<<"$rows"
+}
+
+print_plan() {
+  esc_msg ""
+  esc_msg "Plan"
+  esc_msg "===="
+  if ((DRY_RUN))
+  then
+    esc_msg ""
+    esc_msg "  DRY RUN — no AWS changes will be made"
+    esc_msg ""
+  fi
+  esc_msg "$(printf '  profile:        %s' "$IDENTITY_CENTER_PROFILE")"
+  esc_msg "$(printf '  identity store: %s' "$IDENTITY_STORE_ID")"
+  esc_msg "$(printf '  username:       %s' "$USERNAME")"
+  esc_msg "$(printf '  display name:   %s %s' "$GIVEN_NAME" "$FAMILY_NAME")"
+  esc_msg "$(printf '  status:         %s' "$USER_STATUS")"
+  esc_msg "$(printf '  user:           DELETE (%s)' "$USER_ID")"
+
+  esc_msg ""
+  esc_msg "  Group memberships to remove:"
+  if ((${#MEMBERSHIPS[@]} == 0))
+  then
+    esc_msg "    (none)"
+  else
+    local entry mid gid gname
+    for entry in "${MEMBERSHIPS[@]}"
+    do
+      IFS="$FIELD_SEP" read -r mid gid gname <<<"$entry"
+      esc_msg "$(printf "    REMOVE '%s'" "$gname")"
+    done
+  fi
+
+  esc_msg ""
+  esc_msg "  Direct account grants to revoke:"
+  if ((${#ASSIGNMENTS[@]} == 0))
+  then
+    esc_msg "    (none)"
+  else
+    local entry acct arn psname acctname
+    for entry in "${ASSIGNMENTS[@]}"
+    do
+      IFS="$FIELD_SEP" read -r acct arn psname acctname <<<"$entry"
+      esc_msg "$(printf "    REVOKE '%s' on %s (%s)" "$psname" "$acctname" "$acct")"
+    done
+  fi
+
+  esc_msg ""
+  esc_msg "  Grants inherited from groups are not listed: removing the group"
+  esc_msg "  membership above is what withdraws them."
+  esc_msg ""
+  print_restore_line
+  esc_msg ""
+}
+
+do_revoke_assignments() {
+  ((${#ASSIGNMENTS[@]})) || return 0
+
+  local entry acct arn psname acctname desc out rc request_id
+  for entry in "${ASSIGNMENTS[@]}"
+  do
+    IFS="$FIELD_SEP" read -r acct arn psname acctname <<<"$entry"
+    desc="'$psname' on $acctname ($acct)"
+
+    esc_info "$(printf 'Revoking %s' "$desc")"
+    rc=0
+    out=$(aws_admin sso-admin delete-account-assignment \
+      --instance-arn "$INSTANCE_ARN" \
+      --target-id "$acct" \
+      --target-type AWS_ACCOUNT \
+      --permission-set-arn "$arn" \
+      --principal-type USER \
+      --principal-id "$USER_ID" \
+      --query 'AccountAssignmentDeletionStatus.RequestId' \
+      --output text 2>&1) || rc=$?
+
+    if ((rc != 0))
+    then
+      # Already gone is success, mirroring how add-user treats ConflictException
+      # on create. Keeps a re-run after partial failure safe.
+      if [[ "$out" == *ResourceNotFoundException* ]]
+      then
+        esc_msg "    already revoked, skipping"
+      else
+        err "$(printf 'failed to revoke %s: %s' "$desc" "$out")"
+        FAILURES=$((FAILURES + 1))
+      fi
+      continue
+    fi
+
+    request_id=$out
+    if [[ -z "$request_id" || "$request_id" == "None" ]]
+    then
+      err "$(printf 'failed to revoke %s: delete-account-assignment returned no RequestId' "$desc")"
+      FAILURES=$((FAILURES + 1))
+      continue
+    fi
+
+    DELETION_REQUESTS+=("$request_id$FIELD_SEP$desc")
+  done
+}
+
+# Revocation is asynchronous, so returning straight after the delete call would
+# report success for something that later failed — and would let delete-user run
+# while grants were still live.
+wait_for_revocations() {
+  ((${#DELETION_REQUESTS[@]})) || return 0
+
+  esc_info "$(printf 'Waiting for %d revocation(s) to complete' "${#DELETION_REQUESTS[@]}")"
+
+  local entry request_id desc attempt checked status reason json
+  for entry in "${DELETION_REQUESTS[@]}"
+  do
+    IFS="$FIELD_SEP" read -r request_id desc <<<"$entry"
+    attempt=0
+    checked=0
+    while ((attempt < POLL_ATTEMPTS))
+    do
+      if ! json=$(aws_admin sso-admin describe-account-assignment-deletion-status \
+        --instance-arn "$INSTANCE_ARN" \
+        --account-assignment-deletion-request-id "$request_id" \
+        --output json 2>&1)
+      then
+        warning "$(printf 'could not check %s (%s): %s' "$desc" "$request_id" "$json")"
+        FAILURES=$((FAILURES + 1))
+        checked=1
+        break
+      fi
+
+      # `|| status=""` matters under `set -e`: a malformed response would
+      # otherwise kill the script on jq's own exit status rather than falling
+      # through to the retry branch below.
+      status=$(jq -r '.AccountAssignmentDeletionStatus.Status // empty' <<<"$json" 2>/dev/null) ||
+        status=""
+      case "$status" in
+      SUCCEEDED)
+        esc_msg "$(printf '    ok %s' "$desc")"
+        checked=1
+        break
+        ;;
+      FAILED)
+        reason=$(jq -r '.AccountAssignmentDeletionStatus.FailureReason // "unknown"' <<<"$json" 2>/dev/null) ||
+          reason="unknown"
+        err "$(printf '%s: %s' "$desc" "$reason")"
+        FAILURES=$((FAILURES + 1))
+        checked=1
+        break
+        ;;
+      *)
+        attempt=$((attempt + 1))
+        ((POLL_INTERVAL > 0)) && sleep "$POLL_INTERVAL"
+        ;;
+      esac
+    done
+
+    if ((!checked))
+    then
+      warning "$(printf 'still in progress after timeout: %s (request %s)' "$desc" "$request_id")"
+      FAILURES=$((FAILURES + 1))
+    fi
+  done
+}
+
+do_remove_memberships() {
+  ((${#MEMBERSHIPS[@]})) || return 0
+
+  local entry mid gid gname out rc
+  for entry in "${MEMBERSHIPS[@]}"
+  do
+    IFS="$FIELD_SEP" read -r mid gid gname <<<"$entry"
+
+    esc_info "$(printf "Removing from group '%s'" "$gname")"
+    rc=0
+    out=$(aws_admin identitystore delete-group-membership \
+      --identity-store-id "$IDENTITY_STORE_ID" \
+      --membership-id "$mid" 2>&1) || rc=$?
+
+    if ((rc != 0))
+    then
+      if [[ "$out" == *ResourceNotFoundException* ]]
+      then
+        esc_msg "    already removed, skipping"
+      else
+        err "$(printf "failed to remove from group '%s': %s" "$gname" "$out")"
+        FAILURES=$((FAILURES + 1))
+      fi
+    fi
+  done
+}
+
+# The one step that is skipped rather than attempted-and-counted on failure.
+# Deleting the identity while grants remain produces orphaned assignments and
+# destroys the UserId needed to find them again.
+do_delete_user() {
+  if ((FAILURES > 0))
+  then
+    warning "$(printf 'not deleting %s: %d earlier step(s) failed, so grants may still be live. Fix the errors above and re-run.' \
+      "$USERNAME" "$FAILURES")"
+    return 0
+  fi
+
+  esc_info "$(printf 'Deleting user %s' "$USERNAME")"
+  local out rc=0
+  out=$(aws_admin identitystore delete-user \
+    --identity-store-id "$IDENTITY_STORE_ID" \
+    --user-id "$USER_ID" 2>&1) || rc=$?
+
+  if ((rc != 0))
+  then
+    if [[ "$out" == *ResourceNotFoundException* ]]
+    then
+      esc_msg "    already deleted, skipping"
+    else
+      err "$(printf 'failed to delete user %s: %s' "$USERNAME" "$out")"
+      FAILURES=$((FAILURES + 1))
+    fi
+  fi
+}
+
+# Quote a value for safe pasting into a shell.
+#
+# Single-quoting by hand is not safe: a value containing an apostrophe closes the
+# quote early, and a value containing two re-balances it — producing a command
+# that is not a syntax error but is silently wrong. With FAMILY_NAME="O'Brien" and
+# a group "Dev's Team", hand-quoting yielded argv [-l] [OBrien -g Devs Team],
+# corrupting the surname and swallowing the -g flag entirely. `printf %q` handles
+# every case, and round-trips through esc_msg's backslash doubling intact.
+shell_quote() {
+  local quoted
+  printf -v quoted '%q' "$1"
+  printf '%s' "$quoted"
+}
+
+# Printed as part of the plan, BEFORE anything is mutated, so the record survives
+# every failure mode — a failed revocation, a partial teardown, or the operator
+# interrupting mid-run. An earlier version printed it only on the success path,
+# which meant that after a partial failure the memberships were already gone, so a
+# re-run rebuilt the restore line with no -g flags at all and handed the operator
+# a command that looked complete while silently omitting every group.
+print_restore_line() {
+  local line entry mid gid gname acct arn psname acctname
+  line="dalmatian aws add-user -e $(shell_quote "$USERNAME")"
+  [[ -n "$GIVEN_NAME" ]] && line+=" -f $(shell_quote "$GIVEN_NAME")"
+  [[ -n "$FAMILY_NAME" ]] && line+=" -l $(shell_quote "$FAMILY_NAME")"
+
+  for entry in ${MEMBERSHIPS[@]+"${MEMBERSHIPS[@]}"}
+  do
+    IFS="$FIELD_SEP" read -r mid gid gname <<<"$entry"
+    line+=" -g $(shell_quote "$gname")"
+  done
+
+  # Accounts are rendered as 12-digit IDs, not names: IDs are unambiguous,
+  # whereas account names are not unique in an organisation.
+  for entry in ${ASSIGNMENTS[@]+"${ASSIGNMENTS[@]}"}
+  do
+    IFS="$FIELD_SEP" read -r acct arn psname acctname <<<"$entry"
+    line+=" -a $(shell_quote "$psname:$acct")"
+  done
+
+  esc_msg "  To restore this user and their access afterwards, run:"
+  esc_msg "$(printf '    %s' "$line")"
+}
+
+print_summary() {
+  esc_msg ""
+  if ((FAILURES == 0))
+  then
+    esc_info "$(printf 'Done. %s has been removed.' "$USERNAME")"
+    esc_msg "    The restore command was printed with the plan above."
+  else
+    esc_info "$(printf 'Finished with %d failure(s). %s has NOT been deleted.' "$FAILURES" "$USERNAME")"
+    esc_msg "    Every step is idempotent, so re-run the same command to retry."
+    esc_msg "    The restore command printed with the plan above reflects the state"
+    esc_msg "    before this run started."
+  fi
+  esc_msg ""
+}
+
+main() {
+  parse_args "$@"
+  preflight
+  lookup_user
+  load_user_details
+  load_memberships
+  load_assignments
+
+  print_plan
+
+  if ((DRY_RUN))
+  then
+    esc_info "Dry run (-n), nothing changed."
+    exit 0
+  fi
+
+  if ((!ASSUME_YES)) && ! yes_no "Remove $USERNAME? (y/N)" "n"
+  then
+    esc_info "Aborted, nothing changed."
+    exit 0
+  fi
+
+  do_revoke_assignments
+  wait_for_revocations
+  do_remove_memberships
+  do_delete_user
+  print_summary
+
+  ((FAILURES == 0)) || exit 1
+}
+
+main "$@"

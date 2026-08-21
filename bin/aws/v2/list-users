@@ -1,0 +1,296 @@
+#!/usr/bin/env bash
+
+# List AWS IAM Identity Center users, with their status and group memberships.
+#
+# The table is the payload, so it is written straight to stdout with printf and
+# NOT through esc_msg. bin/dalmatian forces QUIET_MODE=1 whenever stdout is not
+# a terminal, so routing it through log_msg would make
+# `dalmatian aws list-users | grep DISABLED` print nothing at all. Messages that
+# are not payload — the profile-creation notice, for instance — do go through
+# esc_info, so they stay out of a pipe. Same reasoning as the bare `echo` in
+# bin/aws/v2/list-profiles and bin/deploy/v2/list-accounts.
+#
+# NOTE: this is read-only as far as AWS is concerned, but not side-effect free:
+# resolve_identity_center_profile appends the dalmatian-identity-center profile
+# to the local SSO config if it is missing.
+
+set -euo pipefail
+
+# The SSO profile used to read Identity Center. See
+# lib/bash-functions/resolve_identity_center_profile.sh.
+#
+# PROFILE_OVERRIDE is read by resolve_identity_center_profile, not by anything in
+# this file. It is exported only so shellcheck does not report SC2034 for a
+# variable it cannot see being used; exported functions run in the calling shell,
+# so a plain global would work just as well.
+IDENTITY_CENTER_PROFILE_NAME="dalmatian-identity-center"
+IDENTITY_CENTER_PROFILE=""
+export PROFILE_OVERRIDE=""
+
+# AWS_SSO_START_URL, AWS_SSO_REGION, AWS_SSO_ADMIN_ROLE_NAME and
+# CONSOLE_USERS_URL are deliberately not declared here. load_aws_sso_setup
+# assigns them, and this command never reads them, so declaring them would be
+# dead code.
+
+# identity_center_instance also sets INSTANCE_ARN, but this command only needs
+# the identity store: everything it calls is an identitystore operation, not an
+# sso-admin one. Declaring INSTANCE_ARN here would be dead code.
+IDENTITY_STORE_ID=""
+
+JSON_OUTPUT=0
+
+# Fields are joined with the ASCII unit separator rather than a tab. Tab is IFS
+# *whitespace*, so `IFS=$'\t' read` silently collapses an empty field adjacent to
+# the delimiter and shifts every later field left — and both EMAIL and GROUPS are
+# legitimately empty for some users. A non-whitespace IFS preserves empty fields.
+readonly FIELD_SEP=$'\x1f'
+
+usage() {
+  cat >&2 <<EOF
+Usage: dalmatian aws list-users [-j] [-p profile] [-h]
+
+Lists every user in the AWS IAM Identity Center directory, with their status and
+group memberships.
+
+  -j                    output JSON instead of a table
+  -p <profile>          AWS profile to read Identity Center with.
+                        Defaults to $IDENTITY_CENTER_PROFILE_NAME, which is
+                        created automatically if it does not already exist
+  -h                    this help
+
+Examples:
+  dalmatian aws list-users
+  dalmatian aws list-users | grep DISABLED
+  dalmatian aws list-users -j | jq -r '.[] | select(.Groups | index("Admin")) | .UserName'
+EOF
+  exit 1
+}
+
+parse_args() {
+  local OPTIND OPTARG opt
+  while getopts "jp:h" opt; do
+    case "$opt" in
+    j) JSON_OUTPUT=1 ;;
+    p) PROFILE_OVERRIDE="$OPTARG" ;;
+    h) usage ;;
+    *) usage ;;
+    esac
+  done
+}
+
+# All AWS calls funnel through here, so the profile is named in exactly one
+# place. Set by resolve_identity_center_profile before any call is made.
+aws_admin() {
+  aws --profile "$IDENTITY_CENTER_PROFILE" "$@"
+}
+
+preflight() {
+  command -v aws >/dev/null 2>&1 || die "aws CLI not found on PATH"
+  command -v jq >/dev/null 2>&1 || die "jq not found on PATH"
+
+  resolve_identity_center_profile
+  identity_center_instance
+}
+
+declare -A USER_GROUPS=()
+
+# Build a UserId -> group names map, with the names joined on FIELD_SEP.
+#
+# Iterates groups rather than users on purpose. A directory typically has far
+# fewer groups than users, and list-group-memberships-for-member would need one
+# call per user; this needs one per group.
+#
+# FIELD_SEP rather than a comma, because a comma is legal in an Identity Center
+# group display name. The comma only appears where it is unambiguous: when the
+# table renders the joined string for a human. The -j output splits on FIELD_SEP,
+# so its Groups array stays correct even for a group called "Foo, Bar".
+load_user_groups() {
+  USER_GROUPS=()
+
+  local groups tsv line gid gname members uids uid
+  groups=$(aws_admin identitystore list-groups \
+    --identity-store-id "$IDENTITY_STORE_ID" --output json) ||
+    die "failed to list groups"
+  [[ -n "$groups" ]] || die "empty response from identitystore list-groups"
+
+  tsv=$(jq -r '
+      if (.Groups | type) != "array" then error("Groups is not an array")
+      else (.Groups | sort_by(.DisplayName) | .[] |
+            [(.GroupId // ""), (.DisplayName // "")] | join("\u001f"))
+      end' <<<"$groups" 2>/dev/null) ||
+    die "could not parse the response from identitystore list-groups"
+
+  # An empty tsv means genuinely zero groups. `<<<""` still hands `read` one
+  # empty line, which must not be mistaken for a malformed row.
+  [[ -n "$tsv" ]] || return 0
+
+  while IFS= read -r line
+  do
+    [[ -n "$line" ]] || continue
+    IFS="$FIELD_SEP" read -r gid gname <<<"$line"
+    [[ -n "$gid" ]] ||
+      die "identitystore list-groups returned a group with no GroupId"
+    # A listing should degrade rather than abort, so an unnameable group falls
+    # back to its id — matching how bin/aws/v2/remove-user handles the same case.
+    [[ -n "$gname" ]] || gname=$gid
+
+    members=$(aws_admin identitystore list-group-memberships \
+      --identity-store-id "$IDENTITY_STORE_ID" --group-id "$gid" --output json) ||
+      die "failed to list memberships for group '$gname'"
+
+    # Captured rather than piped from a process substitution, so a jq failure
+    # cannot be mistaken for "this group has no members".
+    uids=$(jq -r '.GroupMemberships[]?.MemberId.UserId // empty' <<<"$members" 2>/dev/null) ||
+      die "could not parse the response from identitystore list-group-memberships for '$gname'"
+
+    [[ -n "$uids" ]] || continue
+
+    while IFS= read -r uid
+    do
+      [[ -n "$uid" ]] || continue
+      if [[ -n "${USER_GROUPS[$uid]:-}" ]]
+      then
+        USER_GROUPS["$uid"]="${USER_GROUPS[$uid]}$FIELD_SEP$gname"
+      else
+        USER_GROUPS["$uid"]=$gname
+      fi
+    done <<<"$uids"
+  done <<<"$tsv"
+}
+
+# Render USER_GROUPS as a JSON object of UserId -> array of group names.
+#
+# Two levels of FIELD_SEP: the first separates the user id from its group list,
+# and the rest separate the group names within it. Splitting on FIELD_SEP and
+# taking the head/tail keeps group names containing commas intact.
+user_groups_json() {
+  local uid pairs
+  pairs=""
+  for uid in "${!USER_GROUPS[@]}"
+  do
+    pairs+="$uid$FIELD_SEP${USER_GROUPS[$uid]}"$'\n'
+  done
+
+  if [[ -z "$pairs" ]]
+  then
+    printf '%s' '{}'
+    return 0
+  fi
+
+  printf '%s' "$pairs" | jq -R -s --arg sep "$FIELD_SEP" '
+      split("\n")
+      | map(select(length > 0) | split($sep))
+      | map({key: .[0], value: .[1:]})
+      | from_entries'
+}
+
+USERS_JSON=""
+
+load_users() {
+  USERS_JSON=$(aws_admin identitystore list-users \
+    --identity-store-id "$IDENTITY_STORE_ID" --output json) ||
+    die "failed to list users"
+  [[ -n "$USERS_JSON" ]] || die "empty response from identitystore list-users"
+
+  jq -e '(.Users | type) == "array"' <<<"$USERS_JSON" >/dev/null 2>&1 ||
+    die "could not parse the response from identitystore list-users"
+}
+
+output_json() {
+  jq --argjson groups "$(user_groups_json)" '
+      [.Users[] | . + {Groups: ($groups[.UserId] // [])}]
+      | sort_by(.UserName)' <<<"$USERS_JSON" ||
+    die "could not render JSON output"
+}
+
+output_table() {
+  local rows
+  rows=$(jq -r --argjson groups "$(user_groups_json)" '
+      .Users
+      | sort_by(.UserName)
+      | .[]
+      | [ (.UserName // ""),
+          (.UserStatus // ""),
+          (.DisplayName // ""),
+          # `(.Emails // []) as $e` binds first, because `|` binds looser than
+          # `//`. Without the binding, `.` inside the fallback is the
+          # primary-email object rather than the user, so `.Emails` there is
+          # always null and the fallback is dead code — a user whose email
+          # carries no Primary flag would show a blank column despite having one.
+          ((.Emails // []) as $e
+           | (($e | map(select(.Primary == true)) | first | .Value)
+              // ($e | first | .Value) // "")),
+          (($groups[.UserId] // []) | join(","))
+        ]
+      | join("\u001f")' <<<"$USERS_JSON") ||
+    die "could not build the user table"
+
+  local -a headers=("USERNAME" "STATUS" "DISPLAY NAME" "EMAIL" "GROUPS")
+  local -a widths=(0 0 0 0 0)
+  local -a fields
+  local line i
+
+  for i in 0 1 2 3 4
+  do
+    widths[i]=${#headers[i]}
+  done
+
+  if [[ -n "$rows" ]]
+  then
+    while IFS= read -r line
+    do
+      [[ -n "$line" ]] || continue
+      IFS="$FIELD_SEP" read -r -a fields <<<"$line"
+      for i in 0 1 2 3 4
+      do
+        if ((${#fields[i]} > widths[i]))
+        then
+          widths[i]=${#fields[i]}
+        fi
+      done
+    done <<<"$rows"
+  fi
+
+  # printf, straight to stdout, never esc_msg: see the header comment.
+  printf '%-*s  %-*s  %-*s  %-*s  %s\n' \
+    "${widths[0]}" "${headers[0]}" \
+    "${widths[1]}" "${headers[1]}" \
+    "${widths[2]}" "${headers[2]}" \
+    "${widths[3]}" "${headers[3]}" \
+    "${headers[4]}"
+
+  [[ -n "$rows" ]] || return 0
+
+  local row
+  while IFS= read -r line
+  do
+    [[ -n "$line" ]] || continue
+    IFS="$FIELD_SEP" read -r -a fields <<<"$line"
+    printf -v row '%-*s  %-*s  %-*s  %-*s  %s' \
+      "${widths[0]}" "${fields[0]:-}" \
+      "${widths[1]}" "${fields[1]:-}" \
+      "${widths[2]}" "${fields[2]:-}" \
+      "${widths[3]}" "${fields[3]:-}" \
+      "${fields[4]:-}"
+    # Trim trailing whitespace. GROUPS is the last column and so is unpadded,
+    # but a user in no groups would otherwise leave the EMAIL column's padding
+    # dangling at end of line. Same trim idiom as bin/aws/v2/add-user.
+    printf '%s\n' "${row%"${row##*[![:space:]]}"}"
+  done <<<"$rows"
+}
+
+main() {
+  parse_args "$@"
+  preflight
+  load_users
+  load_user_groups
+
+  if ((JSON_OUTPUT))
+  then
+    output_json
+  else
+    output_table
+  fi
+}
+
+main "$@"
