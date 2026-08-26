@@ -1,0 +1,221 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -d <db_name>           - name of database to create"
+  echo "  -u <user_name>         - name of user to create"
+  echo "  -P <user_password>     - password for user to be created"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+while getopts "i:e:r:d:u:P:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    d)
+      DB_NAME=$OPTARG
+      ;;
+    u)
+      USER_NAME=$OPTARG
+      ;;
+    P)
+      USER_PASSWORD=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE"
+  || -z "$RDS_NAME"
+  || -z "$DB_NAME"
+  || -z "$USER_NAME"
+  || -z "$USER_PASSWORD"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+
+PREFIX_HASH=$(get_hash_prefix "${PROJECT_NAME}-${INFRASTRUCTURE}-${ENVIRONMENT}")
+
+if [ "$RDS_NAME" ];
+then
+  log_info -l "Getting information about RDS..." -q "$QUIET_MODE"
+
+  RDS_ENGINE="$(
+    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+      -p "$PROFILE" \
+      rds describe-db-clusters \
+      --query "DBClusters[?ends_with(DBClusterIdentifier, \`$RDS_NAME\`)].Engine" \
+      --output text
+  )"
+
+  if [ -z "$RDS_ENGINE" ];
+  then
+    err "Cannot locate an RDS Cluster called $RDS_NAME. Trying to find RDS Instance..."
+
+    RDS_ENGINE="$(
+      "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+        -p "$PROFILE" \
+        rds describe-db-instances \
+        --query "DBInstances[?ends_with(DBInstanceIdentifier, \`$RDS_NAME\`)].Engine" \
+        --output text
+    )"
+
+    if [ -z "$RDS_ENGINE" ];
+    then
+      err "Could not find the targeted RDS. Is the name correct?"
+      exit 1
+    fi
+  fi
+fi
+
+log_info -l "Locating Fargate Task..." -q "$QUIET_MODE"
+
+# @todo The Task definition doesn't currently exist in v2 so this will need fixing
+TASK_ARN="$(dalmatian aws-sso run-command \
+  -p "$PROFILE" \
+  ecs describe-task-definition \
+    --task-definition "dxw-dalmatian-$INFRASTRUCTURE-$ENVIRONMENT-rds-tooling-$RDS_NAME" \
+    --query "taskDefinition.taskDefinitionArn" \
+    --output text
+)"
+
+if [ -z "$TASK_ARN" ];
+then
+  err "Unable to locate Fargate Task in the target infrastructure environment. Check that the RDS Tooling Task Definition is defined in ECS."
+  exit 1
+fi
+
+
+#############################################################################
+# Please note this is just a proof of concept as the Task Definition is not yet
+# complete for Dalmatian v2 RDS tooling.
+# I have taken some liberties with guessing how it might work below
+#############################################################################
+if [[ "$RDS_ENGINE" == *"mysql" ]];
+then
+  # Path on the RDS Tooling Docker image to the helper scripts
+  PATH_TO_CREATE_SCRIPT="/usr/local/bin/create-mysql-db.sh"
+else
+  PATH_TO_CREATE_SCRIPT="/usr/local/bin/create-postgres-db.sh"
+fi
+
+TASK_OVERRIDES=$(jq -n \
+  --arg script "$PATH_TO_CREATE_SCRIPT" \
+  --arg new_db_name "$DB_NAME" \
+  --arg new_username "$USER_NAME" \
+  --arg new_password "$USER_PASSWORD" \
+  '{
+    "containerOverrides": [
+      {
+        "command": [
+          "/bin/bash",
+          "-c",
+          "$script"
+        ],
+        "environment": [
+          {"name": "USER_NAME", "value": "$new_username"},
+          {"name": "USER_PASSWORD", "value": "$new_password"},
+          {"name": "DB_NAME", "value": "$new_db_name"}
+        ]
+      }
+    ]
+  }'
+)
+
+log_info -l "Launching Fargate task..." -q "$QUIET_MODE"
+
+TASK_ARN="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  ecs run-task \
+    --cluster "$PREFIX_HASH-infrastructure-rds-tooling" \
+    --count 1 \
+    --launch-type "FARGATE" \
+    --task-definition "$TASK_ARN" \
+    --overrides "$TASK_OVERRIDES" \
+    --query "tasks[0].taskArn" \
+    --output text
+)"
+
+if [ -z "$TASK_ARN" ]; then
+  err "Failed to launch Fargate task."
+  exit 1
+fi
+
+# Monitor Task Status
+while true; do
+  TASK_STATUS="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    ecs describe-tasks \
+      --cluster "$PREFIX_HASH-infrastructure-rds-tooling" \
+      --tasks "$TASK_ARN" \
+      --query "tasks[0].lastStatus" \
+      --output text
+  )"
+
+  log_info -l "Task status: $TASK_STATUS" -q "$QUIET_MODE"
+
+  if [ "$TASK_STATUS" == "STOPPED" ]; then
+    EXIT_CODE="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+      -p "$PROFILE" \
+      ecs describe-tasks \
+        --cluster "$PREFIX_HASH-infrastructure-rds-tooling" \
+        --tasks "$TASK_ARN" \
+        --query "tasks[0].containers[0].exitCode" \
+        --output text
+    )"
+
+    REASON="$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+      -p "$PROFILE" \
+      ecs describe-tasks \
+        --cluster "$PREFIX_HASH-infrastructure-rds-tooling" \
+        --tasks "$TASK_ARN" \
+        --query "tasks[0].stoppedReason" \
+        --output text
+    )"
+
+    if [ "$EXIT_CODE" == "0" ]; then
+      log_info "Task completed successfully" -q "$QUIET_MODE"
+      break
+    else
+      err "Task failed with exit code: $EXIT_CODE. Reason: $REASON"
+      exit 1
+    fi
+
+  elif [ "$TASK_STATUS" == "RUNNING" ]; then
+    sleep 10 # Check every 10 seconds
+  else
+    sleep 5 # Check every 5 seconds for other status
+  fi
+done

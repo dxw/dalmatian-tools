@@ -1,0 +1,165 @@
+#!/bin/bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -o <output_file_path>  - output file path (optional)"
+  echo "  -d <date>              - date (optional e.g %Y-%m-%d)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+DATE=
+
+while getopts "i:r:e:d:o:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    d)
+      DATE=$OPTARG
+      ;;
+    o)
+      OUTPUT_FILE_PATH=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+  || -z "$RDS_NAME"
+]]
+then
+  usage
+fi
+
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+
+PREFIX_HASH=$(get_hash_prefix "${PROJECT_NAME}-${INFRASTRUCTURE_NAME}-${ENVIRONMENT}")
+
+log_info -l "Finding database backup bucket..." -q "$QUIET_MODE"
+
+S3_BUCKET_NAME="$(
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    s3api list-buckets \
+    --query "Buckets[?ends_with(Name, \`$PREFIX_HASH-infrastructure-rds-s3-backups\`)].Name" \
+    --output text
+)"
+
+if [ -z "$S3_BUCKET_NAME" ];
+then
+  err "Cannot locate the backup bucket! Check the infrastructure name and environment are correct"
+  exit 1
+else
+  log_info -l "Found S3 bucket $S3_BUCKET_NAME" -q "$QUIET_MODE"
+fi
+
+if [ -z "$DATE" ]
+then
+  DATE=$(gdate +%Y-%m-%d)
+fi
+
+log_info -l "Getting information about RDS..." -q "$QUIET_MODE"
+
+RDS_ENDPOINT="$(
+  "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+    -p "$PROFILE" \
+    rds describe-db-clusters \
+    --query "DBClusters[?ends_with(DBClusterIdentifier, \`$RDS_NAME\`)].ReaderEndpoint" \
+    --output text
+)"
+
+if [ -z "$RDS_ENDPOINT" ];
+then
+  err "Cannot locate an RDS Cluster called $RDS_NAME. Trying to find RDS Instance..."
+
+  RDS_ENDPOINT="$(
+    "$APP_ROOT/bin/dalmatian" aws-sso run-command \
+      -p "$PROFILE" \
+      rds describe-db-instances \
+      --query "DBInstances[?ends_with(DBInstanceIdentifier, \`$RDS_NAME\`)].Endpoint.Address" \
+      --output text
+  )"
+
+  if [ -z "$RDS_ENDPOINT" ];
+  then
+    err "Could not find the targeted RDS. Is the name correct?"
+    exit 1
+  fi
+else
+  log_info -l "Found RDS $RDS_ENDPOINT" -q "$QUIET_MODE"
+fi
+
+OBJECTS=$("$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  s3api list-objects-v2 \
+  --bucket "$S3_BUCKET_NAME" \
+  --query "Contents[?starts_with(Key, \`${RDS_ENDPOINT}\`) && contains(LastModified,\`${DATE}\`)].Key" \
+  --output json)
+
+BACKUP_COUNT="$(echo "$OBJECTS" | jq -r 'length')"
+
+log_info -l "Found $BACKUP_COUNT backups from $DATE" -q "$QUIET_MODE"
+
+if [ "$BACKUP_COUNT" -lt 1 ];
+then
+  err "No backups found. Please specify a different date."
+  exit 1
+fi
+
+STR="$(echo "$OBJECTS" | jq -r '. | join(",")' | sed "s/$RDS_ENDPOINT\///g")"
+IFS=',' read -r -a array <<< "$STR"
+
+echo
+cat -n < <(printf "%s\n" "${array[@]}")
+echo
+
+n=""
+while true; do
+    read -rp 'Select backup to download: ' n
+    # If $n is an integer between one and $count...
+    if [ "$n" -eq "$n" ] && [ "$n" -gt 0 ] && [ "$n" -le "$BACKUP_COUNT" ]; then
+        break
+    fi
+done
+
+i=$((n-1)) # Arrays are zero-indexed
+SQL_FILE_NAME="${array[$i]}"
+
+if [ -z "$OUTPUT_FILE_PATH" ];
+then
+  OUTPUT_FILE_PATH="$HOME/Downloads/$SQL_FILE_NAME"
+fi
+
+log_info -l "Starting download of $SQL_FILE_NAME from s3 bucket $S3_BUCKET_NAME..." -q "$QUIET_MODE"
+
+"$APP_ROOT/bin/dalmatian" aws-sso run-command \
+  -p "$PROFILE" \
+  s3 cp "s3://$S3_BUCKET_NAME/$RDS_ENDPOINT/$SQL_FILE_NAME" "$OUTPUT_FILE_PATH"
