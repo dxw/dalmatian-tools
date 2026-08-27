@@ -1,0 +1,35 @@
+{
+  "SecurityGroups": [
+    {
+      "GroupName": "web-sg",
+      "IpPermissions": [
+        {
+          "FromPort": 443,
+          "ToPort": 443,
+          "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
+          "UserIdGroupPairs": [{"GroupId": "sg-abc123"}],
+          "Ipv6Ranges": [{"CidrIpv6": "::/0"}]
+        },
+        {
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [{"CidrIp": "10.0.0.0/8"}],
+          "UserIdGroupPairs": [],
+          "Ipv6Ranges": []
+        }
+      ]
+    },
+    {
+      "GroupName": "db-sg",
+      "IpPermissions": [
+        {
+          "FromPort": 5432,
+          "ToPort": 5432,
+          "IpRanges": [],
+          "UserIdGroupPairs": [{"GroupId": "sg-web123"}],
+          "Ipv6Ranges": []
+        }
+      ]
+    }
+  ]
+}
