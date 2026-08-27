@@ -1,0 +1,5 @@
+{
+  "repositories": [
+    { "repositoryUri": "123456789012.dkr.ecr.eu-west-2.amazonaws.com/example-infra-example-service-staging" }
+  ]
+}
