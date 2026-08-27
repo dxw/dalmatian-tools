@@ -1,0 +1,23 @@
+---
+# Shape mirrors the dalmatian.yml that `dalmatian-refresh-config` caches under
+# bin/tmp/dalmatian-config/. bin/config/v1 commands read it through the
+# DALMATIAN_CONFIG_PATH override, which is what makes them testable.
+#
+# Two infrastructures, so "list everything" and "list one" can be told apart,
+# and two buildspecs so list-services-by-buildspec has something to filter.
+infrastructures:
+  example-infra:
+    environments:
+      - staging
+      - prod
+    services:
+      - name: web
+        buildspec: example_buildspec_a
+      - name: worker
+        buildspec: example_buildspec_b
+  other-infra:
+    environments:
+      - staging
+    services:
+      - name: api
+        buildspec: example_buildspec_a

@@ -1,0 +1,23 @@
+{
+  "Reservations": [
+    {
+      "Instances": [
+        {
+          "InstanceId": "i-0123456789abcdef0",
+          "LaunchTime": "2026-01-01T00:00:00+00:00",
+          "Tags": [
+            { "Key": "Name", "Value": "example-infra-staging-ecs" }
+          ]
+        }
+      ]
+    },
+    {
+      "Instances": [
+        {
+          "InstanceId": "i-0fedcba987654321f",
+          "LaunchTime": "2026-01-02T00:00:00+00:00"
+        }
+      ]
+    }
+  ]
+}
