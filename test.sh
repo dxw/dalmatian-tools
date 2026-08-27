@@ -9,3 +9,4 @@ fi
 # Hidden files (eg. bin/custom/v2/.gitkeep) are not scripts, so are not linted
 find ./bin -path ./bin/tmp -prune -o -name '.*' -prune -o -type f -exec shellcheck -x {} +
 find ./support -type f -exec shellcheck -x {} +
+find ./lib/bash-functions -type f -exec shellcheck -x {} +
