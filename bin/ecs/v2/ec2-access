@@ -13,7 +13,7 @@ usage() {
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
   echo "  -l                     - list available ec2 instance ids (optional)"
-  echo "  -I <instance_id>       - ec2 instance id (optional)"
+  echo "  -I <instance_id>       - ec2 instance id (optional; -I '' picks interactively)"
   echo "  -c                     - interactive choice (if multiple instances found)"
   exit 1
 }
@@ -34,6 +34,7 @@ then
 fi
 
 CHOOSE=""
+INSTANCE_ID_GIVEN=""
 
 while getopts "i:e:I:lch" opt; do
   case $opt in
@@ -48,6 +49,7 @@ while getopts "i:e:I:lch" opt; do
       ;;
     I)
       INSTANCE_ID=$OPTARG
+      INSTANCE_ID_GIVEN=1
       ;;
     c)
       CHOOSE=1
@@ -83,82 +85,47 @@ INSTANCES=$(
   Name=tag:Environment,Values="$ENVIRONMENT" \
   Name=tag:Project,Values="$PROJECT_NAME"
 )
-RESERVATIONS="$(echo "$INSTANCES" | jq -r '.Reservations[]')"
-if [ -z "$RESERVATIONS" ]
+AVAILABLE_INSTANCES="$(ec2_instance_lines -j "$INSTANCES")"
+if [ -z "$AVAILABLE_INSTANCES" ]
 then
   err "No instances found for Infrastructure '$INFRASTRUCTURE_NAME' Environment '$ENVIRONMENT'"
   exit 1
 fi
 
-AVAILABLE_INSTANCES=$(echo "$RESERVATIONS" | jq -r '.Instances[] |
-  (.InstanceId) + " | " +
-    (.Tags[] | select(.Key == "Name") |
-    .Value) + " | " +
-  (.LaunchTime)')
-
-if [ -n "$LIST" ];
+if [ -n "$LIST" ]
 then
   echo "$AVAILABLE_INSTANCES"
   exit 0
 fi
 
-if [ -z "$INSTANCE_ID" ];
+if [ -z "$INSTANCE_ID" ]
 then
-  # Count instances
-  INSTANCE_COUNT=$(echo "$INSTANCES" | jq -r '[.Reservations[].Instances[]] | length')
-
-  if [[ "$INSTANCE_COUNT" -gt 1 && -n "$CHOOSE" ]]
+  if [[ -n "$CHOOSE" || -n "$INSTANCE_ID_GIVEN" ]]
   then
-    # Interactive choice
-    log_msg -l "Multiple instances found. Please choose one:" -q "$QUIET_MODE"
-
-    if [[ "${DALMATIAN_FZF_ENABLED:-1}" == "1" ]] && command -v fzf > /dev/null
-    then
-      OPT=$(echo "$AVAILABLE_INSTANCES" | fzf --height 40% --reverse --header "Select an instance")
-      if [ -z "$OPT" ]
-      then
-        err "No instance selected"
-        exit 1
-      fi
-      INSTANCE_ID=$(echo "$OPT" | cut -d' ' -f1)
-      INSTANCE_NAME=$(echo "$OPT" | cut -d'|' -f2 | xargs)
-    else
-      # Store instances in an array for selection
-      INSTANCE_LIST=()
-      while IFS= read -r line; do
-        INSTANCE_LIST+=("$line")
-      done < <(echo "$AVAILABLE_INSTANCES")
-
-      PS3="Select an instance (1-${#INSTANCE_LIST[@]}): "
-      select OPT in "${INSTANCE_LIST[@]}"
-      do
-        if [ -n "$OPT" ]
-        then
-          INSTANCE_ID=$(echo "$OPT" | cut -d' ' -f1)
-          INSTANCE_NAME=$(echo "$OPT" | cut -d'|' -f2 | xargs)
-          break
-        else
-          echo "Invalid selection"
-        fi
-      done
-    fi
+    # -c asks, and so does an explicitly empty `-I ''` -- a way to reach the
+    # picker without having to remember the flag
+    INSTANCE_ID="$(pick_ec2_instance -j "$INSTANCES")"
   else
-    # If an instance ID isn't specified, just connect to the first one
-    INSTANCE_ID=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].InstanceId' )
-    INSTANCE_NAME=$(echo "$INSTANCES" | jq -r '.Reservations[0].Instances[0].Tags[] | select(.Key == "Name") | .Value')
+    # Unlike the ec2 v2 commands, the default here stays "just connect to one".
+    # The first listed instance is .Reservations[0].Instances[0], and taking it
+    # by parameter expansion avoids `| head -1`, which can trip `pipefail`
+    FIRST_INSTANCE="${AVAILABLE_INSTANCES%%$'\n'*}"
+    INSTANCE_ID="${FIRST_INSTANCE%% *}"
   fi
-else
-  # If an instance ID is specified, ensure it exists by trying to get the name
-  INSTANCE_NAME=$(echo "$INSTANCES" | jq -r --arg i "$INSTANCE_ID" \
-  '.Reservations[].Instances[] | select(.InstanceId == $i) | .Tags[] | select(.Key == "Name") | .Value')
+fi
 
-  if [ -z "$INSTANCE_NAME" ];
-  then
-    err "Instance ID '$INSTANCE_ID' was not found"
-    log_msg -l "Available instances:" -q "$QUIET_MODE"
-    echo "$AVAILABLE_INSTANCES"
-    exit 1
-  fi
+# Doubles as validation of a `-I` argument: an id that is not in the running
+# set resolves to no name. An empty Name tag must not be mistaken for that, so
+# it is filtered to the "No Name" default -- jq treats "" as truthy, so without
+# that a running instance tagged Name="" would be reported as not found
+INSTANCE_NAME="$(echo "$INSTANCES" | jq -r --arg i "$INSTANCE_ID" \
+  '.Reservations[].Instances[] | select(.InstanceId == $i) | (.Tags[]? | select(.Key == "Name") | .Value | select(. != "")) // "No Name"')"
+if [ -z "$INSTANCE_NAME" ]
+then
+  err "Instance ID '$INSTANCE_ID' was not found or is not running"
+  log_msg -l "Available instances:" -q "$QUIET_MODE"
+  echo "$AVAILABLE_INSTANCES"
+  exit 1
 fi
 
 log_info -l "Connecting to '$INSTANCE_NAME' (id: $INSTANCE_ID)..." -q "$QUIET_MODE"
