@@ -1,0 +1,18 @@
+{
+  "Parameters": [
+    {
+      "Name": "/example-infra/example-service/staging/SMTP_PORT",
+      "Type": "SecureString",
+      "Value": "25",
+      "Version": 1,
+      "ARN": "arn:aws:ssm:eu-west-2:123456789012:parameter/example-infra/example-service/staging/SMTP_PORT"
+    },
+    {
+      "Name": "/example-infra/example-service/staging/SMTP_HOST",
+      "Type": "SecureString",
+      "Value": "smtp.example.org",
+      "Version": 1,
+      "ARN": "arn:aws:ssm:eu-west-2:123456789012:parameter/example-infra/example-service/staging/SMTP_HOST"
+    }
+  ]
+}
