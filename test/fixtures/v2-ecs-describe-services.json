@@ -1,0 +1,10 @@
+{
+  "services": [
+    {
+      "serviceName": "example-service",
+      "desiredCount": 2,
+      "runningCount": 1,
+      "taskDefinition": "arn:aws:ecs:eu-west-2:123456789012:task-definition/example-project-example-infra-staging-example-service:3"
+    }
+  ]
+}
