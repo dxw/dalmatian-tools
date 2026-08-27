@@ -1,0 +1,14 @@
+{
+  "Reservations": [
+    {
+      "Instances": [
+        {
+          "InstanceId": "i-0123456789abcdef0",
+          "Tags": [
+            { "Key": "Name", "Value": "example-infra-staging-ecs" }
+          ]
+        }
+      ]
+    }
+  ]
+}
