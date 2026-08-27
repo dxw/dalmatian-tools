@@ -1,0 +1,7 @@
+{
+  "TagList": [
+    {"Key": "Infrastructure", "Value": "example-infra"},
+    {"Key": "Name", "Value": "cache"},
+    {"Key": "Environment", "Value": "staging"}
+  ]
+}
