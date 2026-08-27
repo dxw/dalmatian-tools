@@ -59,7 +59,7 @@ do
   TAGS=$(aws elasticache list-tags-for-resource --resource-name "$ARN")
   ENV=$(echo "$TAGS" | jq -r '.TagList[] | select(.Key == "Environment") | .Value')
   NAME=$(echo "$TAGS" | jq -r '.TagList[] | select(.Key == "Name") | .Value')
-  # infra-name-environment e.g. dxw-govpress-rdscache-staging.
+  # infra-name-environment e.g. my-infrastructure-rdscache-staging.
   NICE_NAME=$(echo "$TAGS" | jq -r '.TagList | map(select(.Key == "Infrastructure" or .Key == "Name" or .Key == "Environment") | .Value) | join("-")')
   if [[ "$ENV" == "$ENVIRONMENT" ]] && [[ "$NAME" == "$CLUSTER_NAME" ]];
   then

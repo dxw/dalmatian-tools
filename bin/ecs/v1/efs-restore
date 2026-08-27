@@ -9,7 +9,7 @@ usage() {
   echo "  -h                     - help"
   echo "  -i <infrastructure>    - infrastructure name"
   echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
-  echo "  -f                     - full file path from root of the mount (e.g /wp-uploads/saluki-test/FILE.jpg)"
+  echo "  -f                     - full file path from root of the mount (e.g /wp-uploads/my-service-test/FILE.jpg)"
 
   exit 1
 }

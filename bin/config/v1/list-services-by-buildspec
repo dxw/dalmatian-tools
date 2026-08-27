@@ -4,9 +4,9 @@
 
 usage() {
   echo "List all services with a given buildspec"
-  echo "e.g. dalmatian config $(basename "$0") -b dalmatian_core_buildspec_saluki"
+  echo "e.g. dalmatian config $(basename "$0") -b dalmatian_core_buildspec_my_service"
   echo "Usage: $(basename "$0") <infrastructure name [OPTIONAL]>" 1>&2
-  echo "  -b                     - buildspec e.g. dalmatian_core_buildspec_saluki"
+  echo "  -b                     - buildspec e.g. dalmatian_core_buildspec_my_service"
   echo "  -i                     - infrastructure name (optional)"
   echo "  -h                     - help"
   exit 1

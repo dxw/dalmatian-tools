@@ -24,7 +24,7 @@ check_bash_version
 
 QUIET_MODE="${QUIET_MODE:-0}"
 
-echo "Note: You must have a Dalmatian admin account in the dxw AWS IAM Identity Center to use Dalmatian Tools"
+echo "Note: You must have a Dalmatian admin account in your organisation's AWS IAM Identity Center to use Dalmatian Tools"
 echo
 
 # Check to see if Homebrew is installed, and prompt to install it if it isn't

@@ -31,7 +31,7 @@ default identity source.
    ```
    $ cd ~/git-clones/dalmatian-tools
    $ pwd
-   /Users/alex/git-clones/dalmatian-tools
+   /Users/user/git-clones/dalmatian-tools
    ```
 
    Add this path, plus '/bin' to the '$PATH' variable, by modifying

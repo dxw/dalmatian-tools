@@ -50,7 +50,7 @@ do
   ARN=$(echo "$CLUSTERS" |  jq --arg "cluster_id" "$CLUSTER" -r '.CacheClusters[] | select(.CacheClusterId == $cluster_id).ARN')
   TAGS=$(aws elasticache list-tags-for-resource --resource-name "$ARN")
   ENV=$(echo "$TAGS" | jq -r '.TagList[] | select(.Key == "Environment") | .Value')
-  # infra-name-environment e.g. dxw-govpress-rdscache-staging.
+  # infra-name-environment e.g. my-infrastructure-rdscache-staging.
   NICE_NAME=$(echo "$TAGS" | jq -r '.TagList | map(select(.Key == "Infrastructure" or .Key == "Name" or .Key == "Environment") | .Value) | join("-")')
   ENGINE=$(echo "$CLUSTERS" |  jq --arg "cluster_id" "$CLUSTER" -r '.CacheClusters[] | select(.CacheClusterId == $cluster_id).Engine')
   if [[ -z $ENVIRONMENT ]] || { [[ -n "$ENVIRONMENT" ]] && [[ "$ENV" == "$ENVIRONMENT" ]]; };
