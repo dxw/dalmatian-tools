@@ -5,7 +5,7 @@ set -o pipefail
 # Get an ECS Host ID from a list of available instances
 #
 # @usage pick_ecs_instance -i <infrastructure> -e <environment>
-# @param -i <infrastructure>  Infrastructure name (e.g. dxw-govpress)
+# @param -i <infrastructure>  Infrastructure name (e.g. my-infrastructure)
 # @param -e <environment>     Environment name (e.g. staging/prod)
 # @return string              ID of an EC2 Instance
 function pick_ecs_instance {

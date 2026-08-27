@@ -23,7 +23,7 @@ CLI tools to help with working with Dalmatian
    ```
    $ cd ~/git-clones/dalmatian-tools
    $ pwd
-   /Users/alex/git-clones/dalmatian-tools
+   /Users/user/git-clones/dalmatian-tools
    ```
 
    Add this path, plus '/bin' to the '$PATH' variable, by modifying
@@ -65,10 +65,10 @@ CLI tools to help with working with Dalmatian
 
   ```
   $ dalmatian login
-  Note: You must have a Dalmatian admin account in the dxw AWS IAM Identity Center to use Dalmatian Tools
+  Note: You must have a Dalmatian admin account in your organisation's AWS IAM Identity Center to use Dalmatian Tools
 
   ==> Updating brew packages ...
-  ==> Installing AWS Session Manager Plugin into /Users/alex/Applications/session-manager-plugin
+  ==> Installing AWS Session Manager Plugin into /Users/user/Applications/session-manager-plugin
   ==> Ensuring tfenv is configured ...
   ==> Checking AWS CLI is the correct version ...
   ==> Detected AWS CLI version: 2.36.22
@@ -76,9 +76,9 @@ CLI tools to help with working with Dalmatian
   ==> Attempting AWS SSO login ...
   ==> You're already logged in. Your existing session will expire on 2026-08-13T22:15:31Z
   ==> Exporting AWS SSO credentials...
-  ==> User ID: XXXXXXXXXXXXXXXXXXXXX:alex
+  ==> User ID: XXXXXXXXXXXXXXXXXXXXX:user
   ==> Account: XXXXXXXXXXXX
-  ==> Arn:     arn:aws:sts::XXXXXXXXXXXX:assumed-role/AWSReservedSSO_admin_XXXXXXXXXXXXXXXX/alex
+  ==> Arn:     arn:aws:sts::XXXXXXXXXXXX:assumed-role/AWSReservedSSO_admin_XXXXXXXXXXXXXXXX/user
   ==> Login success!
   ```
 
