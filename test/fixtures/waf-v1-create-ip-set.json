@@ -1,0 +1,8 @@
+{
+  "Summary": {
+    "Name": "DalmatianBlock198-51-100-10-32",
+    "Id": "new-ipset-id",
+    "ARN": "arn:aws:wafv2:eu-west-2:123456789012:regional/ipset/DalmatianBlock198-51-100-10-32/new-ipset-id",
+    "LockToken": "new-ipset-lock"
+  }
+}

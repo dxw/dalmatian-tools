@@ -1,0 +1,14 @@
+{
+  "WebACL": {
+    "Id": "acl-id-123",
+    "DefaultAction": { "Allow": {} },
+    "VisibilityConfig": {
+      "SampledRequestsEnabled": true,
+      "CloudWatchMetricsEnabled": true,
+      "MetricName": "example-metric"
+    },
+    "Rules": [
+      { "Name": "KeepThisRule", "Priority": 0 }
+    ]
+  }
+}
