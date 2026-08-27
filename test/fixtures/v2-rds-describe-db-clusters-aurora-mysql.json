@@ -1,0 +1,8 @@
+{
+  "DBClusters": [
+    {
+      "Engine": "aurora-mysql",
+      "DBSubnetGroup": "example-subnet-group"
+    }
+  ]
+}

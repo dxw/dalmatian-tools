@@ -1,0 +1,7 @@
+{
+  "pipelines": [
+    { "name": "example-infra-example-service-staging-build-and-deploy" },
+    { "name": "example-infra-other-service-staging-build-and-deploy" },
+    { "name": "other-infra-example-service-staging-build-and-deploy" }
+  ]
+}

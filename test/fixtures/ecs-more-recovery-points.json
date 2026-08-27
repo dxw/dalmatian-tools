@@ -1,0 +1,4 @@
+[
+  "arn:aws:backup:eu-west-2:123456789012:recovery-point:example-recovery-point-1",
+  "arn:aws:backup:eu-west-2:123456789012:recovery-point:example-recovery-point-0"
+]

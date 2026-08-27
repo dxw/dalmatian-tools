@@ -1,0 +1,4 @@
+{
+  "Owner": { "ID": "owner123" },
+  "Grants": [{ "Grantee": { "ID": "owner123" }, "Permission": "FULL_CONTROL" }]
+}

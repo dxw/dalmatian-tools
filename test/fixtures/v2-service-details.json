@@ -1,0 +1,10 @@
+{
+  "services": {
+    "example-service": {
+      "desired_containers": "2",
+      "running_containers": "2",
+      "environment_file_bucket": "example-bucket",
+      "environment_file_key": "example-service.env"
+    }
+  }
+}

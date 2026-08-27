@@ -1,0 +1,8 @@
+{
+  "Certificate": {
+    "CertificateArn": "arn:aws:acm:eu-west-2:123456789012:certificate/00000000-0000-0000-0000-000000000002",
+    "DomainName": "other.example.com",
+    "Status": "EXPIRED",
+    "DomainValidationOptions": []
+  }
+}

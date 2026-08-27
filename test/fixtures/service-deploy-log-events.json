@@ -1,0 +1,5 @@
+{
+  "events": [
+    { "message": "Example build log line\n", "timestamp": 1700000000000 }
+  ]
+}
