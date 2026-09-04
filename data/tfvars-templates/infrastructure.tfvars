@@ -119,6 +119,10 @@ infrastructure_rds_backup_to_s3_retention       = 30
 infrastructure_elasticache_defaults = {}
 infrastructure_elasticache          = {}
 
+# Infrastructure Cognito User Pools
+infrastructure_cognito_user_pools_defaults = {}
+infrastructure_cognito_user_pools          = {}
+
 # Infrastructure Bastion Host
 enable_infrastructure_bastion_host                      = false
 infrastructure_bastion_host_custom_security_group_rules = {}
