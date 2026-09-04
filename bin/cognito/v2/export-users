@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -p <pool>              - pool name (as defined in infrastructure_cognito_user_pools)"
+  echo "  -o <csv_file>          - output CSV file (must not already exist)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+while getopts "i:e:p:o:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    p)
+      POOL=$OPTARG
+      ;;
+    o)
+      CSV_FILE=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE" || -z "$ENVIRONMENT" || -z "$POOL" || -z "$CSV_FILE" ]]
+then
+  usage
+fi
+
+if [ -e "$CSV_FILE" ]
+then
+  err "'$CSV_FILE' already exists; refusing to overwrite"
+  exit 1
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+RESOURCE_PREFIX="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT"
+
+POOL_ID="$(cognito_user_pool_id -p "$PROFILE" -n "$RESOURCE_PREFIX-$POOL")"
+
+HEADER_JSON="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    cognito-idp get-csv-header \
+    --user-pool-id "$POOL_ID" \
+  | jq -c '.CSVHeader'
+)"
+
+log_info -l "Exporting users from $POOL_ID to $CSV_FILE ..." -q "$QUIET_MODE"
+
+# list-users is paginated by the AWS CLI automatically. Each user's
+# attributes become a map, then every header column is looked up in it.
+# cognito:username is written as the email so a re-import into an
+# email-username pool resolves; cognito:mfa_enabled is always false.
+TMP_FILE="$(mktemp "$CSV_FILE.tmp.XXXXXX")"
+# Write to a temp file first so a failed run leaves nothing behind for
+# the overwrite guard above to trip on.
+cleanup_tmp() { rm -f "$TMP_FILE"; }
+trap cleanup_tmp EXIT INT TERM
+
+umask 077
+{
+  echo "$HEADER_JSON" | jq -r 'join(",")'
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    cognito-idp list-users \
+    --user-pool-id "$POOL_ID" \
+  | jq -r --argjson header "$HEADER_JSON" '
+      .Users[]
+      | (.Attributes | map({ (.Name): .Value }) | add) as $attrs
+      | [ $header[] | if . == "cognito:username" then ($attrs["email"] // "")
+                      elif . == "cognito:mfa_enabled" then "FALSE"
+                      elif . == "email_verified" then "TRUE"
+                      else ($attrs[.] // "") end ]
+      | @csv
+    '
+} > "$TMP_FILE"
+
+# ln fails if the target appeared since the existence check; mv would clobber it.
+if ! ln "$TMP_FILE" "$CSV_FILE" 2>/dev/null
+then
+  err "'$CSV_FILE' appeared while exporting; refusing to overwrite. Nothing was written there."
+  rm -f "$TMP_FILE"
+  exit 1
+fi
+rm -f "$TMP_FILE"
+trap - EXIT INT TERM
+
+ROW_COUNT="$(($(wc -l < "$CSV_FILE") - 1))"
+log_msg -l "Wrote $ROW_COUNT users to $CSV_FILE" -q "$QUIET_MODE"
+warning "This file contains personal data. Keep it local, do not commit it, and delete it when finished. It does not carry passwords, verification state or enabled/disabled state: a re-import sets every user to RESET_REQUIRED with email_verified=TRUE and enabled."

@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -p <pool>              - pool name (as defined in infrastructure_cognito_user_pools)"
+  echo "  -c <client>            - client name (as defined under the pool's clients)"
+  echo "  -s                     - show the client secret (redacted by default)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+SHOW_SECRET=0
+while getopts "i:e:p:c:sh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    p)
+      POOL=$OPTARG
+      ;;
+    c)
+      CLIENT=$OPTARG
+      ;;
+    s)
+      SHOW_SECRET=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE" || -z "$ENVIRONMENT" || -z "$POOL" || -z "$CLIENT" ]]
+then
+  usage
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+RESOURCE_PREFIX="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT"
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+CLIENT_NAME="$RESOURCE_PREFIX_HASH-$POOL-$CLIENT"
+
+POOL_ID="$(cognito_user_pool_id -p "$PROFILE" -n "$RESOURCE_PREFIX-$POOL")"
+
+CLIENT_ID="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    cognito-idp list-user-pool-clients \
+    --user-pool-id "$POOL_ID" \
+    --max-results 60 \
+  | jq -r --arg name "$CLIENT_NAME" '.UserPoolClients[] | select(.ClientName == $name) | .ClientId // empty'
+)"
+if [ -z "$CLIENT_ID" ]
+then
+  err "Client '$CLIENT' not found in pool '$POOL'"
+  exit 1
+fi
+
+REGION="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    configure get region
+)"
+
+if [ "$SHOW_SECRET" == 1 ]
+then
+  CLIENT_SECRET="$(
+    "$APP_ROOT/bin/dalmatian" aws run-command \
+      -p "$PROFILE" \
+      cognito-idp describe-user-pool-client \
+      --user-pool-id "$POOL_ID" \
+      --client-id "$CLIENT_ID" \
+    | jq -r '.UserPoolClient.ClientSecret // empty'
+  )"
+  [ -z "$CLIENT_SECRET" ] && warning "Client '$CLIENT' has no secret (generate_secret is false)"
+else
+  CLIENT_SECRET="[redacted - pass -s to show]"
+fi
+
+if [ "$SHOW_SECRET" == 1 ]
+then
+  warning "The client secret is printed below; paste it into the environment file and clear your terminal scrollback."
+fi
+
+echo "COGNITO_REGION=$REGION"
+echo "COGNITO_USER_POOL_ID=$POOL_ID"
+echo "COGNITO_CLIENT_ID=$CLIENT_ID"
+echo "COGNITO_CLIENT_SECRET=$CLIENT_SECRET"
