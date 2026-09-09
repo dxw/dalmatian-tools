@@ -1,0 +1,9 @@
+{
+  "UserImportJob": {
+    "JobName": "import-20260909120000",
+    "JobId": "import-ExampleJob0001",
+    "UserPoolId": "eu-west-2_AppPool01",
+    "PreSignedUrl": "https://example.invalid/import-upload/ExampleJob0001",
+    "Status": "Created"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "UserPool": {
+    "Id": "eu-west-2_AdmPool02",
+    "Name": "example-project-example-infra-staging-admin",
+    "Arn": "arn:aws:cognito-idp:eu-west-2:123456789012:userpool/eu-west-2_AdmPool02",
+    "DeletionProtection": "INACTIVE",
+    "UserPoolTier": "LITE",
+    "EstimatedNumberOfUsers": 12
+  }
+}

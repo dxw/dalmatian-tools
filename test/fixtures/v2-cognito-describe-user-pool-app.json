@@ -1,0 +1,10 @@
+{
+  "UserPool": {
+    "Id": "eu-west-2_AppPool01",
+    "Name": "example-project-example-infra-staging-app",
+    "Arn": "arn:aws:cognito-idp:eu-west-2:123456789012:userpool/eu-west-2_AppPool01",
+    "DeletionProtection": "ACTIVE",
+    "UserPoolTier": "ESSENTIALS",
+    "EstimatedNumberOfUsers": 0
+  }
+}

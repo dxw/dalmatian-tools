@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+while getopts "i:e:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE" || -z "$ENVIRONMENT" ]]
+then
+  usage
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+RESOURCE_PREFIX="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT"
+
+POOL_ROWS="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    cognito-idp list-user-pools \
+    --max-results 60 \
+  | jq -r --arg prefix "$RESOURCE_PREFIX-" '.UserPools[] | select(.Name | startswith($prefix)) | [.Name, .Id] | @tsv'
+)"
+
+POOLS_JSON='{ "pools": {} }'
+while IFS=$'\t' read -r POOL_NAME POOL_ID
+do
+  [ -z "$POOL_ID" ] && continue
+  POOL_KEY="${POOL_NAME#"$RESOURCE_PREFIX-"}"
+  POOL="$(
+    "$APP_ROOT/bin/dalmatian" aws run-command \
+      -p "$PROFILE" \
+      cognito-idp describe-user-pool \
+      --user-pool-id "$POOL_ID"
+  )"
+  POOLS_JSON="$(echo "$POOLS_JSON" | jq -c \
+    --arg key "$POOL_KEY" \
+    --arg id "$POOL_ID" \
+    --argjson pool "$POOL" \
+    '.pools += { ($key): {
+        "id": $id,
+        "arn": ($pool.UserPool.Arn // ""),
+        "deletion_protection": ($pool.UserPool.DeletionProtection // "UNKNOWN"),
+        "tier": ($pool.UserPool.UserPoolTier // "UNKNOWN"),
+        "estimated_users": ($pool.UserPool.EstimatedNumberOfUsers // 0)
+      } }'
+  )"
+done < <(echo "$POOL_ROWS")
+
+echo "$POOLS_JSON" | jq

@@ -1,0 +1,6 @@
+{
+  "Role": {
+    "RoleName": "example-project-example-infra-staging-app-user-import",
+    "Arn": "arn:aws:iam::123456789012:role/example-project-example-infra-staging-app-user-import"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "Users": [
+    {
+      "Username": "0f1e2d3c-0000-4000-8000-000000000001",
+      "Attributes": [
+        { "Name": "sub", "Value": "0f1e2d3c-0000-4000-8000-000000000001" },
+        { "Name": "email", "Value": "alice@example.invalid" },
+        { "Name": "name", "Value": "Alice Example" }
+      ],
+      "Enabled": true,
+      "UserStatus": "CONFIRMED"
+    },
+    {
+      "Username": "0f1e2d3c-0000-4000-8000-000000000002",
+      "Attributes": [
+        { "Name": "sub", "Value": "0f1e2d3c-0000-4000-8000-000000000002" },
+        { "Name": "email", "Value": "bob@example.invalid" }
+      ],
+      "Enabled": true,
+      "UserStatus": "FORCE_CHANGE_PASSWORD"
+    }
+  ]
+}
