@@ -1,0 +1,8 @@
+{
+  "UserPoolClient": {
+    "UserPoolId": "eu-west-2_AppPool01",
+    "ClientName": "ccb69c87-app-web",
+    "ClientId": "1webclientid000000000000000",
+    "ClientSecret": "example-client-secret-value"
+  }
+}
