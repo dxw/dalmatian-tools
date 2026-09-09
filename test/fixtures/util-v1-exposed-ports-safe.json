@@ -1,0 +1,4 @@
+[
+  ["sg-1", "web-sg", [{"FromPort": 80, "ToPort": 80, "IpRanges": ["0.0.0.0/0"]}]],
+  ["sg-3", "https-sg", [{"FromPort": 443, "ToPort": 443, "IpRanges": ["0.0.0.0/0"]}]]
+]

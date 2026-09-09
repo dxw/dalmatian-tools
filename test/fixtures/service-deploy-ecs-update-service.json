@@ -1,0 +1,10 @@
+{
+  "service": {
+    "events": [
+      { "id": "event-0001", "message": "Existing event" }
+    ],
+    "deployments": [
+      { "id": "deploy-0001", "status": "PRIMARY" }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "accounts": {
+    "dalmatian-aws-account-000-example-account": {
+      "infrastructures": {
+        "example-infra": {
+          "environments": ["staging", "prod"],
+          "workspaces": [
+            "dalmatian-aws-account-000-example-account-example-infra-staging",
+            "dalmatian-aws-account-000-example-account-example-infra-prod"
+          ]
+        }
+      }
+    }
+  }
+}

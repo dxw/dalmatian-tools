@@ -1,0 +1,10 @@
+{
+  "DBSubnetGroups": [
+    {
+      "Subnets": [
+        { "SubnetIdentifier": "subnet-0123456789abcdef0" },
+        { "SubnetIdentifier": "subnet-0fedcba987654321f" }
+      ]
+    }
+  ]
+}

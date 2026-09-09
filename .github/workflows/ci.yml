@@ -10,3 +10,48 @@ jobs:
       - uses: ludeeus/action-shellcheck@00b27aa7cb85167568cb48a3838b75f4265f2bca # master
         env:
           SHELLCHECK_OPTS: -x
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # bin/configure-commands/v2/version runs `git describe --tags`, which
+          # fails with exit 128 in a tagless clone, so the default shallow
+          # checkout would make `dalmatian version` unusable here. Fetching the
+          # tags makes CI look like a developer's clone
+          fetch-depth: 0
+      # Installed from the tagged source rather than npm, because npm's `bats`
+      # package stops at 1.13.0 and the Brewfile installs 1.14.0 — pinning to
+      # the tag is what keeps CI and developer machines on the same bats
+      - name: Install bats
+        run: |
+          git clone --depth 1 --branch v1.14.0 \
+            https://github.com/bats-core/bats-core.git /tmp/bats-core
+          sudo /tmp/bats-core/install.sh /usr/local
+          bats --version
+      # jq is preinstalled on the runner; yq is not, and bin/config/v1 commands
+      # parse the cached dalmatian.yml with it.
+      #
+      # The release binary, not the snap: a strictly confined snap gets its own
+      # private /tmp, and bats fixtures live under /tmp, so snap yq reads an
+      # empty file and every config test quietly returns nothing.
+      #
+      # The checksum is pinned alongside the version: the action SHAs above are
+      # pinned, so a downloaded binary should not be the one unverified input.
+      # Taken from the v4.49.2 release `checksums` file (the SHA-256 column, per
+      # `checksums_hashes_order`) and confirmed against the artifact.
+      - name: Install yq
+        env:
+          YQ_VERSION: v4.49.2
+          YQ_SHA256: be2c0ddcf426b6a231648610ec5d1666ae50e9f6473e82f6486f9f4cb6e3e2f7
+        run: |
+          curl -fsSL -o /tmp/yq \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  /tmp/yq" | sha256sum --check --strict -
+          sudo install -m 0755 /tmp/yq /usr/local/bin/yq
+          yq --version
+      # bats directly rather than ./test.sh: the lint job already runs
+      # shellcheck, and running it twice would only slow the build
+      - name: Run the test suite
+        run: bats --recursive test

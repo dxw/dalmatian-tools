@@ -1,0 +1,22 @@
+{
+  "DBClusters": [
+    {
+      "DBClusterIdentifier": "exampleinfraexampledbstaging",
+      "Engine": "aurora-postgresql",
+      "Endpoint": "exampleinfraexampledbstaging.cluster-abc123.eu-west-2.rds.amazonaws.com",
+      "Port": 5432
+    },
+    {
+      "DBClusterIdentifier": "exampleinfraexampledbprod",
+      "Engine": "aurora-postgresql",
+      "Endpoint": "exampleinfraexampledbprod.cluster-abc123.eu-west-2.rds.amazonaws.com",
+      "Port": 5432
+    },
+    {
+      "DBClusterIdentifier": "otherinfraexampledbstaging",
+      "Engine": "aurora-mysql",
+      "Endpoint": "otherinfraexampledbstaging.cluster-abc123.eu-west-2.rds.amazonaws.com",
+      "Port": 3306
+    }
+  ]
+}

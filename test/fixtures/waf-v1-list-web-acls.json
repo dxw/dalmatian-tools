@@ -1,0 +1,10 @@
+{
+  "WebACLs": [
+    {
+      "Name": "example-infra-mywaf-waf-staging-mywaf-acl",
+      "Id": "acl-id-123",
+      "ARN": "arn:aws:wafv2:eu-west-2:123456789012:regional/webacl/example-infra-mywaf-waf-staging-mywaf-acl/acl-id-123",
+      "LockToken": "acl-lock-1"
+    }
+  ]
+}

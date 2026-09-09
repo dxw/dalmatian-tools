@@ -1,0 +1,9 @@
+{
+  "DBClusters": [
+    {
+      "DBClusterIdentifier": "exampleinfraexamplerdsstaging",
+      "Engine": "aurora-postgresql",
+      "MasterUsername": "dbadmin"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "WebACL": {
+    "Id": "acl-id-123",
+    "DefaultAction": { "Allow": {} },
+    "VisibilityConfig": {
+      "SampledRequestsEnabled": true,
+      "CloudWatchMetricsEnabled": true,
+      "MetricName": "example-metric"
+    },
+    "Rules": [
+      { "Name": "CustomDalmatianCaptcha198-51-100-10-32", "Priority": 1 },
+      { "Name": "KeepThisRule", "Priority": 0 }
+    ]
+  }
+}

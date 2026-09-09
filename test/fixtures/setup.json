@@ -1,0 +1,7 @@
+{
+  "project_name": "example-project",
+  "aws_sso": {
+    "start_url": "https://example.awsapps.com/start",
+    "region": "eu-west-2"
+  }
+}

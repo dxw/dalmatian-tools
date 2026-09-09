@@ -1,0 +1,11 @@
+{
+  "taskDefinition": {
+    "containerDefinitions": [
+      {
+        "environmentFiles": [
+          { "value": "arn:aws:s3:::example-bucket/example-service.env" }
+        ]
+      }
+    ]
+  }
+}

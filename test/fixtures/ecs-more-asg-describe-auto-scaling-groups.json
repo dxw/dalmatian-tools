@@ -1,0 +1,6 @@
+{
+  "AutoScalingGroups": [
+    { "AutoScalingGroupName": "asg-ecs-example-infra-staging-abc123" },
+    { "AutoScalingGroupName": "asg-ecs-example-infra-prod-def456" }
+  ]
+}

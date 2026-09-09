@@ -1,0 +1,16 @@
+{
+  "DistributionList": {
+    "Items": [
+      {
+        "DomainName": "d111111abcdef8.cloudfront.net",
+        "Aliases": { "Items": ["example.com", "www.example.com"] },
+        "DefaultCacheBehavior": { "TargetOriginId": "example-infra-example-service-staging-default-origin" }
+      },
+      {
+        "DomainName": "d222222abcdef8.cloudfront.net",
+        "Aliases": { "Items": [] },
+        "DefaultCacheBehavior": { "TargetOriginId": "other-infra-other-service-prod-default-origin" }
+      }
+    ]
+  }
+}

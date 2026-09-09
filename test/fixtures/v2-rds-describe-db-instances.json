@@ -1,0 +1,8 @@
+{
+  "DBInstances": [
+    {
+      "Engine": "postgres",
+      "DBSubnetGroup": { "DBSubnetGroupName": "example-subnet-group" }
+    }
+  ]
+}

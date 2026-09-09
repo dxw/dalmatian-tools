@@ -1,0 +1,16 @@
+{
+  "Certificate": {
+    "CertificateArn": "arn:aws:acm:eu-west-2:123456789012:certificate/00000000-0000-0000-0000-000000000000",
+    "DomainName": "example.com",
+    "Status": "ISSUED",
+    "DomainValidationOptions": [
+      {
+        "ResourceRecord": {
+          "Name": "_abc123.example.com.",
+          "Type": "CNAME",
+          "Value": "_xyz789.acm-validations.aws."
+        }
+      }
+    ]
+  }
+}

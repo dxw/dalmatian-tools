@@ -1,0 +1,28 @@
+{
+  "DBInstances": [
+    {
+      "DBInstanceIdentifier": "exampleinfraexampledbstaging",
+      "Engine": "postgres",
+      "Endpoint": {
+        "Address": "exampleinfraexampledbstaging.abc123.eu-west-2.rds.amazonaws.com",
+        "Port": 5432
+      }
+    },
+    {
+      "DBInstanceIdentifier": "exampleinfraexampledbprod",
+      "Engine": "postgres",
+      "Endpoint": {
+        "Address": "exampleinfraexampledbprod.abc123.eu-west-2.rds.amazonaws.com",
+        "Port": 5432
+      }
+    },
+    {
+      "DBInstanceIdentifier": "otherinfraexampledbstaging",
+      "Engine": "mysql",
+      "Endpoint": {
+        "Address": "otherinfraexampledbstaging.abc123.eu-west-2.rds.amazonaws.com",
+        "Port": 3306
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "WebACLs": [
+    {
+      "Name": "other-acl",
+      "Id": "other-id",
+      "ARN": "arn:aws:wafv2:eu-west-2:123456789012:regional/webacl/other-acl/other-id",
+      "LockToken": "other-lock"
+    }
+  ]
+}

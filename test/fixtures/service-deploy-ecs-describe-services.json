@@ -1,0 +1,20 @@
+{
+  "services": [
+    {
+      "events": [
+        { "id": "event-0001", "message": "Existing event" },
+        { "id": "event-0002", "message": "New event message" }
+      ],
+      "deployments": [
+        {
+          "id": "deploy-0001",
+          "status": "PRIMARY",
+          "rolloutState": "COMPLETED",
+          "desiredCount": 2,
+          "pendingCount": 0,
+          "runningCount": 2
+        }
+      ]
+    }
+  ]
+}

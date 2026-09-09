@@ -1,0 +1,10 @@
+{
+  "builds": [
+    {
+      "logs": {
+        "groupName": "/aws/codebuild/example-infra-example-service-staging-build",
+        "streamName": "example-infra-example-service-staging-build/example-stream-id"
+      }
+    }
+  ]
+}

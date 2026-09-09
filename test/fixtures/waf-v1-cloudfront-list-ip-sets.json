@@ -1,0 +1,8 @@
+{
+  "IPSets": [
+    {
+      "Name": "example-infra-mywaf-waf-staging-blocked-ipv4",
+      "Id": "ipset-abc-123"
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+#
+# The single implementation behind every stub in this directory. Each stub is a
+# symlink to this file, so the name it was invoked as identifies which command
+# is being faked.
+#
+# Two jobs: record the call so a test can assert on *how* a command was
+# invoked, and serve a canned response.
+#
+# Responses are keyed by the stub name followed by its arguments, sanitised.
+# The key is then walked back one segment at a time until a file matches, so a
+# single `aws-ec2-describe_instances.out` answers a call with any set of
+# --filters. That is what lets one test give `aws ec2 describe-instances` and
+# `aws configure list-profiles` different answers.
+
+set -u
+
+name="$(basename "${BASH_SOURCE[0]}")"
+
+# Two logs, because one cannot serve both purposes.
+#
+# The flat log joins the arguments with spaces. That reads well and suits the
+# substring matching most assertions want, but it cannot represent argument
+# boundaries: a single value containing a space is indistinguishable from two
+# arguments, and an empty argument shows only as extra whitespace. Anything
+# asserting on exactly what was invoked needs better than that.
+#
+# The argv log therefore records each argument %q-quoted, which is unambiguous
+# in both directions -- an empty argument appears as '' and a space inside a
+# value is escaped -- and is what assert_call_args compares against.
+if [ -n "${DALMATIAN_STUB_LOG:-}" ]
+then
+  printf '%s %s\n' "$name" "$*" >> "$DALMATIAN_STUB_LOG"
+fi
+
+if [ -n "${DALMATIAN_STUB_ARGV_LOG:-}" ]
+then
+  {
+    printf '%s' "$name"
+    printf ' %q' "$@"
+    printf '\n'
+  } >> "$DALMATIAN_STUB_ARGV_LOG"
+fi
+
+responses="${DALMATIAN_STUB_RESPONSES:-}"
+if [ -z "$responses" ]
+then
+  exit 0
+fi
+
+key="$name"
+for arg in "$@"
+do
+  arg="${arg#--}"
+  arg="${arg#-}"
+  arg="${arg//[^A-Za-z0-9_]/_}"
+  key="$key-$arg"
+done
+
+# Walk back from the most specific key to the bare command name
+match=""
+probe="$key"
+while [ -n "$probe" ]
+do
+  if [ -f "$responses/$probe.out" ] || [ -f "$responses/$probe.exit" ]
+  then
+    match="$probe"
+    break
+  fi
+  case "$probe" in
+    *-*) probe="${probe%-*}" ;;
+    *) probe="" ;;
+  esac
+done
+
+if [ -z "$match" ]
+then
+  # An unstubbed call is not an error: plenty of calls in the code under test
+  # only need to succeed silently, and requiring a response for each would make
+  # tests brittle against unrelated changes
+  exit 0
+fi
+
+if [ -f "$responses/$match.out" ]
+then
+  cat "$responses/$match.out"
+fi
+
+if [ -f "$responses/$match.exit" ]
+then
+  exit "$(cat "$responses/$match.exit")"
+fi
+
+exit 0

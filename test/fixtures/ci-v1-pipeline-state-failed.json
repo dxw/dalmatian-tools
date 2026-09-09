@@ -1,0 +1,31 @@
+{
+  "stageStates": [
+    {
+      "stageName": "Source",
+      "latestExecution": { "status": "Succeeded" },
+      "actionStates": [
+        {
+          "actionName": "Source",
+          "latestExecution": {
+            "status": "Succeeded",
+            "lastStatusChange": "2026-01-01T00:00:00+00:00"
+          }
+        }
+      ]
+    },
+    {
+      "stageName": "Build",
+      "latestExecution": { "status": "Failed" },
+      "actionStates": [
+        {
+          "actionName": "Build-example-infra",
+          "latestExecution": {
+            "status": "Failed",
+            "lastStatusChange": "2026-01-01T00:05:00+00:00",
+            "externalExecutionId": "example-build-id-0002"
+          }
+        }
+      ]
+    }
+  ]
+}

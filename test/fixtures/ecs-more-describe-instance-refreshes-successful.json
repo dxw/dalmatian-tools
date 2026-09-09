@@ -1,0 +1,11 @@
+{
+  "InstanceRefreshes": [
+    {
+      "InstanceRefreshId": "example-refresh-id-1",
+      "Status": "Successful",
+      "StatusReason": null,
+      "PercentageComplete": 100,
+      "InstancesToUpdate": 0
+    }
+  ]
+}

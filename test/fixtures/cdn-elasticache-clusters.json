@@ -1,0 +1,21 @@
+{
+  "CacheClusters": [
+    {
+      "CacheClusterId": "example-cluster-001",
+      "ARN": "arn:aws:elasticache:eu-west-2:123456789012:cluster:example-cluster-001",
+      "Engine": "redis",
+      "CacheNodes": [
+        {"CacheNodeId": "0001"}
+      ]
+    },
+    {
+      "CacheClusterId": "example-cluster-002",
+      "ARN": "arn:aws:elasticache:eu-west-2:123456789012:cluster:example-cluster-002",
+      "Engine": "memcached",
+      "CacheNodes": [
+        {"CacheNodeId": "0001"},
+        {"CacheNodeId": "0002"}
+      ]
+    }
+  ]
+}

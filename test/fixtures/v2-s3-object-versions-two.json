@@ -1,0 +1,7 @@
+{
+  "Versions": [
+    { "Key": "file-one.txt", "VersionId": "v1" },
+    { "Key": "file-two.txt", "VersionId": "v1" }
+  ],
+  "DeleteMarkers": []
+}

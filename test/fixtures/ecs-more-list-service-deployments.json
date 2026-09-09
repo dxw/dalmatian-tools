@@ -1,0 +1,16 @@
+{
+  "serviceDeployments": [
+    {
+      "serviceDeploymentArn": "arn:aws:ecs:eu-west-2:123456789012:service-deployment/example-infra-staging/example-service/1234567890abcdef1234567890abcdef",
+      "createdAt": 1700000000,
+      "finishedAt": 1700000125,
+      "status": "SUCCESSFUL"
+    },
+    {
+      "serviceDeploymentArn": "arn:aws:ecs:eu-west-2:123456789012:service-deployment/example-infra-staging/example-service/abcdef1234567890abcdef1234567890",
+      "createdAt": 1700001000,
+      "finishedAt": 1700001200,
+      "status": "SUCCESSFUL"
+    }
+  ]
+}

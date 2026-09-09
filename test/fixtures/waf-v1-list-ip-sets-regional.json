@@ -1,0 +1,14 @@
+{
+  "IPSets": [
+    {
+      "Name": "DalmatianBlock198-51-100-10-32",
+      "Id": "target-ipset-id",
+      "LockToken": "target-ipset-lock"
+    },
+    {
+      "Name": "DalmatianAllow203-0-113-0-24",
+      "Id": "decoy-ipset-id",
+      "LockToken": "decoy-ipset-lock"
+    }
+  ]
+}

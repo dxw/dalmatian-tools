@@ -1,0 +1,12 @@
+{
+  "DBInstances": [
+    {
+      "DBInstanceIdentifier": "exampleinfraexamplerdsstaging",
+      "Engine": "postgres",
+      "MasterUsername": "dbadmin",
+      "DBSubnetGroup": {
+        "VpcId": "vpc-0123456789abcdef0"
+      }
+    }
+  ]
+}

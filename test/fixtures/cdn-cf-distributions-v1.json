@@ -1,0 +1,30 @@
+{
+  "DistributionList": {
+    "Items": [
+      {
+        "Id": "E1EXAMPLE123",
+        "DomainName": "d111111abcdef8.cloudfront.net",
+        "Aliases": {
+          "Items": ["www.example.com"]
+        },
+        "Origins": {
+          "Items": [
+            {"Id": "example-infra-example-service-staging-default-origin"}
+          ]
+        }
+      },
+      {
+        "Id": "E2DECOY456",
+        "DomainName": "d222222abcdef8.cloudfront.net",
+        "Aliases": {
+          "Items": ["other.example.com"]
+        },
+        "Origins": {
+          "Items": [
+            {"Id": "example-infra-other-service-staging-default-origin"}
+          ]
+        }
+      }
+    ]
+  }
+}
