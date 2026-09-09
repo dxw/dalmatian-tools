@@ -67,22 +67,29 @@ setup() {
   stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_instances v2-rds-describe-db-instances.json
   stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_subnet_groups v2-rds-describe-db-subnet-groups.json
 
-  # BUG: the stubbed `logs tail --follow &` background job exits almost
-  # instantly (the stub has no real "follow" behaviour), so by the time the
-  # script reaches its final `kill $LOG_PID` the process is already gone.
-  # `kill` on a since-exited pid returns non-zero, and `set -e` turns that
-  # into a whole-script failure -- even though every AWS call above it
-  # (including the task actually running) succeeded. The same thing would
-  # happen for real if `aws logs tail` ever exited early (expired
-  # credentials, a throttled/reset connection, a very short-lived task).
-  # Asserted here as actual behaviour: everything up to the final `kill` is
-  # correct, but the overall exit status is still a failure.
+  # The exit status is deliberately not asserted, because it is a race.
+  #
+  # The stubbed `logs tail --follow &` background job exits almost instantly
+  # (the stub has no real "follow" behaviour), so the script's final
+  # `kill $LOG_PID` may find the process already gone -- in which case kill
+  # returns non-zero and errexit fails the whole script even though every AWS
+  # call above it succeeded -- or may still win, in which case the script exits
+  # 0. Which way it falls depends on whether the shell has reaped the job yet,
+  # so asserting either outcome makes the test flaky. That unguarded kill is
+  # filed as part of #523; the same thing would happen for real if `aws logs
+  # tail` exited early (expired credentials, a reset connection, a very
+  # short-lived task).
+  #
+  # What is deterministic is everything up to the kill, which is what the
+  # assertions below cover.
   run run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "echo hi"
-  assert_failure
-  assert_output_contains "kill:"
   assert_stub_called_with "rds describe-db-instances --db-instance-identifier ccb69c87-example-rds"
   assert_stub_called_with "ecs run-task --cluster example-project-example-infra-staging-infrastructure-utilities --launch-type FARGATE --task-definition example-project-example-infra-staging-infrastructure-utilities-example-rds"
-  assert_stub_called_with "logs tail example-project-example-infra-staging-infrastructure-utilities-example-rds"
+
+  # The `logs tail` call is deliberately not asserted. The script backgrounds
+  # it with `&` (line 315-321), so whether the stub has written its line to the
+  # call log by the time this test reads the log is a second race, separate
+  # from the kill one. Asserting it failed roughly one run in twenty.
 }
 
 @test "run-command fails and does not launch a task when the RDS does not exist" {
@@ -98,12 +105,10 @@ setup() {
   stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_clusters v2-rds-describe-db-clusters-aurora-mysql.json
   stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_subnet_groups v2-rds-describe-db-subnet-groups.json
 
-  # See the "finds the DB instance" test above: the final `kill $LOG_PID`
-  # fails against the stub's already-exited background job, so the overall
-  # run still fails even though the command was wrapped and dispatched
-  # correctly.
+  # As in the "finds the DB instance" test above, the exit status is a race on
+  # the final `kill $LOG_PID` and so is not asserted. The wrapping is what
+  # this test is for, and that is deterministic.
   run run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "SELECT 1;" -s
-  assert_failure
   assert_stub_called_with "MYSQL_PWD=\$DB_PASSWORD mysql -u \$DB_USER -h \$DB_HOST"
 }
 
@@ -119,7 +124,17 @@ setup() {
   stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_subnet_groups v2-rds-describe-db-subnet-groups.json
 
   run --separate-stderr run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "SELECT 1;" -s
-  assert_stderr_contains "Unrecognised engine: "
+
+  # Matched without a trailing space on purpose. The message really is
+  # "Unrecognised engine: " with nothing after the colon, but whether that
+  # trailing space survives into $stderr depends on whether another line
+  # follows it -- and what follows is the kill race described above. Asserting
+  # the space made this test fail roughly a third of the time.
+  assert_stderr_contains "Unrecognised engine:"
+
+  # The point of the test: $ENGINE is unset, so the real engine name must not
+  # appear. This is what would break if the script were fixed to use
+  # $DB_ENGINE.
   case "$stderr" in
     *"Unrecognised engine: postgres"*)
       fail "expected the message to be empty (\$ENGINE is unset), but the real engine leaked through: $stderr" ;;
