@@ -1,0 +1,11 @@
+{
+  "UserImportJob": {
+    "JobId": "import-ExampleJob0001",
+    "UserPoolId": "eu-west-2_AppPool01",
+    "Status": "Failed",
+    "ImportedUsers": 1,
+    "SkippedUsers": 0,
+    "FailedUsers": 1,
+    "CompletionMessage": "Too many users have failed or been skipped during the import."
+  }
+}

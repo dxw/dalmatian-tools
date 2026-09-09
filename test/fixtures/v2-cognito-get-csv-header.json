@@ -1,0 +1,4 @@
+{
+  "UserPoolId": "eu-west-2_AppPool01",
+  "CSVHeader": ["cognito:username", "email", "email_verified", "name", "cognito:mfa_enabled"]
+}

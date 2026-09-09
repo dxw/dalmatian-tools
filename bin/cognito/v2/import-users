@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -p <pool>              - pool name (as defined in infrastructure_cognito_user_pools)"
+  echo "  -f <csv_file>          - CSV file in the pool's import format (see get-csv-header)"
+  echo "  -F                     - force: import even if the pool already contains users"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+FORCE=0
+while getopts "i:e:p:f:Fh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    p)
+      POOL=$OPTARG
+      ;;
+    f)
+      CSV_FILE=$OPTARG
+      ;;
+    F)
+      FORCE=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE" || -z "$ENVIRONMENT" || -z "$POOL" || -z "$CSV_FILE" ]]
+then
+  usage
+fi
+
+if [ ! -r "$CSV_FILE" ]
+then
+  err "CSV file '$CSV_FILE' does not exist or is not readable"
+  exit 1
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+RESOURCE_PREFIX="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT"
+
+POOL_ID="$(cognito_user_pool_id -p "$PROFILE" -n "$RESOURCE_PREFIX-$POOL")"
+
+log_info -l "Validating CSV header against pool $POOL_ID ..." -q "$QUIET_MODE"
+
+EXPECTED_HEADER="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    cognito-idp get-csv-header \
+    --user-pool-id "$POOL_ID" \
+  | jq -r '.CSVHeader | join(",")'
+)"
+ACTUAL_HEADER="$(head -n 1 "$CSV_FILE" | tr -d '\r')"
+
+if [ "$EXPECTED_HEADER" != "$ACTUAL_HEADER" ]
+then
+  err "CSV header does not match the pool's import format"
+  log_msg -l "expected: $EXPECTED_HEADER" -q "$QUIET_MODE"
+  log_msg -l "actual:   $ACTUAL_HEADER" -q "$QUIET_MODE"
+  exit 1
+fi
+
+ROW_COUNT="$(($(wc -l < "$CSV_FILE") - 1))"
+
+if [ "$ROW_COUNT" -lt 1 ]
+then
+  err "CSV file '$CSV_FILE' has no data rows"
+  exit 1
+fi
+
+# EstimatedNumberOfUsers is eventually consistent; treat it as a guard
+# against obvious mistakes, not an exact count.
+EXISTING_USERS="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    cognito-idp describe-user-pool \
+    --user-pool-id "$POOL_ID" \
+  | jq -r '.UserPool.EstimatedNumberOfUsers'
+)"
+
+if ! [[ "$EXISTING_USERS" =~ ^[0-9]+$ ]]
+then
+  err "Could not determine the number of users in pool '$POOL' (got '$EXISTING_USERS'); refusing to import."
+  exit 1
+fi
+
+if [[ "$EXISTING_USERS" -gt 0 && "$FORCE" == 0 ]]
+then
+  err "Pool '$POOL' already contains approximately $EXISTING_USERS users. Pass -F to import anyway (existing usernames are skipped)."
+  exit 1
+fi
+
+IMPORT_ROLE_ARN="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    iam get-role \
+    --role-name "$RESOURCE_PREFIX-$POOL-user-import" \
+  | jq -r '.Role.Arn // empty'
+)"
+if [ -z "$IMPORT_ROLE_ARN" ]
+then
+  err "Import role '$RESOURCE_PREFIX-$POOL-user-import' not found or has no ARN"
+  exit 1
+fi
+
+JOB_NAME="import-$(date -u +%Y%m%d%H%M%S)"
+log_info -l "Creating import job $JOB_NAME for $ROW_COUNT rows ..." -q "$QUIET_MODE"
+
+JOB="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    cognito-idp create-user-import-job \
+    --user-pool-id "$POOL_ID" \
+    --job-name "$JOB_NAME" \
+    --cloud-watch-logs-role-arn "$IMPORT_ROLE_ARN"
+)"
+JOB_ID="$(echo "$JOB" | jq -r '.UserImportJob.JobId // empty')"
+UPLOAD_URL="$(echo "$JOB" | jq -r '.UserImportJob.PreSignedUrl // empty')"
+if [ -z "$JOB_ID" ] || [ -z "$UPLOAD_URL" ]
+then
+  err "create-user-import-job returned no job ID or upload URL; nothing was started"
+  exit 1
+fi
+if [[ "$UPLOAD_URL" != https://* ]]; then err "create-user-import-job returned a non-HTTPS upload URL; refusing to upload"; exit 1; fi
+
+log_info -l "Uploading $CSV_FILE ..." -q "$QUIET_MODE"
+# The presigned URL is a plain HTTPS PUT, not an AWS API call, so curl is
+# used directly. Cognito requires the SSE header on this upload.
+if ! curl -fsS \
+  -H "x-amz-server-side-encryption: aws:kms" \
+  --upload-file "$CSV_FILE" \
+  "$UPLOAD_URL"
+then
+  err "Upload of $CSV_FILE failed. Import job $JOB_ID was created but not started; Cognito expires unstarted jobs automatically, and rerunning this command creates a fresh job."
+  exit 1
+fi
+
+log_info -l "Starting import job $JOB_ID ..." -q "$QUIET_MODE"
+"$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  cognito-idp start-user-import-job \
+  --user-pool-id "$POOL_ID" \
+  --job-id "$JOB_ID" > /dev/null
+
+STATUS="Pending"
+DESCRIBE_FAILURES=0
+POLLS=0
+while [[ "$STATUS" == "Pending" || "$STATUS" == "InProgress" || "$STATUS" == "Created" || "$STATUS" == "Stopping" ]]
+do
+  sleep 5
+  POLLS=$((POLLS + 1))
+  if [ "$POLLS" -ge 720 ]
+  then
+    err "Import job $JOB_ID has not reached a terminal status after $POLLS polls (~1 hour). Check /aws/cognito/userpools/$POOL_ID/$JOB_ID and describe-user-import-job by hand."
+    exit 1
+  fi
+  if ! JOB="$(
+    "$APP_ROOT/bin/dalmatian" aws run-command \
+      -p "$PROFILE" \
+      cognito-idp describe-user-import-job \
+      --user-pool-id "$POOL_ID" \
+      --job-id "$JOB_ID"
+  )"
+  then
+    DESCRIBE_FAILURES=$((DESCRIBE_FAILURES + 1))
+    if [ "$DESCRIBE_FAILURES" -ge 3 ]
+    then
+      err "Could not read the status of import job $JOB_ID after $DESCRIBE_FAILURES attempts. The job may still be running; check /aws/cognito/userpools/$POOL_ID/$JOB_ID and rerun describe-user-import-job by hand."
+      exit 1
+    fi
+    warning "describe-user-import-job failed (attempt $DESCRIBE_FAILURES of 3); retrying ..."
+    continue
+  fi
+  DESCRIBE_FAILURES=0
+  STATUS="$(echo "$JOB" | jq -r '.UserImportJob.Status')"
+  log_info -l "  status: $STATUS" -q "$QUIET_MODE"
+done
+
+IMPORTED="$(echo "$JOB" | jq -r '.UserImportJob.ImportedUsers')"
+SKIPPED="$(echo "$JOB" | jq -r '.UserImportJob.SkippedUsers')"
+FAILED="$(echo "$JOB" | jq -r '.UserImportJob.FailedUsers')"
+COMPLETION="$(echo "$JOB" | jq -r '.UserImportJob.CompletionMessage // empty')"
+
+log_msg -l "" -q "$QUIET_MODE"
+log_msg -l "Job:      $JOB_ID ($STATUS)" -q "$QUIET_MODE"
+log_msg -l "Rows:     $ROW_COUNT" -q "$QUIET_MODE"
+log_msg -l "Imported: $IMPORTED" -q "$QUIET_MODE"
+log_msg -l "Skipped:  $SKIPPED" -q "$QUIET_MODE"
+log_msg -l "Failed:   $FAILED" -q "$QUIET_MODE"
+[ -n "$COMPLETION" ] && log_msg -l "Message:  $COMPLETION" -q "$QUIET_MODE"
+log_msg -l "Logs:     /aws/cognito/userpools/$POOL_ID/$JOB_ID" -q "$QUIET_MODE"
+
+if [[ "$STATUS" != "Succeeded" || "$FAILED" != "0" ]]
+then
+  err "Import did not complete cleanly. Inspect the CloudWatch log group above for per-row failures."
+  exit 1
+fi
