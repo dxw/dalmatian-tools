@@ -29,7 +29,7 @@ do
       then
         JSON_RESULT=$(echo "$JSON_RESULT" | jq -c \
           --arg account_workspace "$account_workspace" \
-          '.accounts += { "\($account_workspace)": { "infrastructures": {} } }'
+          '.accounts[$account_workspace] //= { "infrastructures": {} }'
         )
         INFRASTRUCTURE_NAME_AND_ENVIRONMENT="${infrastructure_workspace#"$account_workspace-"}"
         INFRASTRUCTURE_ENVIRONMENT="$(echo "$INFRASTRUCTURE_NAME_AND_ENVIRONMENT" | rev | cut -d'-' -f1 | rev)"
@@ -37,7 +37,7 @@ do
         JSON_RESULT=$(echo "$JSON_RESULT" | jq -c \
           --arg account_workspace "$account_workspace" \
           --arg infrastructure_name "$INFRASTRUCTURE_NAME" \
-          '.accounts[$account_workspace].infrastructures += { "\($infrastructure_name)": { "environments": [], "workspaces": [] } }'
+          '.accounts[$account_workspace].infrastructures[$infrastructure_name] //= { "environments": [], "workspaces": [] }'
         )
         JSON_RESULT=$(echo "$JSON_RESULT" | jq -c \
           --arg account_workspace "$account_workspace" \
