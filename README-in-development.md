@@ -161,6 +161,10 @@ $ dalmatian installation use client-a
 $ DALMATIAN_INSTALLATION=example-project dalmatian deploy list-accounts
 ```
 
+When `DALMATIAN_INSTALLATION` overrides the default, every command first
+prints which installation it is about to use, so a deploy against the wrong
+installation is visible before it runs.
+
 `dalmatian installation remove <name>` deletes an installation's configuration
 and working copies after confirmation (`-y` skips the prompt). The default
 installation cannot be removed; pick another default first.

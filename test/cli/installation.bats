@@ -136,3 +136,16 @@ add_env_probe() {
   assert_success
   assert_output "v1"
 }
+
+@test "v2 still dispatches when DALMATIAN_INSTALLATION overrides the default" {
+  mkdir -p "$CONFIG_INSTALLATIONS_DIR/other"
+  install_fixture setup.json "$CONFIG_INSTALLATIONS_DIR/other/setup.json"
+  install_fixture dalmatian-sso.config "$CONFIG_INSTALLATIONS_DIR/other/dalmatian-sso.config"
+  run "$TEST_DALMATIAN" version -v 2 -s
+  assert_success
+  export DALMATIAN_INSTALLATION=other
+
+  run "$TEST_DALMATIAN" probe echo-args alpha
+  assert_success
+  assert_output "alpha"
+}
