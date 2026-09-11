@@ -228,6 +228,18 @@ fixture_json() {
   cat "$DALMATIAN_ROOT/test/fixtures/$1"
 }
 
+# Lay out the pre-installations configuration: setup.json and the AWS SSO
+# config directly in the config dir root, with no installations.json. This is
+# what migrate_legacy_installation looks for.
+legacy_config_sandbox() {
+  install_fixture setup.json "$CONFIG_DIR/setup.json"
+  install_fixture dalmatian-sso.config "$CONFIG_DIR/dalmatian-sso.config"
+  printf 'bucket = "example-bucket"\n' > "$CONFIG_DIR/account-bootstrap-backend.vars"
+  printf 'bucket = "example-bucket"\n' > "$CONFIG_DIR/infrastructure-backend.vars"
+  mkdir -p "$CONFIG_DIR/.cache/tfvars"
+  printf '{}\n' > "$CONFIG_DIR/.cache/tfvars-paths.json"
+}
+
 # Repoint APP_ROOT at a fake app root whose bin/dalmatian is a stub.
 #
 # resolve_aws_profile shells out to "$APP_ROOT/bin/dalmatian deploy
