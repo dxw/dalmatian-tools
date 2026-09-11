@@ -49,17 +49,19 @@ default identity source.
 1. Setup Dalmatian
 
    If you are joining a Dalmatian project that has already been setup, skip to
-  the next step 'Joining a Dalmatian Project'
+   the next step 'Joining a Dalmatian Project'
 
-   Run the `dalmatian setup` command
+   Run the `dalmatian setup` command. It creates an installation named after
+   the project name you enter, or after `-n <installation_name>` if given, under
+   `~/.config/dalmatian/installations/`. See "Installations" under Usage.
 
 1. Joining a Dalmatian Project
 
    To join a Dalmatian project, you must have an AWS Single Sign-On user which
-  has Administrative access to at least the Main Dalmatian account.
+   has Administrative access to at least the Main Dalmatian account.
 
    When the Dalmatian Project was first setup, it will have generated a setup
-  file, stored at `~/.config/dalmatian/setup.json`.
+   file, stored at `~/.config/dalmatian/installations/<name>/setup.json`.
    Ask a member of your team for this file, and then run:
    ```
    dalmatian setup -f setup.json
@@ -67,11 +69,17 @@ default identity source.
 
    This file may also be hosted via a web url, in which case you can run:
    ```
-   dalmatian setup -h https://example.com/dalmatian-setup.json
+   dalmatian setup -u https://example.com/dalmatian-setup.json
    ```
 
    Using either of these options will provide defaults for the prompts, so you
    should be able to press Enter for all values.
+
+   The installation is named after the file's project name. Pass
+   `-n <installation_name>` to choose a different name, for example when two
+   projects share a name. The first installation on a machine becomes the
+   default; for any later one, setup prints the `dalmatian installation use`
+   command to switch.
 
 1. Starting a dalmatian project
 
