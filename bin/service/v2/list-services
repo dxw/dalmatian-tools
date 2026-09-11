@@ -94,7 +94,13 @@ do
     ecs describe-task-definition \
     --task-definition "$TASK_DEFINITION_ARN"
   )"
-  ENVIRONMENT_FILE_ARN="$(echo "$TASK_DEFINITION" | jq -r '.taskDefinition.containerDefinitions[0].environmentFiles[0].value')"
+  # The application container is named after the service. Container definitions
+  # are registered sorted by name, so a sidecar may come first; select by name.
+  ENVIRONMENT_FILE_ARN="$(
+    echo "$TASK_DEFINITION" \
+    | jq -r --arg service_name "$SERVICE_NAME" \
+      '.taskDefinition.containerDefinitions[]? | select(.name == $service_name) | .environmentFiles[0].value'
+  )"
   ENVIRONMENT_FILE_BUCKET_ARN="$(echo "$ENVIRONMENT_FILE_ARN" | cut -d'/' -f1)"
   ENVIRONMENT_FILE_BUCKET_NAME="$(echo "$ENVIRONMENT_FILE_BUCKET_ARN" | rev | cut -d':' -f1 | rev)"
   ENVIRONMENT_FILE_KEY="$(echo "$ENVIRONMENT_FILE_ARN" | cut -d'/' -f2-)"

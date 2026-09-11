@@ -71,7 +71,12 @@ TASKS="$(
   --cluster "$CLUSTER" \
   --service-name "$SERVICE_NAME"
 )"
-TASK_ARN=$(echo "$TASKS" | jq -r '.taskArns[0]')
+TASK_ARN=$(echo "$TASKS" | jq -r '.taskArns[0] // empty')
+if [ -z "$TASK_ARN" ]
+then
+  err "No running tasks found for service $SERVICE_NAME in cluster $CLUSTER"
+  exit 1
+fi
 
 TASK_DESCRIPTION="$(
   "$APP_ROOT/bin/dalmatian" aws run-command \
@@ -80,7 +85,21 @@ TASK_DESCRIPTION="$(
   --cluster "$CLUSTER" \
   --task "$TASK_ARN"
 )"
-CONTAINER_NAME="$(echo "$TASK_DESCRIPTION" | jq -r '.tasks[0].containers[0].name')"
+# The application container is named after the service. ECS lists a task's
+# containers in no guaranteed order, and a task with sidecars may list a
+# sidecar first, so select by name rather than taking the first entry. The
+# `[]?` keeps jq from aborting the pipeline when the service has no tasks, so
+# the check below reports that instead of a bare jq error.
+CONTAINER_NAME="$(
+  echo "$TASK_DESCRIPTION" \
+  | jq -r --arg service_name "$SERVICE_NAME" \
+    '.tasks[0].containers[]? | select(.name == $service_name) | .name'
+)"
+if [ -z "$CONTAINER_NAME" ]
+then
+  err "No container named $SERVICE_NAME found in task $TASK_ARN"
+  exit 1
+fi
 
 "$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
