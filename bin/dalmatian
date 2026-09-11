@@ -188,9 +188,19 @@ fi
 
 # Configuration paths shared by v1 and v2. v1 reads the AWS SSO configuration
 # that `dalmatian setup` writes, but never writes it itself.
+#
+# Machine-wide files live at CONFIG_DIR. Everything that belongs to one
+# Dalmatian installation lives under CONFIG_INSTALLATION_DIR, which
+# resolve_installation points at the installation selected by
+# DALMATIAN_INSTALLATION or the default in installations.json. Command
+# scripts read the CONFIG_* variables and never build these paths themselves.
 export CONFIG_DIR="$HOME/.config/dalmatian"
-export CONFIG_SETUP_JSON_FILE="$CONFIG_DIR/setup.json"
-export CONFIG_AWS_SSO_FILE="$CONFIG_DIR/dalmatian-sso.config"
+export CONFIG_INSTALLATIONS_DIR="$CONFIG_DIR/installations"
+export CONFIG_INSTALLATIONS_JSON_FILE="$CONFIG_DIR/installations.json"
+resolve_installation "$SUBCOMMAND"
+# shellcheck disable=SC2153 # CONFIG_INSTALLATION_DIR is exported by resolve_installation, sourced dynamically above
+export CONFIG_SETUP_JSON_FILE="$CONFIG_INSTALLATION_DIR/setup.json"
+export CONFIG_AWS_SSO_FILE="$CONFIG_INSTALLATION_DIR/dalmatian-sso.config"
 
 # These AWS environment variables take precedence when authenticating, which
 # can cause errors if they are not related to Dalmatian
@@ -224,17 +234,34 @@ if [[
   "$VERSION" == "v2"
 ]]
 then
+  # setup creates the installation it is asked for, update touches only
+  # machine-wide state, and installation manages installations themselves;
+  # everything else needs an installation to exist
+  if [[
+    -z "$DALMATIAN_INSTALLATION" &&
+    "$SUBCOMMAND" != "setup" &&
+    "$SUBCOMMAND" != "update" &&
+    "$SUBCOMMAND" != "installation"
+  ]]
+  then
+    err "No Dalmatian installation is configured"
+    err "Run \`dalmatian setup\` to create one"
+    exit 1
+  fi
+
   export CONFIG_UPDATE_CHECK_JSON_FILE="$CONFIG_DIR/update-check.json"
-  export CONFIG_CACHE_DIR="$CONFIG_DIR/.cache"
-  export CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE="$CONFIG_DIR/account-bootstrap-backend.vars"
-  export CONFIG_INFRASTRUCTURE_BACKEND_VARS_FILE="$CONFIG_DIR/infrastructure-backend.vars"
+  export CONFIG_CACHE_DIR="$CONFIG_INSTALLATION_DIR/.cache"
+  export CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE="$CONFIG_INSTALLATION_DIR/account-bootstrap-backend.vars"
+  export CONFIG_INFRASTRUCTURE_BACKEND_VARS_FILE="$CONFIG_INSTALLATION_DIR/infrastructure-backend.vars"
   export CONFIG_TFVARS_DIR="$CONFIG_CACHE_DIR/tfvars"
   export CONFIG_TFVARS_PATHS_FILE="$CONFIG_CACHE_DIR/tfvars-paths.json"
   export CONFIG_TFVARS_DEFAULT_ACCOUNT_BOOTSRAP_FILE="$APP_ROOT/data/tfvars-templates/account-bootstrap.tfvars"
   export CONFIG_TFVARS_DEFAULT_INFRASTRUCTURE_FILE="$APP_ROOT/data/tfvars-templates/infrastructure.tfvars"
   export CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE="000-global-account-bootstrap.tfvars"
   export CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE="000-global-infrastructure.tfvars"
-  export TMP_DIR="$APP_ROOT/tmp"
+  # One set of Terraform working copies per installation: each carries its own
+  # backend configuration and selected workspace
+  export TMP_DIR="$APP_ROOT/tmp/$DALMATIAN_INSTALLATION"
   export TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-account-bootstrap"
   export TMP_INFRASTRUCTURE_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-infrastructure"
   export TMP_SERVICE_ENV_DIR="$TMP_DIR/service-environment-files"
@@ -318,7 +345,10 @@ then
   if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]] || [[ ! -f "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" && ! -L "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" ]]; then
     if [ ! -d "$APP_ROOT/bin/$SUBCOMMAND/$VERSION" ]
     then
-      if [ -d "$APP_ROOT/bin/$SUBCOMMAND/$OTHER_VERSION" ]
+      if [[
+        -d "$APP_ROOT/bin/$SUBCOMMAND/$OTHER_VERSION" ||
+        -f "$APP_ROOT/bin/configure-commands/$OTHER_VERSION/$SUBCOMMAND"
+      ]]
       then
         err "\`$SUBCOMMAND\` is not available in $VERSION"
         err "Run \`dalmatian version -v ${OTHER_VERSION#v}\` to make it available"
@@ -548,7 +578,10 @@ fi
 if [[ -z "${COMMAND}" && ! -f "${SUBCOMMAND}" ]] || [[ ! -f "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" && ! -L "$APP_ROOT/bin/$SUBCOMMAND/$VERSION/$COMMAND" ]]; then
   if [ ! -d "$APP_ROOT/bin/$SUBCOMMAND/$VERSION" ]
   then
-    if [ -d "$APP_ROOT/bin/$SUBCOMMAND/$OTHER_VERSION" ]
+    if [[
+      -d "$APP_ROOT/bin/$SUBCOMMAND/$OTHER_VERSION" ||
+      -f "$APP_ROOT/bin/configure-commands/$OTHER_VERSION/$SUBCOMMAND"
+    ]]
     then
       err "\`$SUBCOMMAND\` is not available in $VERSION"
       err "Run \`dalmatian version -v ${OTHER_VERSION#v}\` to make it available"

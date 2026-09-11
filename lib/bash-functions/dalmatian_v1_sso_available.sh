@@ -12,8 +12,14 @@ set -o pipefail
 function dalmatian_v1_sso_available {
   local setup_json_file aws_sso_file start_url
 
-  setup_json_file="${CONFIG_SETUP_JSON_FILE:-$HOME/.config/dalmatian/setup.json}"
-  aws_sso_file="${CONFIG_AWS_SSO_FILE:-$HOME/.config/dalmatian/dalmatian-sso.config}"
+  # bin/dalmatian always exports these, pointed at the selected installation
+  setup_json_file="${CONFIG_SETUP_JSON_FILE:-}"
+  aws_sso_file="${CONFIG_AWS_SSO_FILE:-}"
+
+  if [[ -z "$setup_json_file" || -z "$aws_sso_file" ]]
+  then
+    return 1
+  fi
 
   if [[ ! -f "$setup_json_file" || ! -f "$aws_sso_file" ]]
   then
