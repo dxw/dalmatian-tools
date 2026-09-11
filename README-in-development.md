@@ -132,6 +132,40 @@ autoload -Uz +X bashcompinit && bashcompinit
 source /path/to/dalmatian-tools/support/zsh-completion.sh
 ```
 
+### Installations
+
+A machine can hold several Dalmatian installations, for example an internal
+one and one per client who operates their own platform. Each installation's
+configuration lives in `~/.config/dalmatian/installations/<name>/` and its
+Terraform working copies in `tmp/<name>/` under this checkout. `version.json`
+and the tools' update check are machine-wide and stay in
+`~/.config/dalmatian/`.
+
+Commands run against the default installation unless `DALMATIAN_INSTALLATION`
+is set:
+
+```
+$ dalmatian installation list
+* example-project           example-project
+  client-a                  client-a-platform
+
+$ dalmatian installation use client-a
+$ DALMATIAN_INSTALLATION=example-project dalmatian deploy list-accounts
+```
+
+`dalmatian installation remove <name>` deletes an installation's configuration
+and working copies after confirmation (`-y` skips the prompt). The default
+installation cannot be removed; pick another default first.
+
+`dalmatian setup` creates an installation named after the project name in the
+setup file, or the name given with `-n <name>`. The first installation on a
+machine becomes the default automatically; later ones do not, and setup
+prints the `installation use` command to switch.
+
+The first run after upgrading to a version with installations moves an
+existing single configuration into `installations/<project_name>/` and
+records it as the default. Nothing else changes.
+
 ## Managing AWS accounts with Dalmatian
 
 ### Initialising AWS accounts
