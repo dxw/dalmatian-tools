@@ -56,6 +56,27 @@ _dalmatian_completion() {
       COMPREPLY+=("$comp")
     done < <(compgen -W "$(printf "'%s' " "${SUBCOMMANDS[@]}")" -- "${COMP_WORDS[COMP_CWORD]}")
     return 0
+  elif [[ "${COMP_WORDS[1]}" == "installation" && "$VERSION" == "v2" ]]
+  then
+    COMPREPLY=()
+    if [ "${#COMP_WORDS[@]}" == 3 ]
+    then
+      while IFS='' read -r comp
+      do
+        COMPREPLY+=("$comp")
+      done < <(compgen -W "list use remove" -- "${COMP_WORDS[COMP_CWORD]}")
+    elif [[ "${#COMP_WORDS[@]}" -ge 4 && ( "${COMP_WORDS[2]}" == "use" || "${COMP_WORDS[2]}" == "remove" ) ]]
+    then
+      INSTALLATIONS_DIR="$CONFIG_DIR/installations"
+      if [ -d "$INSTALLATIONS_DIR" ]
+      then
+        while IFS='' read -r comp
+        do
+          COMPREPLY+=("$comp")
+        done < <(compgen -W "$(find "$INSTALLATIONS_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)" -- "${COMP_WORDS[COMP_CWORD]}")
+      fi
+    fi
+    return 0
   elif [ "${#COMP_WORDS[@]}" == 3 ]
   then
     if [[

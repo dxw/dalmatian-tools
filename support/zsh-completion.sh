@@ -83,6 +83,17 @@ _dalmatian_completions() {
       while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "$(find "$bindir/elasticache/$version" -type f -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
       ;;
 
+    'installation use'*|'installation remove'*)
+      if [ -d "$config_dir/installations" ]
+      then
+        while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(find "$config_dir/installations" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)" -- "$cur" )
+      fi
+      ;;
+
+    'installation'*)
+      while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "list use remove" -- "$cur" )
+      ;;
+
     *)
       while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "-h -l $(find "$bindir" -type d -not -path "$bindir"/configure-commands -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
       ;;
