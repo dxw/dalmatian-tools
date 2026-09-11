@@ -168,9 +168,11 @@ use_stubs() {
   export DALMATIAN_STUB_RESPONSES="$SANDBOX/stub-responses"
   export DALMATIAN_STUB_LOG="$SANDBOX/stub-calls.log"
   export DALMATIAN_STUB_ARGV_LOG="$SANDBOX/stub-calls-argv.log"
+  export DALMATIAN_STUB_ENV_LOG="$SANDBOX/stub-calls-env.log"
   mkdir -p "$DALMATIAN_STUB_RESPONSES"
   : > "$DALMATIAN_STUB_LOG"
   : > "$DALMATIAN_STUB_ARGV_LOG"
+  : > "$DALMATIAN_STUB_ENV_LOG"
 
   if ! command -v gdate > /dev/null
   then
