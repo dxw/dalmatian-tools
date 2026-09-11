@@ -128,8 +128,13 @@ then
   log_info -l "Ensuring tfenv is configured ..." -q "$QUIET_MODE"
   $BREW_BIN link --overwrite tfenv
 
-  "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
-  "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars -n
+  if [ -z "$DALMATIAN_INSTALLATION" ]
+  then
+    log_info -l "No installation is configured yet; the Terraform projects will be cloned by \`dalmatian setup\`" -q "$QUIET_MODE"
+  else
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies clone -I
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies get-tfvars -n
+  fi
   UPDATE_CHECK_JSON=$(
     jq -r \
       '.complete_status |= "1"' \

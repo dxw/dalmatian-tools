@@ -33,7 +33,7 @@ done
 # v1 does not export AWS_CONFIG_FILE globally, so default it here
 if [ -z "$AWS_CONFIG_FILE" ]
 then
-  AWS_CONFIG_FILE="${CONFIG_AWS_SSO_FILE:-$HOME/.config/dalmatian/dalmatian-sso.config}"
+  AWS_CONFIG_FILE="$CONFIG_AWS_SSO_FILE"
   export AWS_CONFIG_FILE
 fi
 

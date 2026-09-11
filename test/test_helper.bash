@@ -28,18 +28,28 @@ export DALMATIAN_ROOT
 # functions read them directly when sourced outside bin/dalmatian.
 setup_sandbox() {
   SANDBOX="$BATS_TEST_TMPDIR/sandbox"
+  mkdir -p "$SANDBOX"
+  # Resolve symlinks now (macOS's /tmp -> /private/tmp, for one), so that a
+  # path built from $SANDBOX agrees with one bin/dalmatian derives via
+  # `pwd -P` from its own location under the sandbox.
+  SANDBOX="$(cd "$SANDBOX" && pwd -P)"
   export SANDBOX
   export HOME="$SANDBOX/home"
   export APP_ROOT="$DALMATIAN_ROOT"
   export CONFIG_DIR="$HOME/.config/dalmatian"
   export CONFIG_INSTALLATIONS_DIR="$CONFIG_DIR/installations"
   export CONFIG_INSTALLATIONS_JSON_FILE="$CONFIG_DIR/installations.json"
-  export CONFIG_SETUP_JSON_FILE="$CONFIG_DIR/setup.json"
-  export CONFIG_AWS_SSO_FILE="$CONFIG_DIR/dalmatian-sso.config"
+  # Tests run against one sandbox installation. bin/dalmatian resolves the
+  # same one from DALMATIAN_INSTALLATION, so a test that goes through the
+  # dispatcher and one that runs a command directly agree on the paths.
+  export DALMATIAN_INSTALLATION="example-project"
+  export CONFIG_INSTALLATION_DIR="$CONFIG_INSTALLATIONS_DIR/$DALMATIAN_INSTALLATION"
+  export CONFIG_SETUP_JSON_FILE="$CONFIG_INSTALLATION_DIR/setup.json"
+  export CONFIG_AWS_SSO_FILE="$CONFIG_INSTALLATION_DIR/dalmatian-sso.config"
   export DALMATIAN_SKIP_UPDATE_CHECK=1
   export DALMATIAN_FZF_ENABLED=0
   export QUIET_MODE=0
-  mkdir -p "$CONFIG_DIR" "$SANDBOX/bin"
+  mkdir -p "$CONFIG_INSTALLATION_DIR" "$SANDBOX/bin"
 }
 
 # Source files from lib/bash-functions and restore the shell options they set.
@@ -240,6 +250,12 @@ legacy_config_sandbox() {
   printf '{}\n' > "$CONFIG_DIR/.cache/tfvars-paths.json"
 }
 
+# Record the sandbox installation as the machine default, for tests that unset
+# DALMATIAN_INSTALLATION to exercise the default path.
+installation_sandbox() {
+  printf '{"default": "%s"}\n' "$DALMATIAN_INSTALLATION" > "$CONFIG_INSTALLATIONS_JSON_FILE"
+}
+
 # Repoint APP_ROOT at a fake app root whose bin/dalmatian is a stub.
 #
 # resolve_aws_profile shells out to "$APP_ROOT/bin/dalmatian deploy
@@ -309,6 +325,7 @@ login_sandbox() {
 
   install_fixture setup.json "$CONFIG_SETUP_JSON_FILE"
   install_fixture dalmatian-sso.config "$CONFIG_AWS_SSO_FILE"
+  installation_sandbox
 
   expires="$(gdate -u -d '+8 hours' '+%Y-%m-%dT%H:%M:%SZ')"
 
