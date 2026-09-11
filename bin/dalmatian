@@ -270,6 +270,8 @@ then
     exit 1
   fi
 
+  announce_installation_override
+
   export CONFIG_UPDATE_CHECK_JSON_FILE="$CONFIG_DIR/update-check.json"
   if [ -n "$CONFIG_INSTALLATION_DIR" ]
   then
