@@ -52,7 +52,48 @@ setup() {
   assert_success
   assert_stub_called_with "ecs list-tasks --cluster example-project-example-infra-staging-infrastructure --service-name example-service"
   assert_stub_called_with "ecs describe-tasks --cluster example-project-example-infra-staging-infrastructure --task arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/task-abc123"
-  assert_stub_called_with "ecs execute-command --cluster example-project-example-infra-staging-infrastructure --task arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/task-abc123 --container app --command /bin/bash --interactive"
+  assert_stub_called_with "ecs execute-command --cluster example-project-example-infra-staging-infrastructure --task arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/task-abc123 --container example-service --command /bin/bash --interactive"
+}
+
+@test "container-access execs into the container named after the service, not the first one listed" {
+  # The fixture lists a sidecar before the application container, which is how
+  # ECS reports a task whose sidecar sorts first by name.
+  run run_command bin/service/v2/container-access -i "example-infra" -e "staging" -s "example-service"
+  assert_success
+  assert_stub_called_with "--container example-service --command"
+  refute_stub_called_with "--container gotenberg"
+}
+
+@test "container-access fails when the task has no container named after the service" {
+  stub_response dalmatian-aws-run_command-p-example_account-ecs-describe_tasks '{ "tasks": [{ "containers": [{ "name": "gotenberg" }] }] }'
+
+  run --separate-stderr run_command bin/service/v2/container-access -i "example-infra" -e "staging" -s "example-service"
+  assert_failure 1
+  assert_stderr_contains "No container named example-service found in task arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/task-abc123"
+  refute_stub_called_with "ecs execute-command"
+}
+
+@test "container-access fails before describe-tasks when the service has no running tasks" {
+  # `.taskArns[0]` on an empty list is null, which jq -r prints as the string
+  # "null"; without the guard that string is sent to describe-tasks.
+  stub_response dalmatian-aws-run_command-p-example_account-ecs-list_tasks '{ "taskArns": [] }'
+
+  run --separate-stderr run_command bin/service/v2/container-access -i "example-infra" -e "staging" -s "example-service"
+  assert_failure 1
+  assert_stderr_contains "No running tasks found for service example-service in cluster example-project-example-infra-staging-infrastructure"
+  refute_stub_called_with "ecs describe-tasks"
+  refute_stub_called_with "ecs execute-command"
+}
+
+@test "container-access fails cleanly when the task description lists no containers" {
+  # The jq iterates with `[]?` so a null containers array does not abort the
+  # pipeline under set -e before the script can explain what happened.
+  stub_response dalmatian-aws-run_command-p-example_account-ecs-describe_tasks '{ "tasks": [{ }] }'
+
+  run --separate-stderr run_command bin/service/v2/container-access -i "example-infra" -e "staging" -s "example-service"
+  assert_failure 1
+  assert_stderr_contains "No container named example-service found in task"
+  refute_stub_called_with "ecs execute-command"
 }
 
 @test "container-access uses a custom command when -c is given" {

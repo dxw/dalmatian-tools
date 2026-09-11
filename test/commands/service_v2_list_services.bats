@@ -60,6 +60,33 @@ setup() {
   [ "$result" = '{"desired_containers":"2","running_containers":"1","environment_file_bucket":"example-bucket","environment_file_key":"example-service.env"}' ]
 }
 
+@test "list-services reads the environment file from the container named after the service" {
+  # The task definition fixture lists a sidecar with no environment file before
+  # the application container, so reading containerDefinitions[0] would yield
+  # null here. Container definitions are registered sorted by name, so this is
+  # the real shape for any service whose sidecar sorts first.
+  stub_response_file dalmatian-aws-run_command-p-example_account-ecs-list_services v2-ecs-list-services-one.json
+
+  run run_command bin/service/v2/list-services -i "example-infra" -e "staging"
+  assert_success
+
+  local result
+  result="$(echo "$output" | jq -r '.services["example-service"].environment_file_key')"
+  [ "$result" = "example-service.env" ]
+}
+
+@test "list-services still lists a service whose task definition has no container definitions" {
+  stub_response_file dalmatian-aws-run_command-p-example_account-ecs-list_services v2-ecs-list-services-one.json
+  stub_response dalmatian-aws-run_command-p-example_account-ecs-describe_task_definition '{ "taskDefinition": {} }'
+
+  run run_command bin/service/v2/list-services -i "example-infra" -e "staging"
+  assert_success
+
+  local result
+  result="$(echo "$output" | jq -r '.services["example-service"].desired_containers')"
+  [ "$result" = "2" ]
+}
+
 @test "list-services filters to the given service name, describing only the matching one" {
   stub_response_file dalmatian-aws-run_command-p-example_account-ecs-list_services v2-ecs-list-services-two.json
 

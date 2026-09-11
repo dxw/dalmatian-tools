@@ -2,6 +2,10 @@
   "taskDefinition": {
     "containerDefinitions": [
       {
+        "name": "gotenberg"
+      },
+      {
+        "name": "example-service",
         "environmentFiles": [
           { "value": "arn:aws:s3:::example-bucket/example-service.env" }
         ]
