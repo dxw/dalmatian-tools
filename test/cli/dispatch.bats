@@ -87,3 +87,10 @@ setup() {
     fail "$(printf 'usage was exported to the command\nfunctions seen:\n%s' "$output")"
   fi
 }
+
+@test "dalmatian points at the version switch for the v2-only installation command" {
+  run --separate-stderr "$TEST_DALMATIAN" installation list
+  assert_failure 1
+  assert_stderr_contains "\`installation\` is not available in v1"
+  assert_stderr_contains "dalmatian version -v 2"
+}
