@@ -32,6 +32,8 @@ setup_sandbox() {
   export HOME="$SANDBOX/home"
   export APP_ROOT="$DALMATIAN_ROOT"
   export CONFIG_DIR="$HOME/.config/dalmatian"
+  export CONFIG_INSTALLATIONS_DIR="$CONFIG_DIR/installations"
+  export CONFIG_INSTALLATIONS_JSON_FILE="$CONFIG_DIR/installations.json"
   export CONFIG_SETUP_JSON_FILE="$CONFIG_DIR/setup.json"
   export CONFIG_AWS_SSO_FILE="$CONFIG_DIR/dalmatian-sso.config"
   export DALMATIAN_SKIP_UPDATE_CHECK=1
