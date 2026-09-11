@@ -355,6 +355,11 @@ fi
 # Attempt to derive an awslogs log group from the task definition so we can
 # tail. Not all scheduled tasks (e.g. EC2/bridge-mode service tasks) log to
 # CloudWatch with a predictable stream, so tailing is best-effort.
+#
+# Reading containerDefinitions[0] is safe here, unlike in the service commands:
+# a scheduled task definition is built by the infrastructure Terraform with
+# exactly one container (the service image with a different entrypoint) and
+# never receives sidecar containers. Revisit if that changes.
 CONTAINER_DEFINITION="$("$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ecs describe-task-definition \
