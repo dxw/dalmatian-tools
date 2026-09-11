@@ -9,6 +9,10 @@ setup() {
   # than the real checkout
   export APP_ROOT="$SANDBOX/app"
   mkdir -p "$APP_ROOT/tmp"
+  # setup_sandbox pre-creates and selects an installation; migration tests
+  # need neither to exist yet
+  unset DALMATIAN_INSTALLATION
+  rm -rf "$CONFIG_INSTALLATIONS_DIR"
 }
 
 @test "migrate_legacy_installation does nothing with no configuration" {

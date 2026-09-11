@@ -178,6 +178,11 @@ source /path/to/dalmatian-tools/support/zsh-completion.sh
   tools by default. Useful if bringing up a service or infrastructure whose
   config hasn't been merged in yet.
 
+- DALMATIAN_INSTALLATION
+  Select which Dalmatian installation to run against, overriding the default
+  recorded by `dalmatian installation use`. See "Installations" in
+  [README-in-development.md](README-in-development.md).
+
 - DALMATIAN_FZF_ENABLED
   Set to 0 to disable fzf support for interactive selections. Defaults to 1.
 
