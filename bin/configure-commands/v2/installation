@@ -6,11 +6,13 @@ set -o pipefail
 
 usage() {
   echo "Usage: $(basename "$0") ACTION [OPTIONS]" 1>&2
-  echo "  list                 - List the Dalmatian installations on this machine"
-  echo "  use <name>           - Make <name> the default installation"
-  echo "  remove [-y] <name>   - Delete an installation's configuration and Terraform working copies"
-  echo "                         (-y skips the confirmation prompt)"
-  echo "  -h                   - help"
+  echo "  list                   - List the Dalmatian installations on this machine"
+  echo "  use [<name>]           - Make <name> the default installation"
+  echo "  remove [-y] [<name>]   - Delete an installation's configuration and Terraform working copies"
+  echo "                           (-y skips the confirmation prompt)"
+  echo "                           Omit the name to choose interactively (fzf when"
+  echo "                           installed, DALMATIAN_FZF_ENABLED=0 for a numbered menu)"
+  echo "  -h                     - help"
   echo ""
   echo "Set DALMATIAN_INSTALLATION to override the default for one shell or command."
   exit 1
@@ -39,8 +41,6 @@ require_existing() {
 }
 
 list_installations() {
-  local default name project marker
-
   if [ ! -d "$CONFIG_INSTALLATIONS_DIR" ] || [ -z "$(ls -A "$CONFIG_INSTALLATIONS_DIR")" ]
   then
     log_info -l "No Dalmatian installations found" -q "$QUIET_MODE"
@@ -48,28 +48,7 @@ list_installations() {
     return 0
   fi
 
-  default="$(installation_default)"
-
-  while IFS='' read -r name
-  do
-    if [ -f "$CONFIG_INSTALLATIONS_DIR/$name/setup.json" ]
-    then
-      project="$(
-        jq -r 'select((.project_name | type) == "string") | .project_name' \
-          < "$CONFIG_INSTALLATIONS_DIR/$name/setup.json" 2>/dev/null || true
-      )"
-    else
-      project="(no setup.json)"
-    fi
-
-    marker=" "
-    if [ "$name" == "$default" ]
-    then
-      marker="*"
-    fi
-
-    printf '%s %-24s %s\n' "$marker" "$name" "$project"
-  done < <(find "$CONFIG_INSTALLATIONS_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+  installation_rows
 }
 
 use_installation() {
@@ -99,7 +78,7 @@ remove_installation() {
 
   if [ -z "$name" ]
   then
-    usage
+    name="$(pick_installation)" || exit 1
   fi
 
   require_existing "$name"
@@ -133,9 +112,11 @@ case "$ACTION" in
   use)
     if [ -z "${1-}" ]
     then
-      usage
+      name="$(pick_installation)" || exit 1
+    else
+      name="$1"
     fi
-    use_installation "$1"
+    use_installation "$name"
     ;;
   remove)
     remove_installation "$@"

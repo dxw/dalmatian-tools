@@ -167,6 +167,9 @@ $ dalmatian installation use client-a
 $ DALMATIAN_INSTALLATION=example-project dalmatian deploy list-accounts
 ```
 
+Run `dalmatian installation use` or `remove` with no name to choose from a
+list (fzf when installed; set `DALMATIAN_FZF_ENABLED=0` for a numbered menu).
+
 When `DALMATIAN_INSTALLATION` overrides the default, every command first
 prints which installation it is about to use, so a deploy against the wrong
 installation is visible before it runs.
