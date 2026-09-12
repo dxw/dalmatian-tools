@@ -254,3 +254,39 @@ run_setup() {
   assert_output_contains "-- Summary --"
   assert_output_contains "State bucket:        example-tfstate (eu-west-2)"
 }
+
+@test "a changed project name gets its own bucket default" {
+  printf 'new-project\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+
+  run_setup -f "$SANDBOX/setup.json" -n new-project
+  assert_success
+  run grep -c 'bucket               = "new-project-tfstate"' "$CONFIG_INSTALLATIONS_DIR/new-project/infrastructure-backend.vars"
+  assert_output "1"
+  run jq -r '.backend.s3.bucket_name' "$CONFIG_INSTALLATIONS_DIR/new-project/setup.json"
+  assert_output "new-project-tfstate"
+}
+
+@test "an unchanged project name keeps the file's bucket" {
+  run_setup -f "$SANDBOX/setup.json"
+  assert_success
+  run grep -c 'bucket               = "example-tfstate"' "$CONFIG_INSTALLATIONS_DIR/example-project/infrastructure-backend.vars"
+  assert_output "1"
+}
+
+@test "a fresh setup with no file suggests <project>-tfstate" {
+  printf 'prompted-name\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+
+  run_setup
+  assert_success
+  run grep -c 'bucket               = "prompted-name-tfstate"' "$CONFIG_INSTALLATIONS_DIR/prompted-name/infrastructure-backend.vars"
+  assert_output "1"
+}
+
+@test "the suggestion explains itself" {
+  export QUIET_MODE=0
+  printf 'new-project\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+
+  run_setup -f "$SANDBOX/setup.json" -n new-project
+  assert_success
+  assert_output_contains "suggesting its own state bucket rather than sharing 'example-tfstate'"
+}

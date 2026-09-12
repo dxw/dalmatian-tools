@@ -198,6 +198,21 @@ read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.regi
 
 log_info -l "-- Backend Configuration --" -q "$QUIET_MODE"
 log_msg -l "Enter the S3 backend configuration parameters" -q "$QUIET_MODE"
+
+# Two projects must never share a state bucket, so a project rename (or a
+# blank template) gets its own suggested default rather than the loaded one
+LOADED_BUCKET_NAME="$(jq -r '.backend.s3.bucket_name // empty' < "$CONFIG_SETUP_JSON_FILE")"
+if [[ -z "$LOADED_BUCKET_NAME" || "$PROJECT_NAME" != "$ORIGINAL_PROJECT_NAME" ]]
+then
+  SUGGESTED_BUCKET_NAME="${PROJECT_NAME}-tfstate"
+  if [ -n "$LOADED_BUCKET_NAME" ]
+  then
+    log_msg -l "Project '$PROJECT_NAME' differs from '$ORIGINAL_PROJECT_NAME', so suggesting its own state bucket rather than sharing '$LOADED_BUCKET_NAME'" -q "$QUIET_MODE"
+  fi
+  STAGED_JSON="$(jq --arg bucket "$SUGGESTED_BUCKET_NAME" '.backend.s3.bucket_name = $bucket' < "$CONFIG_SETUP_JSON_FILE")"
+  echo "$STAGED_JSON" > "$CONFIG_SETUP_JSON_FILE"
+fi
+
 BACKEND_S3_BUCKET_NAME=$(read_prompt_with_setup_default -p "Bucket Name" -d "backend.s3.bucket_name")
 BACKEND_S3_BUCKET_REGION=$(read_prompt_with_setup_default -p "Bucket Region" -d "backend.s3.bucket_region")
 
