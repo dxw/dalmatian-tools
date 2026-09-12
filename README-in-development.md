@@ -49,17 +49,22 @@ default identity source.
 1. Setup Dalmatian
 
    If you are joining a Dalmatian project that has already been setup, skip to
-  the next step 'Joining a Dalmatian Project'
+   the next step 'Joining a Dalmatian Project'
 
-   Run the `dalmatian setup` command
+   Run the `dalmatian setup` command. It creates an installation named after
+   the project name you enter, or after `-n <installation_name>` if given, under
+   `~/.config/dalmatian/installations/`. See "Installations" under Usage.
+
+   Setup shows a summary and asks for confirmation before it writes anything
+   or contacts AWS; pass `-y` to skip the prompt in scripts.
 
 1. Joining a Dalmatian Project
 
    To join a Dalmatian project, you must have an AWS Single Sign-On user which
-  has Administrative access to at least the Main Dalmatian account.
+   has Administrative access to at least the Main Dalmatian account.
 
    When the Dalmatian Project was first setup, it will have generated a setup
-  file, stored at `~/.config/dalmatian/setup.json`.
+   file, stored at `~/.config/dalmatian/installations/<name>/setup.json`.
    Ask a member of your team for this file, and then run:
    ```
    dalmatian setup -f setup.json
@@ -67,11 +72,20 @@ default identity source.
 
    This file may also be hosted via a web url, in which case you can run:
    ```
-   dalmatian setup -h https://example.com/dalmatian-setup.json
+   dalmatian setup -u https://example.com/dalmatian-setup.json
    ```
 
    Using either of these options will provide defaults for the prompts, so you
    should be able to press Enter for all values.
+
+   The installation is named after the file's project name. Pass
+   `-n <installation_name>` to choose a different name, for example when two
+   projects share a name. If you enter a different project name from the one
+   in the file, setup suggests `<project>-tfstate` as the state bucket so the
+   new project does not share Terraform state with the old one.
+
+   The first installation on a machine becomes the default; for any later
+   one, setup prints the `dalmatian installation use` command to switch.
 
 1. Starting a dalmatian project
 
@@ -131,6 +145,52 @@ autoload -Uz +X compinit && compinit
 autoload -Uz +X bashcompinit && bashcompinit
 source /path/to/dalmatian-tools/support/zsh-completion.sh
 ```
+
+### Installations
+
+A machine can hold several Dalmatian installations, for example an internal
+one and one per client who operates their own platform. Each installation's
+configuration lives in `~/.config/dalmatian/installations/<name>/` and its
+Terraform working copies in `tmp/<name>/` under this checkout. `version.json`
+and the tools' update check are machine-wide and stay in
+`~/.config/dalmatian/`.
+
+Commands run against the default installation unless `DALMATIAN_INSTALLATION`
+is set:
+
+```
+$ dalmatian installation list
+* example-project           example-project
+  client-a                  client-a-platform
+
+$ dalmatian installation use client-a
+$ DALMATIAN_INSTALLATION=example-project dalmatian deploy list-accounts
+```
+
+Run `dalmatian installation use` or `remove` with no name to choose from a
+list (fzf when installed; set `DALMATIAN_FZF_ENABLED=0` for a numbered menu).
+
+When `DALMATIAN_INSTALLATION` overrides the default, every command first
+prints which installation it is about to use, so a deploy against the wrong
+installation is visible before it runs.
+
+`dalmatian installation remove <name>` deletes an installation's configuration
+and working copies after confirmation (`-y` skips the prompt). The default
+installation cannot be removed; pick another default first.
+
+`dalmatian setup` creates an installation named after the project name in the
+setup file, or the name given with `-n <name>`. The first installation on a
+machine becomes the default automatically; later ones do not, and setup
+prints the `installation use` command to switch.
+
+Re-running `dalmatian setup` with no flags updates the current installation.
+It refuses to change that installation's project name, because the project
+name is part of every resource name it manages; set up a different project
+with `dalmatian setup -n <name>` instead.
+
+The first run after upgrading to a version with installations moves an
+existing single configuration into `installations/<project_name>/` and
+records it as the default. Nothing else changes.
 
 ## Managing AWS accounts with Dalmatian
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2153
 
 # exit on failures
 set -e
@@ -9,22 +10,21 @@ log_msg -l "| To enable us to deploy the resources across      |" -q "$QUIET_MOD
 log_msg -l "| multiple AWS accounts, we will configure AWS SSO |" -q "$QUIET_MODE"
 log_msg -l "| and store the required AWS profiles, and other   |" -q "$QUIET_MODE"
 log_msg -l "| configuration within:                            |" -q "$QUIET_MODE"
-log_msg -l "| \`\$HOME/.config/dalmatian\`                        |" -q "$QUIET_MODE"
+log_msg -l "| \`\$HOME/.config/dalmatian/installations/<name>\`   |" -q "$QUIET_MODE"
 log_msg -l "|                                                  |" -q "$QUIET_MODE"
 log_msg -l "| This configuration will then be automatically    |" -q "$QUIET_MODE"
 log_msg -l "| loaded and used when running other dalmatian     |" -q "$QUIET_MODE"
 log_msg -l "| tools commands                                   |" -q "$QUIET_MODE"
 log_msg -l "----------------------------------------------------" -q "$QUIET_MODE"
 
-mkdir -p "$CONFIG_DIR"
-mkdir -p "$CONFIG_CACHE_DIR"
-
 usage() {
   echo "Usage: dalmatian $(basename "$0") [OPTIONS]" 1>&2
-  echo "  -h                     - help"
-  echo "  -f <setup_filepath>    - Setup Filepath (Optional)"
-  echo "  -b                     - Enable bootstrap (Optional)"
-  echo "  -u <setup_url>         - Setup URL (Optional)"
+  echo "  -h                       - help"
+  echo "  -n <installation_name>   - Name for this installation (Optional, defaults to the project name)"
+  echo "  -f <setup_filepath>      - Setup Filepath (Optional)"
+  echo "  -u <setup_url>           - Setup URL (Optional)"
+  echo "  -b                       - Enable bootstrap (Optional)"
+  echo "  -y                       - Skip the confirmation prompt"
   exit 1
 }
 ENABLE_BOOTSTRAP=0
@@ -33,9 +33,15 @@ then
   ENABLE_BOOTSTRAP=1
 fi
 
+INSTALLATION_NAME=""
 SETUP_FILE_PATH=""
-while getopts "f:u:bh" opt; do
+SETUP_FILE_URL=""
+ASSUME_YES=0
+while getopts "n:f:u:byh" opt; do
   case $opt in
+    n)
+      INSTALLATION_NAME="$OPTARG"
+      ;;
     f)
       SETUP_FILE_PATH="$OPTARG"
       ;;
@@ -44,6 +50,9 @@ while getopts "f:u:bh" opt; do
       ;;
     b)
       ENABLE_BOOTSTRAP=1
+      ;;
+    y)
+      ASSUME_YES=1
       ;;
     h)
       usage
@@ -54,11 +63,29 @@ while getopts "f:u:bh" opt; do
   esac
 done
 
+if [[ -n "$INSTALLATION_NAME" ]] && ! installation_name_valid "$INSTALLATION_NAME"
+then
+  die "'$INSTALLATION_NAME' is not a valid installation name: use lower-case letters, digits, '-' and '_', starting with a letter or digit"
+fi
+
+# A plain re-run, with no file, URL or name, updates the installation the
+# dispatcher resolved rather than creating a new one from the project name
+if [[
+  -z "$INSTALLATION_NAME" &&
+  -z "$SETUP_FILE_PATH" &&
+  -z "$SETUP_FILE_URL" &&
+  -n "${DALMATIAN_INSTALLATION:-}"
+]]
+then
+  INSTALLATION_NAME="$DALMATIAN_INSTALLATION"
+fi
+
 if [ -n "$SETUP_FILE_PATH" ]
 then
   if [ -f "$SETUP_FILE_PATH" ]
   then
     SETUP_JSON=$(jq -r < "$SETUP_FILE_PATH")
+    SETUP_JSON_SOURCE="file"
   else
     err "'$SETUP_FILE_PATH' doesn't exist!"
     exit 1
@@ -66,10 +93,13 @@ then
 elif [ -n "$SETUP_FILE_URL" ]
 then
   SETUP_JSON=$(curl -s "$SETUP_FILE_URL")
-elif [ -f "$CONFIG_SETUP_JSON_FILE" ]
+  SETUP_JSON_SOURCE="url"
+elif [[ -n "$INSTALLATION_NAME" && -f "$CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME/setup.json" ]]
 then
-  SETUP_JSON=$(jq -r < "$CONFIG_SETUP_JSON_FILE")
+  SETUP_JSON=$(jq -r < "$CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME/setup.json")
+  SETUP_JSON_SOURCE="existing"
 else
+  SETUP_JSON_SOURCE="template"
   SETUP_JSON=$(
     jq -n \
     --arg project_name "" \
@@ -100,10 +130,64 @@ else
     }'
   )
 fi
-echo "$SETUP_JSON" > "$CONFIG_SETUP_JSON_FILE"
+
+# Captured before any prompt can overwrite it, so a re-run can tell whether
+# the project name prompt changed it
+ORIGINAL_PROJECT_NAME="$(echo "$SETUP_JSON" | jq -r '.project_name // empty')"
+
+if [ -n "$INSTALLATION_NAME" ]
+then
+  if [ "$SETUP_JSON_SOURCE" == "existing" ]
+  then
+    warning "Updating existing installation '$INSTALLATION_NAME' in $CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME"
+  else
+    log_msg -l "Creating installation '$INSTALLATION_NAME' in $CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME" -q "$QUIET_MODE"
+  fi
+fi
+
+# The prompts read and write CONFIG_SETUP_JSON_FILE. The installation directory
+# cannot exist until its name is known, and the name may come from the project
+# name prompt, so stage the answers in a temporary file first. Nothing is
+# moved into the real installation until the summary below is confirmed.
+STAGED_SETUP_JSON_FILE="$(mktemp)"
+trap 'rm -f "$STAGED_SETUP_JSON_FILE"' EXIT
+echo "$SETUP_JSON" > "$STAGED_SETUP_JSON_FILE"
+CONFIG_SETUP_JSON_FILE="$STAGED_SETUP_JSON_FILE"
+export CONFIG_SETUP_JSON_FILE
 
 log_info -l "-- Dalmatian Setup --" -q "$QUIET_MODE"
-read_prompt_with_setup_default -p "Dalmatian project name" -d "project_name" -s
+PROJECT_NAME=$(read_prompt_with_setup_default -p "Dalmatian project name" -d "project_name")
+
+if [ -z "$INSTALLATION_NAME" ]
+then
+  if ! installation_name_valid "$PROJECT_NAME"
+  then
+    die "The project name '$PROJECT_NAME' is not a valid installation name. Re-run with \`dalmatian setup -n <installation_name>\` to choose one (lower-case letters, digits, '-' and '_', starting with a letter or digit)"
+  fi
+  INSTALLATION_NAME="$PROJECT_NAME"
+  log_msg -l "Creating installation '$INSTALLATION_NAME' in $CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME" -q "$QUIET_MODE"
+fi
+
+# project_name feeds the resource prefix hash for every v2 resource, so
+# changing it inside an existing installation renames everything it manages
+if [[
+  "$SETUP_JSON_SOURCE" == "existing" &&
+  -n "$ORIGINAL_PROJECT_NAME" &&
+  "$PROJECT_NAME" != "$ORIGINAL_PROJECT_NAME"
+]]
+then
+  die "Installation '$INSTALLATION_NAME' records project '$ORIGINAL_PROJECT_NAME'; changing it here would rename every resource it manages. To set up a different project run \`dalmatian setup -n <new-installation-name>\`, or answer '$ORIGINAL_PROJECT_NAME' to keep editing this one"
+fi
+
+# A blank template must never replace answers an earlier run recorded
+if [[
+  "$SETUP_JSON_SOURCE" == "template" &&
+  -f "$CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME/setup.json"
+]]
+then
+  die "Installation '$INSTALLATION_NAME' already exists. Re-run with \`dalmatian setup -n $INSTALLATION_NAME\` to update it, or choose another name with -n"
+fi
+
 DEFAULT_REGION=$(read_prompt_with_setup_default -p "Default AWS Region" -d "default_region")
 
 log_info -l "-- AWS SSO configration --" -q "$QUIET_MODE"
@@ -114,8 +198,63 @@ read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.regi
 
 log_info -l "-- Backend Configuration --" -q "$QUIET_MODE"
 log_msg -l "Enter the S3 backend configuration parameters" -q "$QUIET_MODE"
+
+# Two projects must never share a state bucket, so a project rename (or a
+# blank template) gets its own suggested default rather than the loaded one
+LOADED_BUCKET_NAME="$(jq -r '.backend.s3.bucket_name // empty' < "$CONFIG_SETUP_JSON_FILE")"
+if [[ -z "$LOADED_BUCKET_NAME" || "$PROJECT_NAME" != "$ORIGINAL_PROJECT_NAME" ]]
+then
+  SUGGESTED_BUCKET_NAME="${PROJECT_NAME}-tfstate"
+  if [ -n "$LOADED_BUCKET_NAME" ]
+  then
+    log_msg -l "Project '$PROJECT_NAME' differs from '$ORIGINAL_PROJECT_NAME', so suggesting its own state bucket rather than sharing '$LOADED_BUCKET_NAME'" -q "$QUIET_MODE"
+  fi
+  STAGED_JSON="$(jq --arg bucket "$SUGGESTED_BUCKET_NAME" '.backend.s3.bucket_name = $bucket' < "$CONFIG_SETUP_JSON_FILE")"
+  echo "$STAGED_JSON" > "$CONFIG_SETUP_JSON_FILE"
+fi
+
 BACKEND_S3_BUCKET_NAME=$(read_prompt_with_setup_default -p "Bucket Name" -d "backend.s3.bucket_name")
 BACKEND_S3_BUCKET_REGION=$(read_prompt_with_setup_default -p "Bucket Region" -d "backend.s3.bucket_region")
+
+log_info -l "--- Dalmatian account configuration ---" -q "$QUIET_MODE"
+MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
+
+log_info -l "-- Summary --" -q "$QUIET_MODE"
+log_msg -l "Installation:        $INSTALLATION_NAME ($CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME)" -q "$QUIET_MODE"
+log_msg -l "Project name:        $PROJECT_NAME" -q "$QUIET_MODE"
+log_msg -l "Default region:      $DEFAULT_REGION" -q "$QUIET_MODE"
+log_msg -l "SSO start URL:       $(jq -r '.aws_sso.start_url' < "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_msg -l "SSO region:          $(jq -r '.aws_sso.region' < "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_msg -l "SSO admin role:      $(jq -r '.aws_sso.default_admin_role_name' < "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_msg -l "State bucket:        $BACKEND_S3_BUCKET_NAME ($BACKEND_S3_BUCKET_REGION)" -q "$QUIET_MODE"
+log_msg -l "Main account ID:     $MAIN_DALMATIAN_ACCOUNT_ID" -q "$QUIET_MODE"
+log_msg -l "Next: write these files, generate the AWS SSO profiles, and initialise the main account workspace" -q "$QUIET_MODE"
+
+if [ "$ASSUME_YES" != 1 ] && ! yes_no "Continue? (y/N)" "N"
+then
+  log_info -l "Nothing written" -q "$QUIET_MODE"
+  exit 0
+fi
+
+# From here on, everything this script and its child dalmatian invocations
+# do targets the named installation
+export DALMATIAN_INSTALLATION="$INSTALLATION_NAME"
+export CONFIG_INSTALLATION_DIR="$CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME"
+export CONFIG_SETUP_JSON_FILE="$CONFIG_INSTALLATION_DIR/setup.json"
+export CONFIG_AWS_SSO_FILE="$CONFIG_INSTALLATION_DIR/dalmatian-sso.config"
+export CONFIG_CACHE_DIR="$CONFIG_INSTALLATION_DIR/.cache"
+export CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE="$CONFIG_INSTALLATION_DIR/account-bootstrap-backend.vars"
+export CONFIG_INFRASTRUCTURE_BACKEND_VARS_FILE="$CONFIG_INSTALLATION_DIR/infrastructure-backend.vars"
+export CONFIG_TFVARS_DIR="$CONFIG_CACHE_DIR/tfvars"
+export CONFIG_TFVARS_PATHS_FILE="$CONFIG_CACHE_DIR/tfvars-paths.json"
+export TMP_DIR="$APP_ROOT/tmp/$INSTALLATION_NAME"
+export TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-account-bootstrap"
+export TMP_INFRASTRUCTURE_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-infrastructure"
+export TMP_SERVICE_ENV_DIR="$TMP_DIR/service-environment-files"
+
+mkdir -p "$CONFIG_INSTALLATION_DIR" "$CONFIG_CACHE_DIR" "$TMP_DIR"
+mv "$STAGED_SETUP_JSON_FILE" "$CONFIG_SETUP_JSON_FILE"
+trap - EXIT
 
 cat <<EOT > "$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
 bucket               = "$BACKEND_S3_BUCKET_NAME"
@@ -134,9 +273,6 @@ region               = "$BACKEND_S3_BUCKET_REGION"
 profile              = "dalmatian-main"
 encrypt              = true
 EOT
-
-log_info -l "--- Dalmatian account configuration ---" -q "$QUIET_MODE"
-MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
 
 "$APP_ROOT/bin/dalmatian" aws generate-config
 
@@ -157,6 +293,17 @@ then
   else
     log_info -l "You can run this at a later date by running: \`dalmatian deploy account-bootstrap -a $MAIN_DALMATIAN_ACCOUNT_ID-$DEFAULT_REGION-dalmatian-main\`" -q "$QUIET_MODE"
   fi
+fi
+
+CURRENT_DEFAULT="$(installation_default)"
+if [ -z "$CURRENT_DEFAULT" ]
+then
+  set_installation_default "$INSTALLATION_NAME"
+  log_info -l "'$INSTALLATION_NAME' is now the default installation" -q "$QUIET_MODE"
+elif [ "$CURRENT_DEFAULT" != "$INSTALLATION_NAME" ]
+then
+  log_info -l "The default installation is still '$CURRENT_DEFAULT'" -q "$QUIET_MODE"
+  log_msg -l "Run \`dalmatian installation use $INSTALLATION_NAME\` to switch, or set DALMATIAN_INSTALLATION=$INSTALLATION_NAME for one shell" -q "$QUIET_MODE"
 fi
 
 log_info -l "Setup complete!" -q "$QUIET_MODE"
