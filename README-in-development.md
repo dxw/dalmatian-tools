@@ -80,9 +80,12 @@ default identity source.
 
    The installation is named after the file's project name. Pass
    `-n <installation_name>` to choose a different name, for example when two
-   projects share a name. The first installation on a machine becomes the
-   default; for any later one, setup prints the `dalmatian installation use`
-   command to switch.
+   projects share a name. If you enter a different project name from the one
+   in the file, setup suggests `<project>-tfstate` as the state bucket so the
+   new project does not share Terraform state with the old one.
+
+   The first installation on a machine becomes the default; for any later
+   one, setup prints the `dalmatian installation use` command to switch.
 
 1. Starting a dalmatian project
 
