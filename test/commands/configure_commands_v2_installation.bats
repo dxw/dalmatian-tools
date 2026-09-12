@@ -1,4 +1,11 @@
 #!/usr/bin/env bats
+#
+# shellcheck disable=SC2030,SC2031
+# Each @test block is a shellcheck-visible function, so `export QUIET_MODE=0`
+# inside one looks like a subshell-local change that could be "lost". bats
+# runs each @test as its own invocation, so the export is read back within
+# the same test that set it -- shellcheck just can't see that the boundary
+# is a test, not a subshell escape.
 
 load ../test_helper
 
@@ -32,8 +39,9 @@ make_installation() {
   assert_failure 1
   assert_stderr_contains "Usage: installation"
   assert_output_contains "list"
-  assert_output_contains "use <name>"
-  assert_output_contains "remove [-y] <name>"
+  assert_output_contains "use [<name>]"
+  assert_output_contains "remove [-y] [<name>]"
+  assert_output_contains "Omit the name to choose interactively"
 }
 
 @test "installation rejects an unknown action" {
@@ -100,10 +108,24 @@ make_installation() {
   assert_stderr_contains "'Bad Name' is not a valid installation name"
 }
 
-@test "installation use requires a name" {
+@test "installation use with no name and no installations fails with the setup hint" {
+  export QUIET_MODE=0
+
   run --separate-stderr run_command bin/configure-commands/v2/installation use
   assert_failure 1
-  assert_stderr_contains "Usage: installation"
+  assert_stderr_contains "No installations to choose from"
+  assert_stderr_contains "dalmatian setup"
+}
+
+@test "installation use with no name and no terminal fails listing the candidates" {
+  make_installation example-project
+  make_installation client-a
+
+  run --separate-stderr run_command bin/configure-commands/v2/installation use < /dev/null
+  assert_failure 1
+  assert_stderr_contains "there is no terminal to choose one with"
+  assert_stderr_contains "example-project"
+  assert_stderr_contains "client-a"
 }
 
 @test "installation remove -y deletes the config and tmp directories" {
@@ -164,4 +186,16 @@ make_installation() {
   run run_command bin/configure-commands/v2/installation remove -y client-a
   assert_success
   [ ! -e "$CONFIG_INSTALLATIONS_DIR/client-a" ]
+}
+
+@test "installation remove -y with no name and no terminal fails listing the candidates" {
+  make_installation example-project
+  make_installation client-a
+  printf '%s\n' '{"default": "example-project"}' > "$CONFIG_INSTALLATIONS_JSON_FILE"
+
+  run --separate-stderr run_command bin/configure-commands/v2/installation remove -y < /dev/null
+  assert_failure 1
+  assert_stderr_contains "there is no terminal to choose one with"
+  assert_stderr_contains "client-a"
+  [ -d "$CONFIG_INSTALLATIONS_DIR/client-a" ]
 }
