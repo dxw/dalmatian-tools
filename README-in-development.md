@@ -55,6 +55,9 @@ default identity source.
    the project name you enter, or after `-n <installation_name>` if given, under
    `~/.config/dalmatian/installations/`. See "Installations" under Usage.
 
+   Setup shows a summary and asks for confirmation before it writes anything
+   or contacts AWS; pass `-y` to skip the prompt in scripts.
+
 1. Joining a Dalmatian Project
 
    To join a Dalmatian project, you must have an AWS Single Sign-On user which
@@ -173,6 +176,11 @@ installation cannot be removed; pick another default first.
 setup file, or the name given with `-n <name>`. The first installation on a
 machine becomes the default automatically; later ones do not, and setup
 prints the `installation use` command to switch.
+
+Re-running `dalmatian setup` with no flags updates the current installation.
+It refuses to change that installation's project name, because the project
+name is part of every resource name it manages; set up a different project
+with `dalmatian setup -n <name>` instead.
 
 The first run after upgrading to a version with installations moves an
 existing single configuration into `installations/<project_name>/` and

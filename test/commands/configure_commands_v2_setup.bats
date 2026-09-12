@@ -19,8 +19,8 @@ setup() {
   mkdir -p "$APP_ROOT/tmp"
   unset DALMATIAN_INSTALLATION
   rm -rf "$CONFIG_INSTALLATIONS_DIR"
-  # Nine prompts; a blank line accepts each default
-  printf '\n\n\n\n\n\n\n\n\n' > "$SANDBOX/answers"
+  # Nine prompts, each accepting its default, then confirming the summary
+  printf '\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
   # A complete setup file, as a teammate would hand over
   cat > "$SANDBOX/setup.json" <<'JSON'
 {
@@ -44,7 +44,7 @@ JSON
 }
 
 run_setup() {
-  run run_command bin/configure-commands/v2/setup "$@" < "$SANDBOX/answers"
+  run --separate-stderr run_command bin/configure-commands/v2/setup "$@" < "$SANDBOX/answers"
 }
 
 @test "setup -h prints usage including -n" {
@@ -140,7 +140,7 @@ run_setup() {
 }
 
 @test "setup with no file prompts for the project name and uses it" {
-  printf 'prompted-name\n\n\n\n\n\n\n\n\n' > "$SANDBOX/answers"
+  printf 'prompted-name\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
 
   run_setup
   assert_success
@@ -169,4 +169,88 @@ run_setup() {
   assert_stderr_contains "dalmatian setup -n example-project"
   run jq -r '.main_dalmatian_account_id' "$CONFIG_INSTALLATIONS_DIR/example-project/setup.json"
   assert_output "123456789012"
+}
+
+@test "declining the confirmation writes nothing" {
+  printf '\n\n\n\n\n\n\n\n\nn\n' > "$SANDBOX/answers"
+
+  run_setup -f "$SANDBOX/setup.json"
+  assert_success
+  [ ! -e "$CONFIG_INSTALLATIONS_DIR/example-project" ]
+  refute_stub_called_with "dalmatian aws generate-config"
+}
+
+@test "-y skips the confirmation" {
+  printf '\n\n\n\n\n\n\n\n\n' > "$SANDBOX/answers"
+
+  run_setup -f "$SANDBOX/setup.json" -y
+  assert_success
+  [ -f "$CONFIG_INSTALLATIONS_DIR/example-project/setup.json" ]
+}
+
+# yes_no's `read` fails on EOF, but that failure happens inside a `! yes_no`
+# conditional, so `set -e` does not fire -- the loop just falls through to the
+# "N" default and setup declines, the same as a typed "n". This test pins that
+# behaviour: whichever way it resolves, nothing must be written.
+@test "nothing is written until the confirmation" {
+  printf 'prompted-name\n\n\n\n\n\n\n\n\n' > "$SANDBOX/answers"
+
+  run_setup
+  assert_success
+  [ ! -e "$CONFIG_INSTALLATIONS_DIR/prompted-name" ]
+}
+
+@test "re-run refuses a changed project name" {
+  mkdir -p "$CONFIG_INSTALLATIONS_DIR/client-a"
+  cp "$SANDBOX/setup.json" "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  export DALMATIAN_INSTALLATION=client-a
+  printf 'renamed\n' > "$SANDBOX/answers"
+
+  run --separate-stderr run_command bin/configure-commands/v2/setup < "$SANDBOX/answers"
+  assert_failure 1
+  assert_stderr_contains "records project 'example-project'"
+  assert_stderr_contains "dalmatian setup -n"
+  run jq -r '.project_name' "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  assert_output "example-project"
+}
+
+@test "-n on an existing installation also refuses a changed project name" {
+  mkdir -p "$CONFIG_INSTALLATIONS_DIR/client-a"
+  cp "$SANDBOX/setup.json" "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  printf 'renamed\n' > "$SANDBOX/answers"
+
+  run_setup -n client-a
+  assert_failure 1
+  assert_stderr_contains "records project 'example-project'"
+  assert_stderr_contains "dalmatian setup -n"
+  run jq -r '.project_name' "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  assert_output "example-project"
+}
+
+@test "announces an existing installation before the first prompt" {
+  mkdir -p "$CONFIG_INSTALLATIONS_DIR/client-a"
+  cp "$SANDBOX/setup.json" "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  export DALMATIAN_INSTALLATION=client-a
+  export QUIET_MODE=0
+
+  run --separate-stderr run_command bin/configure-commands/v2/setup -y < "$SANDBOX/answers"
+  assert_success
+  assert_stderr_contains "Updating existing installation 'client-a'"
+}
+
+@test "announces a new installation" {
+  export QUIET_MODE=0
+
+  run_setup -f "$SANDBOX/setup.json" -n client-a -y
+  assert_success
+  assert_output_contains "Creating installation 'client-a'"
+}
+
+@test "prints the summary before confirming" {
+  export QUIET_MODE=0
+
+  run_setup -f "$SANDBOX/setup.json"
+  assert_success
+  assert_output_contains "-- Summary --"
+  assert_output_contains "State bucket:        example-tfstate (eu-west-2)"
 }

@@ -24,6 +24,7 @@ usage() {
   echo "  -f <setup_filepath>      - Setup Filepath (Optional)"
   echo "  -u <setup_url>           - Setup URL (Optional)"
   echo "  -b                       - Enable bootstrap (Optional)"
+  echo "  -y                       - Skip the confirmation prompt"
   exit 1
 }
 ENABLE_BOOTSTRAP=0
@@ -35,7 +36,8 @@ fi
 INSTALLATION_NAME=""
 SETUP_FILE_PATH=""
 SETUP_FILE_URL=""
-while getopts "n:f:u:bh" opt; do
+ASSUME_YES=0
+while getopts "n:f:u:byh" opt; do
   case $opt in
     n)
       INSTALLATION_NAME="$OPTARG"
@@ -48,6 +50,9 @@ while getopts "n:f:u:bh" opt; do
       ;;
     b)
       ENABLE_BOOTSTRAP=1
+      ;;
+    y)
+      ASSUME_YES=1
       ;;
     h)
       usage
@@ -126,9 +131,24 @@ else
   )
 fi
 
+# Captured before any prompt can overwrite it, so a re-run can tell whether
+# the project name prompt changed it
+ORIGINAL_PROJECT_NAME="$(echo "$SETUP_JSON" | jq -r '.project_name // empty')"
+
+if [ -n "$INSTALLATION_NAME" ]
+then
+  if [ "$SETUP_JSON_SOURCE" == "existing" ]
+  then
+    warning "Updating existing installation '$INSTALLATION_NAME' in $CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME"
+  else
+    log_msg -l "Creating installation '$INSTALLATION_NAME' in $CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME" -q "$QUIET_MODE"
+  fi
+fi
+
 # The prompts read and write CONFIG_SETUP_JSON_FILE. The installation directory
 # cannot exist until its name is known, and the name may come from the project
-# name prompt, so stage the answers in a temporary file first.
+# name prompt, so stage the answers in a temporary file first. Nothing is
+# moved into the real installation until the summary below is confirmed.
 STAGED_SETUP_JSON_FILE="$(mktemp)"
 trap 'rm -f "$STAGED_SETUP_JSON_FILE"' EXIT
 echo "$SETUP_JSON" > "$STAGED_SETUP_JSON_FILE"
@@ -145,6 +165,18 @@ then
     die "The project name '$PROJECT_NAME' is not a valid installation name. Re-run with \`dalmatian setup -n <installation_name>\` to choose one (lower-case letters, digits, '-' and '_', starting with a letter or digit)"
   fi
   INSTALLATION_NAME="$PROJECT_NAME"
+  log_msg -l "Creating installation '$INSTALLATION_NAME' in $CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME" -q "$QUIET_MODE"
+fi
+
+# project_name feeds the resource prefix hash for every v2 resource, so
+# changing it inside an existing installation renames everything it manages
+if [[
+  "$SETUP_JSON_SOURCE" == "existing" &&
+  -n "$ORIGINAL_PROJECT_NAME" &&
+  "$PROJECT_NAME" != "$ORIGINAL_PROJECT_NAME"
+]]
+then
+  die "Installation '$INSTALLATION_NAME' records project '$ORIGINAL_PROJECT_NAME'; changing it here would rename every resource it manages. To set up a different project run \`dalmatian setup -n <new-installation-name>\`, or answer '$ORIGINAL_PROJECT_NAME' to keep editing this one"
 fi
 
 # A blank template must never replace answers an earlier run recorded
@@ -154,6 +186,39 @@ if [[
 ]]
 then
   die "Installation '$INSTALLATION_NAME' already exists. Re-run with \`dalmatian setup -n $INSTALLATION_NAME\` to update it, or choose another name with -n"
+fi
+
+DEFAULT_REGION=$(read_prompt_with_setup_default -p "Default AWS Region" -d "default_region")
+
+log_info -l "-- AWS SSO configration --" -q "$QUIET_MODE"
+read_prompt_with_setup_default -p "AWS SSO start URL" -d "aws_sso.start_url" -s
+read_prompt_with_setup_default -p "AWS SSO Region" -d "aws_sso.region" -s
+read_prompt_with_setup_default -p "AWS SSO Default administrative role name" -d "aws_sso.default_admin_role_name" -s
+read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.registration_scopes" -s
+
+log_info -l "-- Backend Configuration --" -q "$QUIET_MODE"
+log_msg -l "Enter the S3 backend configuration parameters" -q "$QUIET_MODE"
+BACKEND_S3_BUCKET_NAME=$(read_prompt_with_setup_default -p "Bucket Name" -d "backend.s3.bucket_name")
+BACKEND_S3_BUCKET_REGION=$(read_prompt_with_setup_default -p "Bucket Region" -d "backend.s3.bucket_region")
+
+log_info -l "--- Dalmatian account configuration ---" -q "$QUIET_MODE"
+MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
+
+log_info -l "-- Summary --" -q "$QUIET_MODE"
+log_msg -l "Installation:        $INSTALLATION_NAME ($CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME)" -q "$QUIET_MODE"
+log_msg -l "Project name:        $PROJECT_NAME" -q "$QUIET_MODE"
+log_msg -l "Default region:      $DEFAULT_REGION" -q "$QUIET_MODE"
+log_msg -l "SSO start URL:       $(jq -r '.aws_sso.start_url' < "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_msg -l "SSO region:          $(jq -r '.aws_sso.region' < "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_msg -l "SSO admin role:      $(jq -r '.aws_sso.default_admin_role_name' < "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
+log_msg -l "State bucket:        $BACKEND_S3_BUCKET_NAME ($BACKEND_S3_BUCKET_REGION)" -q "$QUIET_MODE"
+log_msg -l "Main account ID:     $MAIN_DALMATIAN_ACCOUNT_ID" -q "$QUIET_MODE"
+log_msg -l "Next: write these files, generate the AWS SSO profiles, and initialise the main account workspace" -q "$QUIET_MODE"
+
+if [ "$ASSUME_YES" != 1 ] && ! yes_no "Continue? (y/N)" "N"
+then
+  log_info -l "Nothing written" -q "$QUIET_MODE"
+  exit 0
 fi
 
 # From here on, everything this script and its child dalmatian invocations
@@ -176,21 +241,6 @@ mkdir -p "$CONFIG_INSTALLATION_DIR" "$CONFIG_CACHE_DIR" "$TMP_DIR"
 mv "$STAGED_SETUP_JSON_FILE" "$CONFIG_SETUP_JSON_FILE"
 trap - EXIT
 
-log_msg -l "Configuring installation '$INSTALLATION_NAME' in $CONFIG_INSTALLATION_DIR" -q "$QUIET_MODE"
-
-DEFAULT_REGION=$(read_prompt_with_setup_default -p "Default AWS Region" -d "default_region")
-
-log_info -l "-- AWS SSO configration --" -q "$QUIET_MODE"
-read_prompt_with_setup_default -p "AWS SSO start URL" -d "aws_sso.start_url" -s
-read_prompt_with_setup_default -p "AWS SSO Region" -d "aws_sso.region" -s
-read_prompt_with_setup_default -p "AWS SSO Default administrative role name" -d "aws_sso.default_admin_role_name" -s
-read_prompt_with_setup_default -p "AWS SSO Registration Scopes" -d "aws_sso.registration_scopes" -s
-
-log_info -l "-- Backend Configuration --" -q "$QUIET_MODE"
-log_msg -l "Enter the S3 backend configuration parameters" -q "$QUIET_MODE"
-BACKEND_S3_BUCKET_NAME=$(read_prompt_with_setup_default -p "Bucket Name" -d "backend.s3.bucket_name")
-BACKEND_S3_BUCKET_REGION=$(read_prompt_with_setup_default -p "Bucket Region" -d "backend.s3.bucket_region")
-
 cat <<EOT > "$CONFIG_ACCOUNT_BOOTSTRAP_BACKEND_VARS_FILE"
 bucket               = "$BACKEND_S3_BUCKET_NAME"
 workspace_key_prefix = "account-bootstrap"
@@ -208,9 +258,6 @@ region               = "$BACKEND_S3_BUCKET_REGION"
 profile              = "dalmatian-main"
 encrypt              = true
 EOT
-
-log_info -l "--- Dalmatian account configuration ---" -q "$QUIET_MODE"
-MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian account ID" -d "main_dalmatian_account_id")
 
 "$APP_ROOT/bin/dalmatian" aws generate-config
 
