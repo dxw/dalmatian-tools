@@ -42,6 +42,7 @@ Dalmatian Tools is a Command Line Interface (CLI) toolkit designed to facilitate
   - `dalmatian aws login`: Authenticates via AWS SSO.
   - Per-installation config (`setup.json`, `dalmatian-sso.config`, Terraform backend vars, `.cache/`) lives in `~/.config/dalmatian/installations/<name>/`; Terraform working copies in `tmp/<name>/` under the checkout. `installations.json` at the config dir root records the default; `DALMATIAN_INSTALLATION` overrides it. `version.json` and `update-check.json` stay at the root.
   - `dalmatian installation list|use|remove` manages installations; `dalmatian setup -n <name>` creates or updates one.
+  - `dalmatian terraform-dependencies initialise` checks the Terraform state bucket exists before `terraform init` and offers to create it (`-y` to skip the prompt).
 - **Account Management (v2):**
   - `dalmatian aws account-init`: Onboard new AWS accounts (requires ID, region, name).
   - `dalmatian deploy account-bootstrap`: Apply baseline Terraform to accounts.

@@ -53,6 +53,10 @@ while getopts "n:f:u:byh" opt; do
       ;;
     y)
       ASSUME_YES=1
+      # generate-config chains into terraform-dependencies initialise, which
+      # otherwise prompts on a missing state bucket -- this keeps setup -y
+      # non-interactive all the way through
+      export DALMATIAN_ASSUME_YES=1
       ;;
     h)
       usage

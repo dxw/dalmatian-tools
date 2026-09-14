@@ -10,11 +10,13 @@ usage() {
   echo "  -a <account-bootstrap-repo-version> - Account bootstrap repo version (Optional)"
   echo "  -i <infrastructure-repo-version>    - Infrastructure repo version (Optional)"
   echo "  -I                                  - Initialise the terraform dependencies after cloning"
+  echo "  -y                                  - Create the Terraform state bucket without asking if it is missing"
   exit 1
 }
 
 INITIALISE=0
-while getopts "a:i:Ih" opt; do
+ASSUME_YES=0
+while getopts "a:i:Iyh" opt; do
   case $opt in
     a)
       TERRAFORM_PROJECT_ACCOUNT_BOOTSTRAP_VERSION=$OPTARG
@@ -24,6 +26,9 @@ while getopts "a:i:Ih" opt; do
       ;;
     I)
       INITIALISE=1
+      ;;
+    y)
+      ASSUME_YES=1
       ;;
     h)
       usage
@@ -64,7 +69,12 @@ git clone \
 
 if [ "$INITIALISE" == "1" ]
 then
-  "$APP_ROOT/bin/dalmatian" terraform-dependencies initialise
+  if [ "$ASSUME_YES" == 1 ]
+  then
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies initialise -y
+  else
+    "$APP_ROOT/bin/dalmatian" terraform-dependencies initialise
+  fi
 fi
 
 echo ""
