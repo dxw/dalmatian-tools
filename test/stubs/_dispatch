@@ -42,6 +42,11 @@ then
   } >> "$DALMATIAN_STUB_ARGV_LOG"
 fi
 
+if [ -n "${DALMATIAN_STUB_ENV_LOG:-}" ]
+then
+  printf '%s DALMATIAN_INSTALLATION=%s\n' "$name" "${DALMATIAN_INSTALLATION-}" >> "$DALMATIAN_STUB_ENV_LOG"
+fi
+
 responses="${DALMATIAN_STUB_RESPONSES:-}"
 if [ -z "$responses" ]
 then

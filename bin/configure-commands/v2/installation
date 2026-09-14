@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") ACTION [OPTIONS]" 1>&2
+  echo "  list                   - List the Dalmatian installations on this machine"
+  echo "  use [<name>]           - Make <name> the default installation"
+  echo "  remove [-y] [<name>]   - Delete an installation's configuration and Terraform working copies"
+  echo "                           (-y skips the confirmation prompt)"
+  echo "                           Omit the name to choose interactively (fzf when"
+  echo "                           installed, DALMATIAN_FZF_ENABLED=0 for a numbered menu)"
+  echo "  -h                     - help"
+  echo ""
+  echo "Set DALMATIAN_INSTALLATION to override the default for one shell or command."
+  exit 1
+}
+
+ACTION="${1-}"
+if [ "$#" -gt 0 ]
+then
+  shift
+fi
+
+require_existing() {
+  local name=$1
+
+  if ! installation_name_valid "$name"
+  then
+    die "'$name' is not a valid installation name: use lower-case letters, digits, '-' and '_', starting with a letter or digit"
+  fi
+
+  if [ ! -d "$CONFIG_INSTALLATIONS_DIR/$name" ]
+  then
+    err "Dalmatian installation '$name' does not exist"
+    err "Run \`dalmatian installation list\` to see the installations on this machine"
+    exit 1
+  fi
+}
+
+list_installations() {
+  if [ ! -d "$CONFIG_INSTALLATIONS_DIR" ] || [ -z "$(ls -A "$CONFIG_INSTALLATIONS_DIR")" ]
+  then
+    log_info -l "No Dalmatian installations found" -q "$QUIET_MODE"
+    log_msg -l "Run \`dalmatian setup\` to create one" -q "$QUIET_MODE"
+    return 0
+  fi
+
+  installation_rows
+}
+
+use_installation() {
+  local name=$1
+
+  require_existing "$name"
+  set_installation_default "$name"
+  log_info -l "Default installation is now '$name'" -q "$QUIET_MODE"
+}
+
+remove_installation() {
+  local name confirm=0
+
+  OPTIND=1
+  while getopts "y" opt; do
+    case $opt in
+      y)
+        confirm=1
+        ;;
+      *)
+        usage
+        ;;
+    esac
+  done
+  shift $((OPTIND - 1))
+  name="${1-}"
+
+  if [ -z "$name" ]
+  then
+    name="$(pick_installation)" || exit 1
+  fi
+
+  require_existing "$name"
+
+  if [ "$name" == "$(installation_default)" ]
+  then
+    err "'$name' is the default installation and cannot be removed"
+    err "Run \`dalmatian installation use <other>\` to pick another default first"
+    exit 1
+  fi
+
+  if [ "$confirm" != 1 ]
+  then
+    log_msg -l "This deletes $CONFIG_INSTALLATIONS_DIR/$name and $APP_ROOT/tmp/$name" -q "$QUIET_MODE"
+    if ! yes_no "Remove installation '$name'? (y/N)" "N"
+    then
+      log_info -l "Nothing removed" -q "$QUIET_MODE"
+      return 0
+    fi
+  fi
+
+  rm -rf "${CONFIG_INSTALLATIONS_DIR:?}/$name"
+  rm -rf "$APP_ROOT/tmp/$name"
+  log_info -l "Removed installation '$name'" -q "$QUIET_MODE"
+}
+
+case "$ACTION" in
+  list)
+    list_installations
+    ;;
+  use)
+    if [ -z "${1-}" ]
+    then
+      name="$(pick_installation)" || exit 1
+    else
+      name="$1"
+    fi
+    use_installation "$name"
+    ;;
+  remove)
+    remove_installation "$@"
+    ;;
+  -h|"")
+    usage
+    ;;
+  *)
+    usage
+    ;;
+esac

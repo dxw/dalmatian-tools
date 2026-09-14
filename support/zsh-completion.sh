@@ -83,8 +83,40 @@ _dalmatian_completions() {
       while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "$(find "$bindir/elasticache/$version" -type f -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
       ;;
 
+    'installation remove'*)
+      if [ "$version" == "v2" ]
+      then
+        if [[ "${cur:0:1}" == "-" ]]
+        then
+          while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "-y" -- "$cur" )
+        elif [ -d "$config_dir/installations" ]
+        then
+          while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(find "$config_dir/installations" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)" -- "$cur" )
+        fi
+      fi
+      ;;
+
+    'installation use'*)
+      if [ "$version" == "v2" ] && [ -d "$config_dir/installations" ]
+      then
+        while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(find "$config_dir/installations" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)" -- "$cur" )
+      fi
+      ;;
+
+    'installation'*)
+      if [ "$version" == "v2" ]
+      then
+        while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "list use remove" -- "$cur" )
+      fi
+      ;;
+
     *)
-      while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "-h -l $(find "$bindir" -type d -not -path "$bindir"/configure-commands -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
+      if [ "$version" == "v2" ]
+      then
+        while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "-h -l $(find "$bindir" -type d -not -path "$bindir"/configure-commands -mindepth 1 -maxdepth 1 -exec basename {} \;) $(find "$bindir/configure-commands/$version" -mindepth 1 -maxdepth 1 -type f -exec basename {} \;)")" -- "$cur" )
+      else
+        while read -r; do COMPREPLY+=( "$REPLY" ); done < <( compgen -W "$(_dalmatian_completions_filter "-h -l $(find "$bindir" -type d -not -path "$bindir"/configure-commands -mindepth 1 -maxdepth 1 -exec basename {} \;)")" -- "$cur" )
+      fi
       ;;
 
   esac
