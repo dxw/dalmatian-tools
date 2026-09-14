@@ -60,3 +60,12 @@ setup() {
   assert_success
   assert_stub_called_with "create-invalidation --distribution-id  --paths /*"
 }
+
+# The poll loop pauses with a real `sleep 3` between get-invalidation calls.
+# Under test, sleep is a PATH stub, so the pause is recorded rather than
+# taken and the test does not spend three seconds waiting for nothing.
+@test "clear-cache pauses three seconds between invalidation status polls" {
+  run run_command bin/cloudfront/v1/clear-cache -i example-infra -e staging -s example-service
+  assert_success
+  assert_call_args sleep 3
+}
