@@ -76,6 +76,15 @@ then
 fi
 
 BASH_FUNCTION_DIR="$APP_ROOT/lib/bash-functions"
+
+# Export every function the library files define, so the command scripts can
+# call them without sourcing anything. The set is worked out by comparing the
+# function table before and after sourcing rather than by grepping each file
+# for its definitions: compgen is a builtin, and the grep-per-file approach
+# forked two processes and a subshell per library file on every invocation,
+# which was most of the CLI's start-up time.
+FUNCTIONS_BEFORE=" $(compgen -A function) "
+FUNCTIONS_BEFORE="${FUNCTIONS_BEFORE//$'\n'/ }"
 for bash_function_file in "$BASH_FUNCTION_DIR"/*
 do
   if [[ ! -f "$bash_function_file" ]]
@@ -84,10 +93,13 @@ do
   fi
   # shellcheck source=/dev/null
   source "$bash_function_file"
-  while IFS='' read -r function_name
-  do
-    export -f "${function_name?}"
-  done < <(grep "^function" "$bash_function_file" | cut -d" " -f2)
+done
+for function_name in $(compgen -A function)
+do
+  case "$FUNCTIONS_BEFORE" in
+    *" $function_name "*) ;;
+    *) export -f "${function_name?}" ;;
+  esac
 done
 
 check_bash_version
