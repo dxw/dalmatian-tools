@@ -198,6 +198,17 @@ fi
 
 DEFAULT_REGION=$(read_prompt_with_setup_default -p "Default AWS Region" -d "default_region")
 
+# The SSO and state bucket regions are almost always the default region, so
+# offer it wherever nothing was loaded for them; a loaded value wins
+for REGION_PATH in "aws_sso.region" "backend.s3.bucket_region"
+do
+  if [ -z "$(jq -r --arg path "$REGION_PATH" 'getpath($path / ".") // empty' < "$CONFIG_SETUP_JSON_FILE")" ]
+  then
+    STAGED_JSON="$(jq --arg path "$REGION_PATH" --arg value "$DEFAULT_REGION" 'setpath($path / "."; $value)' < "$CONFIG_SETUP_JSON_FILE")"
+    echo "$STAGED_JSON" > "$CONFIG_SETUP_JSON_FILE"
+  fi
+done
+
 log_info -l "-- AWS SSO configration --" -q "$QUIET_MODE"
 read_prompt_with_setup_default -p "AWS SSO start URL" -d "aws_sso.start_url" -s
 read_prompt_with_setup_default -p "AWS SSO Region" -d "aws_sso.region" -s

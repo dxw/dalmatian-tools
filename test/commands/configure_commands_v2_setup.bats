@@ -149,6 +149,28 @@ run_setup() {
   assert_output "prompted-name"
 }
 
+@test "setup offers the default region for the SSO and bucket regions when nothing was loaded" {
+  # project name, default region, then Enter for every remaining prompt
+  printf 'prompted-name\neu-west-1\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+
+  run_setup
+  assert_success
+  run jq -r '[.default_region, .aws_sso.region, .backend.s3.bucket_region] | join(" ")' "$CONFIG_INSTALLATIONS_DIR/prompted-name/setup.json"
+  assert_output "eu-west-1 eu-west-1 eu-west-1"
+  run grep -c 'region               = "eu-west-1"' "$CONFIG_INSTALLATIONS_DIR/prompted-name/infrastructure-backend.vars"
+  assert_output "1"
+}
+
+@test "setup keeps loaded SSO and bucket regions when the default region differs" {
+  # the fixture carries eu-west-2 for both; answer eu-west-1 for the default region only
+  printf '\neu-west-1\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+
+  run_setup -f "$SANDBOX/setup.json"
+  assert_success
+  run jq -r '[.default_region, .aws_sso.region, .backend.s3.bucket_region] | join(" ")' "$CONFIG_INSTALLATIONS_DIR/example-project/setup.json"
+  assert_output "eu-west-1 eu-west-2 eu-west-2"
+}
+
 @test "setup refuses when the project name is not a valid installation name and -n is absent" {
   printf 'Bad Name\n' > "$SANDBOX/answers"
 
