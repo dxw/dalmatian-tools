@@ -6,7 +6,7 @@ CLI tools to help with working with Dalmatian
 
 - An AWS Organisation with at least 1 Account to configure with Dalmatian
 - A user assigned to a group that has an Administrative permission set
-- An S3 bucket to store the Terraform state
+- An S3 bucket to store the Terraform state. `dalmatian setup` checks for it and offers to create it in the main Dalmatian account with versioning, default encryption and public access blocked, and checks an existing bucket has the same settings, offering to apply any that are missing; pass `-y` to create it without asking.
 - AWS IAM Identity Center (successor to AWS Single Sign-On) configured with the 
 default identity source.
 
