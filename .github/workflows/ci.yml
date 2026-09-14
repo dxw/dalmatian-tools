@@ -51,7 +51,15 @@ jobs:
           echo "${YQ_SHA256}  /tmp/yq" | sha256sum --check --strict -
           sudo install -m 0755 /tmp/yq /usr/local/bin/yq
           yq --version
-      # bats directly rather than ./test.sh: the lint job already runs
-      # shellcheck, and running it twice would only slow the build
+      # GNU parallel is what `bats --jobs` runs test files through; without it
+      # ./test.sh falls back to a serial run, which takes several times longer
+      - name: Install GNU parallel
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends parallel
+      # `./test.sh bats` rather than a bare `bats`, so the job picks up the same
+      # --jobs flags developers get, with one place to change them. Not plain
+      # ./test.sh: the lint job already runs shellcheck, and running it twice
+      # would only slow the build
       - name: Run the test suite
-        run: bats --recursive test
+        run: ./test.sh bats

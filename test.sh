@@ -42,7 +42,26 @@ run_lint() {
 }
 
 run_bats() {
-  bats --recursive test
+  local cpus jobs=()
+
+  # bats --jobs shells out to GNU parallel (brew "parallel" in the Brewfile),
+  # so fall back to a serial run when it is missing rather than fail. Files run
+  # in parallel but the tests within a file do not: each test gets its own
+  # sandbox, but a few exercise scripts that write to fixed paths under /tmp,
+  # and those tests must not overlap with their file-mates (nor may two files
+  # share such a path: the cloudfront logs tests use distinct service names
+  # for that reason). No file is large enough for the lost parallelism to
+  # cost anything measurable.
+  #
+  # Both flags are only added for more than one CPU: bats rejects
+  # --no-parallelize-within-files with --jobs 1 rather than ignoring it.
+  cpus="$(getconf _NPROCESSORS_ONLN)"
+  if command -v parallel > /dev/null && [ "$cpus" -gt 1 ]
+  then
+    jobs=(--jobs "$cpus" --no-parallelize-within-files)
+  fi
+
+  bats "${jobs[@]}" --recursive test
 }
 
 case "${1-}" in
