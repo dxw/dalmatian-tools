@@ -341,10 +341,12 @@ run_command() {
       do
         [ -f "$f" ] || continue
         source "$f"
-        while IFS="" read -r function_name
-        do
-          export -f "${function_name?}"
-        done < <(grep "^function" "$f" | cut -d" " -f2)
+      done
+      # Same fork-free export as bin/dalmatian: this shell defines no functions
+      # of its own, so everything in the table came from the library files
+      for function_name in $(compgen -A function)
+      do
+        export -f "${function_name?}"
       done
       exec "$repo_root/$script" "$@"
     ' bash "$app_root" "$DALMATIAN_ROOT" "$script" "$@"

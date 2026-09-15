@@ -56,3 +56,34 @@ setup() {
   assert_stderr_contains "does not apply when Dalmatian is signing in with AWS SSO"
   assert_stderr_contains "dalmatian aws login"
 }
+
+# bin/dalmatian sources every file in lib/bash-functions and exports each
+# function it defines, so a command script can call log_info, err and the rest
+# without sourcing anything itself. These pin that contract to the function
+# list itself rather than to whichever helpers the probe happens to call.
+@test "dalmatian exports every lib/bash-functions function to the command it runs" {
+  printf '#!/usr/bin/env bash\ncompgen -A function\n' > "$SANDBOX/app/bin/probe/v1/list-functions"
+  chmod +x "$SANDBOX/app/bin/probe/v1/list-functions"
+
+  run "$TEST_DALMATIAN" probe list-functions
+  assert_success
+
+  local name
+  while read -r _ name _
+  do
+    grep -qx "$name" <<< "$output" \
+      || fail "$(printf 'expected %s to be exported to the command\nfunctions seen:\n%s' "$name" "$output")"
+  done < <(grep -h '^function' "$DALMATIAN_ROOT"/lib/bash-functions/*.sh)
+}
+
+@test "dalmatian keeps its own usage function out of the command's environment" {
+  printf '#!/usr/bin/env bash\ncompgen -A function\n' > "$SANDBOX/app/bin/probe/v1/list-functions"
+  chmod +x "$SANDBOX/app/bin/probe/v1/list-functions"
+
+  run "$TEST_DALMATIAN" probe list-functions
+  assert_success
+  if grep -qx "usage" <<< "$output"
+  then
+    fail "$(printf 'usage was exported to the command\nfunctions seen:\n%s' "$output")"
+  fi
+}
