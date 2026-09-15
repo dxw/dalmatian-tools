@@ -20,7 +20,7 @@ setup() {
 }
 
 teardown() {
-  rm -rf "/tmp/example-infra-example-service-staging-cloudfront-logs"
+  rm -rf "/tmp/example-infra-example-service-v2-staging-cloudfront-logs"
 }
 
 @test "logs prints usage with no arguments" {
@@ -46,18 +46,23 @@ teardown() {
 # (s3://<infra>-<service>-<env>-cloudfront-logs/); v2 syncs a shared,
 # resource-prefix-hashed account bucket under a per-service key prefix. The
 # default *download directory* naming is unchanged from v1, though.
+#
+# The service name differs from the v1 test's on purpose. The default directory
+# is under the real /tmp, test files run in parallel, and the v1 test asserts
+# that its directory exists after the run, so this file's teardown must not be
+# removing the same path.
 @test "logs syncs from the resource-prefix-hashed bucket and key prefix, into the same default directory as v1" {
-  QUIET_MODE=0 run run_command bin/cloudfront/v2/logs -i example-infra -e staging -s example-service
+  QUIET_MODE=0 run run_command bin/cloudfront/v2/logs -i example-infra -e staging -s example-service-v2
   assert_success
-  assert_stub_called_with "s3 sync s3://ccb69c87-logs/cloudfront/infrasructure-ecs-cluster-service/example-service /tmp/example-infra-example-service-staging-cloudfront-logs"
-  assert_output_contains "logs in /tmp/example-infra-example-service-staging-cloudfront-logs"
+  assert_stub_called_with "s3 sync s3://ccb69c87-logs/cloudfront/infrasructure-ecs-cluster-service/example-service-v2 /tmp/example-infra-example-service-v2-staging-cloudfront-logs"
+  assert_output_contains "logs in /tmp/example-infra-example-service-v2-staging-cloudfront-logs"
 }
 
 # FINDING: the S3 key literally spells "infrasructure" (missing the second
 # "t") rather than "infrastructure". This is asserted here as-is because it is
 # the real, current behaviour, not a typo in the test.
 @test "logs uses the literal (typo'd) infrasructure-ecs-cluster-service path segment" {
-  run run_command bin/cloudfront/v2/logs -i example-infra -e staging -s example-service
+  run run_command bin/cloudfront/v2/logs -i example-infra -e staging -s example-service -d "$SANDBOX/custom-logs"
   assert_success
   assert_stub_called_with "infrasructure-ecs-cluster-service/example-service"
 }
