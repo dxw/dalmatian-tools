@@ -128,6 +128,22 @@ add_env_probe() {
   assert_output "example-project"
 }
 
+# A migration run from another checkout moves the config dir but can only
+# move the tmp/ under its own APP_ROOT, so this checkout's working copies are
+# left behind in the flat layout with no legacy setup.json to trigger a
+# second migration. The dispatcher adopts them into the default installation
+@test "legacy working copies left behind by a migration elsewhere are adopted on the next run" {
+  run "$TEST_DALMATIAN" version -v 2 -s
+  assert_success
+  mkdir -p "$SANDBOX/app/tmp/terraform-dxw-dalmatian-infrastructure/.terraform"
+
+  run "$TEST_DALMATIAN" probe echo-args alpha
+  assert_success
+  assert_output_contains "alpha"
+  [ -d "$SANDBOX/app/tmp/example-project/terraform-dxw-dalmatian-infrastructure/.terraform" ]
+  [ ! -e "$SANDBOX/app/tmp/terraform-dxw-dalmatian-infrastructure" ]
+}
+
 @test "dalmatian version works with no installation at all" {
   unset DALMATIAN_INSTALLATION
   rm -rf "$CONFIG_INSTALLATIONS_DIR" "$CONFIG_INSTALLATIONS_JSON_FILE"
