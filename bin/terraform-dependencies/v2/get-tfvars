@@ -16,6 +16,11 @@ PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
 PROJECT_NAME_HASH="$(echo -n "$PROJECT_NAME" | sha1sum | head -c 6)"
 TFVARS_BUCKET_NAME="$PROJECT_NAME_HASH-tfvars"
 TFVARS_BUCKET_EXISTS=0
+# On a brand-new project the tfvars bucket does not exist yet, so nothing can
+# be downloaded and the global files must come from the templates below
+DEFAULT_TFVARS_EXISTS=0
+GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS=0
+GLOBAL_INFRASTRUCTURE_TFVARS_FILE_EXISTS=0
 TFVARS_PATHS_JSON="{}"
 NEW_TFVARS_ONLY=0
 
@@ -39,13 +44,24 @@ then
 fi
 
 log_info -l "Checking existance of tfvars bucket $TFVARS_BUCKET_NAME" -q "$QUIET_MODE"
-if aws s3api head-bucket --bucket "$TFVARS_BUCKET_NAME" > /dev/null 2>&1
+if HEAD_BUCKET_OUTPUT="$(aws s3api head-bucket --bucket "$TFVARS_BUCKET_NAME" 2>&1)"
 then
   log_msg -l "$TFVARS_BUCKET_NAME bucket exists ..." -q "$QUIET_MODE"
   TFVARS_BUCKET_EXISTS=1
 else
-  log_msg -l "$TFVARS_BUCKET_NAME bucket doesn't exist. Bucket will be created on first deployment." -q "$QUIET_MODE"
-  TFVARS_BUCKET_EXISTS=0
+  # Only a definite "no such bucket" means a new project. Anything else (an
+  # expired session, no network) must not be mistaken for one, or the
+  # template copies below would stand in for tfvars that really exist
+  case "$HEAD_BUCKET_OUTPUT" in
+    *404*|*"Not Found"*)
+      log_msg -l "$TFVARS_BUCKET_NAME bucket doesn't exist. Bucket will be created on first deployment." -q "$QUIET_MODE"
+      TFVARS_BUCKET_EXISTS=0
+      ;;
+    *)
+      err "Could not check the tfvars bucket $TFVARS_BUCKET_NAME:"
+      die "$HEAD_BUCKET_OUTPUT"
+      ;;
+  esac
 fi
 
 mkdir -p "$CONFIG_TFVARS_DIR"
@@ -142,14 +158,16 @@ then
   log_msg -l "Created $CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" -q "$QUIET_MODE"
 fi
 
-if [ "$GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS" == "0" ]
+# The templates only ever fill a gap: a global file already in the cache is
+# someone's edited configuration and is never replaced by a template
+if [[ "$GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE_EXISTS" == "0" && ! -f "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE" ]]
 then
   cp "$APP_ROOT/data/tfvars-templates/account-bootstrap.tfvars" "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_ACCOUNT_BOOSTRAP_TFVARS_FILE"
 fi
 
-if [ "$GLOBAL_INFRASTRUCTURE_TFVARS_FILE_EXISTS" == "0" ]
+if [[ "$GLOBAL_INFRASTRUCTURE_TFVARS_FILE_EXISTS" == "0" && ! -f "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE" ]]
 then
-  cp "$APP_ROOT/data/tfvars-templates/infrastructure.tfvars" "$CONFIG_TFVARS_DIR/$CONFIG_INFRASTRUCTURE_BOOSTRAP_TFVARS_FILE"
+  cp "$APP_ROOT/data/tfvars-templates/infrastructure.tfvars" "$CONFIG_TFVARS_DIR/$CONFIG_GLOBAL_INFRASTRUCTURE_TFVARS_FILE"
 fi
 
 TFVARS_DIR="${CONFIG_TFVARS_DIR/$HOME/~}"
