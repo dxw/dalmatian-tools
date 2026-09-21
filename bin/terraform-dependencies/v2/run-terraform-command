@@ -57,6 +57,13 @@ then
   usage
 fi
 
+if [ ! -d "$RUN_DIR" ]
+then
+  err "The $TERRAFORM_PROJECT Terraform working copy is missing: $RUN_DIR"
+  err "Run \`dalmatian terraform-dependencies clone\` to check it out"
+  exit 1
+fi
+
 while read -r command
 do
   OPTIONS+=("$command")

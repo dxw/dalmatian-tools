@@ -299,6 +299,7 @@ then
     export TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-account-bootstrap"
     export TMP_INFRASTRUCTURE_TERRAFORM_DIR="$TMP_DIR/terraform-dxw-dalmatian-infrastructure"
     export TMP_SERVICE_ENV_DIR="$TMP_DIR/service-environment-files"
+    adopt_legacy_working_copies
   else
     export TMP_DIR=""
     export TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR=""
