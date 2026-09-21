@@ -162,8 +162,8 @@ assert_line() {
 # Put the stub directory on PATH and prepare the response and log locations.
 #
 # $SANDBOX/bin comes first so a per-test shim can override a stub. The gdate
-# shim lives there because Linux hosts have GNU date as `date`, while
-# bin/aws/v1/login and bin/dalmatian both call `gdate`.
+# and grealpath shims live there because Linux hosts have the GNU tools as
+# `date` and `realpath`, while the scripts call the Homebrew coreutils names.
 use_stubs() {
   export DALMATIAN_STUB_RESPONSES="$SANDBOX/stub-responses"
   export DALMATIAN_STUB_LOG="$SANDBOX/stub-calls.log"
@@ -178,6 +178,13 @@ use_stubs() {
   then
     printf '#!/usr/bin/env bash\nexec date "$@"\n' > "$SANDBOX/bin/gdate"
     chmod +x "$SANDBOX/bin/gdate"
+  fi
+
+  # Likewise grealpath, which run-terraform-command uses for -chdir
+  if ! command -v grealpath > /dev/null
+  then
+    printf '#!/usr/bin/env bash\nexec realpath "$@"\n' > "$SANDBOX/bin/grealpath"
+    chmod +x "$SANDBOX/bin/grealpath"
   fi
 
   export PATH="$SANDBOX/bin:$DALMATIAN_ROOT/test/stubs:$PATH"
