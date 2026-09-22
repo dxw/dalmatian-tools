@@ -206,22 +206,7 @@ fi
 # resolve_installation points at the installation selected by
 # DALMATIAN_INSTALLATION or the default in installations.json. Command
 # scripts read the CONFIG_* variables and never build these paths themselves.
-export CONFIG_DIR="$HOME/.config/dalmatian"
-export CONFIG_INSTALLATIONS_DIR="$CONFIG_DIR/installations"
-export CONFIG_INSTALLATIONS_JSON_FILE="$CONFIG_DIR/installations.json"
-resolve_installation "$SUBCOMMAND"
-# shellcheck disable=SC2153 # CONFIG_INSTALLATION_DIR is exported by resolve_installation, sourced dynamically above
-# With no installation selected these stay empty rather than resolving to
-# files at the filesystem root; the commands allowed to run in that state
-# (setup, update, installation, and v1's IAM-user path) treat empty as absent
-if [ -n "$CONFIG_INSTALLATION_DIR" ]
-then
-  export CONFIG_SETUP_JSON_FILE="$CONFIG_INSTALLATION_DIR/setup.json"
-  export CONFIG_AWS_SSO_FILE="$CONFIG_INSTALLATION_DIR/dalmatian-sso.config"
-else
-  export CONFIG_SETUP_JSON_FILE=""
-  export CONFIG_AWS_SSO_FILE=""
-fi
+export_installation_config "$SUBCOMMAND"
 
 # These AWS environment variables take precedence when authenticating, which
 # can cause errors if they are not related to Dalmatian
