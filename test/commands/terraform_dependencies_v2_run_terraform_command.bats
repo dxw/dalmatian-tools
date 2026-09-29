@@ -40,3 +40,18 @@ setup() {
   assert_stderr_contains "dalmatian terraform-dependencies clone"
   refute_stub_called_with "terraform"
 }
+
+@test "account bootstrap creates a Terraform override for the original project's tfvars bucket" {
+  install_fixture setup.json "$CONFIG_SETUP_JSON_FILE"
+  jq '.terraform_project_name = "different-resource-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  mkdir -p "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR"
+  stub_response terraform-chdir "default"
+  run run_command bin/terraform-dependencies/v2/run-terraform-command -c "workspace list" -a
+  assert_success
+  local expected_hash
+  expected_hash="$(printf '%s' example-project | sha1sum | head -c 6)"
+  run cat "$TMP_ACCOUNT_BOOTSTRAP_TERRAFORM_DIR/dalmatian_tfvars_override.tf"
+  assert_output_contains 'module "aws_tfvars_s3"'
+  assert_output_contains "project_name = \"$expected_hash\""
+}

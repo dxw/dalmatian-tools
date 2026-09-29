@@ -98,3 +98,15 @@ setup() {
   [ -z "$output" ]
   refute_stub_called_with "list-user-pool-clients"
 }
+
+@test "cognito_v2_show_client targets resources using the override" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run run_command bin/cognito/v2/show-client -i "example-infra" -e "staging" -p "app" -c "web"
+  assert_success
+  assert_line 0 "COGNITO_REGION=eu-west-2"
+  assert_line 1 "COGNITO_USER_POOL_ID=eu-west-2_AppPool01"
+  assert_line 2 "COGNITO_CLIENT_ID=1webclientid000000000000000"
+  assert_line 3 "COGNITO_CLIENT_SECRET=[redacted - pass -s to show]"
+  [ "${#lines[@]}" -eq 4 ]
+}

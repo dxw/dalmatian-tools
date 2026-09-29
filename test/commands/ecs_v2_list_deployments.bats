@@ -91,3 +91,13 @@ setup() {
   assert_output_contains "abcdef1234567890abc"
   assert_output_contains "1234567890abcdef123"
 }
+
+@test "ecs_v2_list_deployments targets resources using the override" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  stub_response_file dalmatian-aws-run_command-p-example_account-ecs-list_services ecs-more-list-services-empty.json
+
+  run run_command bin/ecs/v2/list-deployments -i "example-infra" -e "staging"
+  assert_success
+  assert_stub_called_with "ecs list-services --cluster example-project-example-infra-staging-infrastructure"
+}

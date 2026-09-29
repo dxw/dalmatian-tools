@@ -84,3 +84,43 @@ JSON
   assert_success
   refute_stub_called_with "aws s3 cp"
 }
+
+@test "get-tfvars uses the override for Terraform but the original project for its bucket" {
+  jq '.terraform_project_name = "resource-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run run_command bin/terraform-dependencies/v2/get-tfvars
+  assert_success
+  local expected_hash
+  expected_hash="$(printf '%s' example-project | sha1sum | head -c 6)"
+  assert_stub_called_with "head-bucket --bucket $expected_hash-tfvars"
+  run cat "$CONFIG_TFVARS_DIR/000-terraform.tfvars"
+  assert_line 0 'project_name="resource-project"'
+  assert_line 1 'aws_region="eu-west-2"'
+}
+
+@test "get-tfvars falls back to the project name for an empty override" {
+  jq '.terraform_project_name = ""' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run run_command bin/terraform-dependencies/v2/get-tfvars
+  assert_success
+  run cat "$CONFIG_TFVARS_DIR/000-terraform.tfvars"
+  assert_line 0 'project_name="example-project"'
+}
+
+@test "get-tfvars updates a retained default file while preserving other variables" {
+  jq '.terraform_project_name = "resource-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  mkdir -p "$CONFIG_TFVARS_DIR"
+  printf 'project_name="old-project"\naws_region="eu-west-1"\ncustom=true\n' > "$CONFIG_TFVARS_DIR/000-terraform.tfvars"
+  cp "$DALMATIAN_ROOT/data/tfvars-templates/account-bootstrap.tfvars" "$CONFIG_TFVARS_DIR/000-global-account-bootstrap.tfvars"
+  cp "$DALMATIAN_ROOT/data/tfvars-templates/infrastructure.tfvars" "$CONFIG_TFVARS_DIR/000-global-infrastructure.tfvars"
+  stub_exit aws-s3api-head_bucket 0
+  stub_response aws-s3api-head_bucket ""
+  stub_response dalmatian-aws-run_command '{"LastModified":"2000-01-01T00:00:00Z"}'
+  run run_command bin/terraform-dependencies/v2/get-tfvars -n
+  assert_success
+  run cat "$CONFIG_TFVARS_DIR/000-terraform.tfvars"
+  assert_line 0 'project_name="resource-project"'
+  assert_line 1 'aws_region="eu-west-1"'
+  assert_line 2 'custom=true'
+}

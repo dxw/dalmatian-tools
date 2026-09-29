@@ -42,7 +42,7 @@ fi
 
 PROFILE="$(resolve_aws_profile -a "$DALMATIAN_ACCOUNT")"
 ACCOUNT_NUMBER="$(echo "$DALMATIAN_ACCOUNT" | cut -d'-' -f1)"
-PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME="$(jq -r '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
 PROJECT_NAME_SNAKE="$(echo "$PROJECT_NAME" | tr '-' '_')"
 TABLE_NAME="cloudtrail_logs_${ACCOUNT_NUMBER}_${PROJECT_NAME_SNAKE}_cloudtrail_cloudtrail"
 DATABASE="${PROJECT_NAME_SNAKE}_cloudtrail"

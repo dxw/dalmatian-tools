@@ -116,3 +116,13 @@ setup() {
   assert_stderr_contains "Profile does not exist for example-infra staging"
   refute_stub_called_with "ecs list-tasks"
 }
+
+@test "service_v2_container_access targets resources using the override" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run run_command bin/service/v2/container-access -i "example-infra" -e "staging" -s "example-service"
+  assert_success
+  assert_stub_called_with "ecs list-tasks --cluster example-project-example-infra-staging-infrastructure --service-name example-service"
+  assert_stub_called_with "ecs describe-tasks --cluster example-project-example-infra-staging-infrastructure --task arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/task-abc123"
+  assert_stub_called_with "ecs execute-command --cluster example-project-example-infra-staging-infrastructure --task arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/task-abc123 --container example-service --command /bin/bash --interactive"
+}

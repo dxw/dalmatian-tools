@@ -60,7 +60,7 @@ then
 fi
 
 PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
-PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME="$(jq -r '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
 RESOURCE_PREFIX="$PROJECT_NAME-$INFRASTRUCTURE-$ENVIRONMENT"
 
 POOL_ID="$(cognito_user_pool_id -p "$PROFILE" -n "$RESOURCE_PREFIX-$POOL")"

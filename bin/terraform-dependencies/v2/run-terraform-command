@@ -64,6 +64,20 @@ then
   exit 1
 fi
 
+# The tfvars bucket belongs to the installation's original project, even
+# when other Terraform resources use terraform_project_name. Terraform merges
+# this module argument into the dependency's existing module definition.
+if [ "$TERRAFORM_PROJECT" == "account-bootstrap" ]
+then
+  ORIGINAL_PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+  TFVARS_PROJECT_HASH="$(printf '%s' "$ORIGINAL_PROJECT_NAME" | sha1sum | head -c 6)"
+  cat > "$RUN_DIR/dalmatian_tfvars_override.tf" <<EOT
+module "aws_tfvars_s3" {
+  project_name = "$TFVARS_PROJECT_HASH"
+}
+EOT
+fi
+
 while read -r command
 do
   OPTIONS+=("$command")

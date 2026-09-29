@@ -184,6 +184,16 @@ setup file, or the name given with `-n <name>`. The first installation on a
 machine becomes the default automatically; later ones do not, and setup
 prints the `installation use` command to switch.
 
+Setup also asks for a "Terraform project name override", saved as
+`terraform_project_name` in `setup.json`. Leave it empty to use `project_name`.
+This changes the `project_name` passed to Terraform and the resource names
+used by CLI lookups, without changing the project or installation name or
+Terraform state bucket. The tfvars bucket also keeps the original project name's
+hash, for both creation and CLI access. On a re-run, entering an empty value clears the
+override. The summary shows the effective Terraform project name. Changing
+this value for deployed infrastructure can cause Terraform to replace resources;
+review the Terraform plan before approving an apply.
+
 Re-running `dalmatian setup` with no flags updates the current installation.
 It refuses to change that installation's project name, because the project
 name is part of every resource name it manages; set up a different project
