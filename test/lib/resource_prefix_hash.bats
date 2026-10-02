@@ -56,3 +56,19 @@ setup() {
   assert_failure
   assert_stderr_contains "Invalid \`resource_prefix_hash\` function usage"
 }
+
+@test "resource_prefix_hash uses the resource override without changing project identity" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run resource_prefix_hash -i example-infra -e staging
+  assert_success
+  assert_output "ccb69c87"
+}
+
+@test "resource_prefix_hash falls back for an empty resource override" {
+  jq '.terraform_project_name = ""' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run resource_prefix_hash -i example-infra -e staging
+  assert_success
+  assert_output "ccb69c87"
+}

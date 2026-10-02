@@ -104,3 +104,15 @@ setup() {
   assert_stderr_contains "Profile does not exist for example-infra staging"
   refute_stub_called_with "list-user-pools"
 }
+
+@test "cognito_v2_list_pools targets resources using the override" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run run_command bin/cognito/v2/list-pools -i "example-infra" -e "staging"
+  assert_success
+  assert_call_args dalmatian aws run-command -p example-account cognito-idp describe-user-pool --user-pool-id eu-west-2_AppPool01
+  assert_call_args dalmatian aws run-command -p example-account cognito-idp describe-user-pool --user-pool-id eu-west-2_AdmPool02
+  refute_stub_called_with "eu-west-2_OthPool03"
+  refute_stub_called_with "eu-west-2_PrdPool04"
+  [ "$(echo "$output" | jq -r '.pools | keys | join(",")')" = "admin,app" ]
+}

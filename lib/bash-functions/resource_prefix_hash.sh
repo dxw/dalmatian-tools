@@ -32,7 +32,7 @@ function resource_prefix_hash {
     && -n "$ENVIRONMENT_NAME"
   ]]
   then
-    PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+    PROJECT_NAME="$(jq -r '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
     RESOURCE_PREFIX_HASH="$(echo -n "$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT_NAME" | sha512sum | head -c 8)"
     if [[ $LETTER_START -eq 1 ]]
     then

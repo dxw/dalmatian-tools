@@ -134,3 +134,13 @@ setup() {
   assert_stderr_contains "Profile does not exist for example-infra staging"
   refute_stub_called_with "ecs list-services"
 }
+
+@test "service_v2_list_services targets resources using the override" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  stub_response_file dalmatian-aws-run_command-p-example_account-ecs-list_services v2-ecs-list-services-one.json
+
+  run run_command bin/service/v2/list-services -i "example-infra" -e "staging"
+  assert_success
+  assert_stub_called_with "ecs list-services --cluster example-project-example-infra-staging-infrastructure"
+}

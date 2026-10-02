@@ -60,3 +60,11 @@ setup() {
   run run_command bin/service/v2/deploy -i "example-infra"
   refute_stub_called_with "codepipeline start-pipeline-execution"
 }
+
+@test "service_v2_deploy targets resources using the override" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run run_command bin/service/v2/deploy -i "example-infra" -e "staging" -s "example-service"
+  assert_success
+  assert_stub_called_with "aws run-command -i example-infra -e staging codepipeline start-pipeline-execution --name example-project-example-infra-staging-ecs-service-example-service"
+}

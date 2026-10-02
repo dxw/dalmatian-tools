@@ -12,8 +12,9 @@ usage() {
 }
 
 DALMATIAN_ACCOUNT_DEFAULT_REGION="$(jq -r '.default_region' < "$CONFIG_SETUP_JSON_FILE")"
-PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
-PROJECT_NAME_HASH="$(echo -n "$PROJECT_NAME" | sha1sum | head -c 6)"
+PROJECT_NAME="$(jq -r '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
+ORIGINAL_PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME_HASH="$(echo -n "$ORIGINAL_PROJECT_NAME" | sha1sum | head -c 6)"
 TFVARS_BUCKET_NAME="$PROJECT_NAME_HASH-tfvars"
 TFVARS_BUCKET_EXISTS=0
 # On a brand-new project the tfvars bucket does not exist yet, so nothing can
@@ -157,6 +158,20 @@ then
   echo "aws_region=\"$DALMATIAN_ACCOUNT_DEFAULT_REGION\"" >> "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
   log_msg -l "Created $CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" -q "$QUIET_MODE"
 fi
+
+# setup.json owns the resource project name, including when the default file
+# was downloaded from S3 or retained by -n. Preserve its other variables.
+PROJECT_TFVARS_LINE="$(jq -nr --arg value "$PROJECT_NAME" '"project_name=" + ($value | tojson)')"
+STAGED_DEFAULT_TFVARS="$(mktemp "$CONFIG_TFVARS_DIR/.terraform.tfvars.XXXXXX")"
+PROJECT_TFVARS_LINE="$PROJECT_TFVARS_LINE" awk '
+  /^[[:space:]]*project_name[[:space:]]*=/ {
+    if (!written++) print ENVIRON["PROJECT_TFVARS_LINE"]
+    next
+  }
+  { print }
+  END { if (!written) print ENVIRON["PROJECT_TFVARS_LINE"] }
+' "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME" > "$STAGED_DEFAULT_TFVARS"
+mv "$STAGED_DEFAULT_TFVARS" "$CONFIG_TFVARS_DIR/$DEAFULT_TFAVRS_FILE_NAME"
 
 # The templates only ever fill a gap: a global file already in the cache is
 # someone's edited configuration and is never replaced by a template

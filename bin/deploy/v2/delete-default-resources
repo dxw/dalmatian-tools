@@ -59,7 +59,7 @@ do
     log_info -l "Deleting default VPCs for $workspace ..." -q "$QUIET_MODE"
     WORKSPACE_EXISTS=1
     LAMBDA_OUTPUT_PATH="/tmp/$workspace-delete-default-resources-output"
-    PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+    PROJECT_NAME="$(jq -r '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
     ACCOUNT_NAME=$(echo "$workspace" | cut -d'-' -f5-)
     export AWS_PROFILE="$ACCOUNT_NAME"
     aws lambda invoke \

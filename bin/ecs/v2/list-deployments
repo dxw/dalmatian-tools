@@ -53,7 +53,7 @@ then
   usage
 fi
 
-PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME="$(jq -r '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
 CLUSTER="$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT-infrastructure"
 PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
 

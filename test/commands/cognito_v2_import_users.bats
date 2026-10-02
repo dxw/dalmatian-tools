@@ -200,3 +200,13 @@ setup() {
   assert_stderr_contains "Could not read the status of import job import-ExampleJob0001 after 3 attempts"
   [ "$(grep -c 'describe-user-import-job' "$DALMATIAN_STUB_LOG")" -eq 3 ]
 }
+
+@test "cognito_v2_import_users targets resources using the override" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run run_command bin/cognito/v2/import-users -i "example-infra" -e "staging" -p "app" -f "$CSV"
+  assert_success
+  assert_call_args dalmatian aws run-command -p example-account iam get-role --role-name example-project-example-infra-staging-app-user-import
+  assert_stub_called_with "cognito-idp create-user-import-job --user-pool-id eu-west-2_AppPool01 --job-name import-"
+  assert_stub_called_with "--cloud-watch-logs-role-arn arn:aws:iam::123456789012:role/example-project-example-infra-staging-app-user-import"
+}

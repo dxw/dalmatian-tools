@@ -71,7 +71,7 @@ then
   usage
 fi
 
-PROJECT_NAME="$(jq -c '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME="$(jq -c '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
 
 log_info -l "Finding ECS instance..." -q "$QUIET_MODE"
 INSTANCES=$(

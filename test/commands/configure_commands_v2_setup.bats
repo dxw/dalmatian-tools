@@ -19,8 +19,8 @@ setup() {
   mkdir -p "$APP_ROOT/tmp"
   unset DALMATIAN_INSTALLATION
   rm -rf "$CONFIG_INSTALLATIONS_DIR"
-  # Nine prompts, each accepting its default, then confirming the summary
-  printf '\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  # Ten prompts, each accepting its default, then confirming the summary
+  printf '\n\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
   # A complete setup file, as a teammate would hand over
   cat > "$SANDBOX/setup.json" <<'JSON'
 {
@@ -140,7 +140,7 @@ run_setup() {
 }
 
 @test "setup with no file prompts for the project name and uses it" {
-  printf 'prompted-name\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  printf 'prompted-name\n\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
 
   run_setup
   assert_success
@@ -151,7 +151,7 @@ run_setup() {
 
 @test "setup offers the default region for the SSO and bucket regions when nothing was loaded" {
   # project name, default region, then Enter for every remaining prompt
-  printf 'prompted-name\neu-west-1\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  printf 'prompted-name\n\neu-west-1\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
 
   run_setup
   assert_success
@@ -163,7 +163,7 @@ run_setup() {
 
 @test "setup keeps loaded SSO and bucket regions when the default region differs" {
   # the fixture carries eu-west-2 for both; answer eu-west-1 for the default region only
-  printf '\neu-west-1\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  printf '\n\neu-west-1\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
 
   run_setup -f "$SANDBOX/setup.json"
   assert_success
@@ -194,7 +194,7 @@ run_setup() {
 }
 
 @test "declining the confirmation writes nothing" {
-  printf '\n\n\n\n\n\n\n\n\nn\n' > "$SANDBOX/answers"
+  printf '\n\n\n\n\n\n\n\n\n\nn\n' > "$SANDBOX/answers"
 
   run_setup -f "$SANDBOX/setup.json"
   assert_success
@@ -203,7 +203,7 @@ run_setup() {
 }
 
 @test "-y skips the confirmation" {
-  printf '\n\n\n\n\n\n\n\n\n' > "$SANDBOX/answers"
+  printf '\n\n\n\n\n\n\n\n\n\n' > "$SANDBOX/answers"
 
   run_setup -f "$SANDBOX/setup.json" -y
   assert_success
@@ -215,7 +215,7 @@ run_setup() {
 # "N" default and setup declines, the same as a typed "n". This test pins that
 # behaviour: whichever way it resolves, nothing must be written.
 @test "nothing is written until the confirmation" {
-  printf 'prompted-name\n\n\n\n\n\n\n\n\n' > "$SANDBOX/answers"
+  printf 'prompted-name\n\n\n\n\n\n\n\n\n\n' > "$SANDBOX/answers"
 
   run_setup
   assert_success
@@ -235,7 +235,7 @@ run_setup() {
 }
 
 @test "setup suggests an S3-safe bucket name for a project name with underscores" {
-  printf 'my_project\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  printf 'my_project\n\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
 
   run_setup
   assert_success
@@ -248,7 +248,7 @@ run_setup() {
   # hyphen must go, leaving the bare name
   local long_name
   long_name="$(printf 'a%.0s' {1..62})"
-  printf '%s\n\n\n\n\n\n\n\n\ny\n' "$long_name" > "$SANDBOX/answers"
+  printf '%s\n\n\n\n\n\n\n\n\n\ny\n' "$long_name" > "$SANDBOX/answers"
 
   run_setup
   assert_success
@@ -313,7 +313,7 @@ run_setup() {
 }
 
 @test "a changed project name gets its own bucket default" {
-  printf 'new-project\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  printf 'new-project\n\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
 
   run_setup -f "$SANDBOX/setup.json" -n new-project
   assert_success
@@ -331,7 +331,7 @@ run_setup() {
 }
 
 @test "a fresh setup with no file suggests <project>-tfstate" {
-  printf 'prompted-name\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  printf 'prompted-name\n\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
 
   run_setup
   assert_success
@@ -341,9 +341,38 @@ run_setup() {
 
 @test "the suggestion explains itself" {
   export QUIET_MODE=0
-  printf 'new-project\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  printf 'new-project\n\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
 
   run_setup -f "$SANDBOX/setup.json" -n new-project
   assert_success
   assert_output_contains "suggesting its own state bucket rather than sharing 'example-tfstate'"
+}
+
+@test "setup saves the resource override without changing installation, project or backend" {
+  printf '\nresource-project\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  export QUIET_MODE=0
+  run_setup -f "$SANDBOX/setup.json" -n client-a
+  assert_success
+  assert_output_contains "Terraform project name: resource-project"
+  run jq -r '[.project_name, .terraform_project_name, .backend.s3.bucket_name] | join(" ")' "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  assert_output "example-project resource-project example-tfstate"
+}
+
+@test "setup accepts a changed resource override on an existing installation" {
+  mkdir -p "$CONFIG_INSTALLATIONS_DIR/client-a"
+  jq '.terraform_project_name = "old-resource-project"' "$SANDBOX/setup.json" > "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  printf '\nnew-resource-project\n\n\n\n\n\n\n\n\ny\n' > "$SANDBOX/answers"
+  run_setup -n client-a
+  assert_success
+  run jq -r '[.project_name, .terraform_project_name] | join(" ")' "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  assert_output "example-project new-resource-project"
+}
+
+@test "setup clears an existing resource override when the answer is empty" {
+  mkdir -p "$CONFIG_INSTALLATIONS_DIR/client-a"
+  jq '.terraform_project_name = "old-resource-project"' "$SANDBOX/setup.json" > "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  run_setup -n client-a
+  assert_success
+  run jq -r '.terraform_project_name' "$CONFIG_INSTALLATIONS_DIR/client-a/setup.json"
+  assert_output ""
 }

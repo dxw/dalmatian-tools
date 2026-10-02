@@ -200,6 +200,14 @@ then
   die "Installation '$INSTALLATION_NAME' already exists. Re-run with \`dalmatian setup -n $INSTALLATION_NAME\` to update it, or choose another name with -n"
 fi
 
+# Empty means use the installation's original project name. Unlike the other
+# prompts, Enter clears a previously configured override.
+CURRENT_TERRAFORM_PROJECT_NAME="$(jq -r '.terraform_project_name // empty' < "$CONFIG_SETUP_JSON_FILE")"
+log_msg -l "Current Terraform project name: ${CURRENT_TERRAFORM_PROJECT_NAME:-$PROJECT_NAME}" -q "$QUIET_MODE"
+read -rp "Terraform project name override (leave empty to use $PROJECT_NAME): " TERRAFORM_PROJECT_NAME
+STAGED_JSON="$(jq --arg value "$TERRAFORM_PROJECT_NAME" '.terraform_project_name = $value' < "$CONFIG_SETUP_JSON_FILE")"
+echo "$STAGED_JSON" > "$CONFIG_SETUP_JSON_FILE"
+
 DEFAULT_REGION=$(read_prompt_with_setup_default -p "Default AWS Region" -d "default_region")
 
 # The SSO and state bucket regions are almost always the default region, so
@@ -247,6 +255,7 @@ MAIN_DALMATIAN_ACCOUNT_ID=$(read_prompt_with_setup_default -p "Main dalmatian ac
 log_info -l "-- Summary --" -q "$QUIET_MODE"
 log_msg -l "Installation:        $INSTALLATION_NAME ($CONFIG_INSTALLATIONS_DIR/$INSTALLATION_NAME)" -q "$QUIET_MODE"
 log_msg -l "Project name:        $PROJECT_NAME" -q "$QUIET_MODE"
+log_msg -l "Terraform project name: ${TERRAFORM_PROJECT_NAME:-$PROJECT_NAME}" -q "$QUIET_MODE"
 log_msg -l "Default region:      $DEFAULT_REGION" -q "$QUIET_MODE"
 log_msg -l "SSO start URL:       $(jq -r '.aws_sso.start_url' < "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"
 log_msg -l "SSO region:          $(jq -r '.aws_sso.region' < "$CONFIG_SETUP_JSON_FILE")" -q "$QUIET_MODE"

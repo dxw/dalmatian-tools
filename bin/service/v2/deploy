@@ -50,7 +50,7 @@ fi
 
 log_info -l "Deploying $SERVICE_NAME in $INFRASTRUCTURE_NAME $ENVIRONMENT" -q "$QUIET_MODE"
 
-PROJECT_NAME="$(jq -r '.project_name' < "$CONFIG_SETUP_JSON_FILE")"
+PROJECT_NAME="$(jq -r '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
 
 "$APP_ROOT/bin/dalmatian" aws run-command \
   -i "$INFRASTRUCTURE_NAME" \

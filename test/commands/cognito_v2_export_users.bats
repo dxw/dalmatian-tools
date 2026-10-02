@@ -100,3 +100,19 @@ setup() {
   [ ! -e "$CSV" ]
   [ -z "$(ls -A "$OUT_DIR")" ]
 }
+
+@test "cognito_v2_export_users targets resources using the override" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run run_command bin/cognito/v2/export-users -i "example-infra" -e "staging" -p "app" -o "$CSV"
+  assert_success
+  assert_call_args dalmatian aws run-command -p example-account cognito-idp get-csv-header --user-pool-id eu-west-2_AppPool01
+  assert_call_args dalmatian aws run-command -p example-account cognito-idp list-users --user-pool-id eu-west-2_AppPool01
+
+  local -a rows
+  mapfile -t rows < "$CSV"
+  [ "${#rows[@]}" -eq 3 ]
+  [ "${rows[0]}" = "cognito:username,email,email_verified,name,cognito:mfa_enabled" ]
+  [ "${rows[1]}" = '"alice@example.invalid","alice@example.invalid","TRUE","Alice Example","FALSE"' ]
+  [ "${rows[2]}" = '"bob@example.invalid","bob@example.invalid","TRUE","","FALSE"' ]
+}

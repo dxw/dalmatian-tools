@@ -99,3 +99,14 @@ setup() {
   assert_failure 1
   assert_stderr_contains "requires the \`session-manager-plugin\` to be installed"
 }
+
+@test "ecs_v2_ec2_access targets resources using the override" {
+  jq '.terraform_project_name = .project_name | .project_name = "installation-project"' "$CONFIG_SETUP_JSON_FILE" > "$SANDBOX/override.json"
+  mv "$SANDBOX/override.json" "$CONFIG_SETUP_JSON_FILE"
+  run run_command bin/ecs/v2/ec2-access -i "example-infra" -e "staging" -l
+  assert_success
+  assert_stub_called_with "Name=tag:Infrastructure,Values=example-infra"
+  assert_stub_called_with "Name=tag:Environment,Values=staging"
+  refute_stub_called_with "Name=tag:Name,Values=example-infra-staging*"
+  assert_stub_called_with 'Name=tag:Project,Values="example-project"'
+}
