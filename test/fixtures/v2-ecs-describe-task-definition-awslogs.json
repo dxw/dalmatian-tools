@@ -1,0 +1,24 @@
+{
+  "taskDefinition": {
+    "containerDefinitions": [
+      {
+        "name": "gotenberg",
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": { "awslogs-group": "example-sidecar-log-group" }
+        }
+      },
+      {
+        "name": "example-service",
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "example-project-example-infra-staging-infrastructure-ecs-cluster-service-logs-example-service",
+            "awslogs-region": "eu-west-2",
+            "awslogs-stream-prefix": ""
+          }
+        }
+      }
+    ]
+  }
+}

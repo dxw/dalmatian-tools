@@ -1,0 +1,14 @@
+{
+  "events": [
+    {
+      "logStreamName": "example-service/task-abc123",
+      "timestamp": 1790845201000,
+      "message": "GET /healthcheck 200\n"
+    },
+    {
+      "logStreamName": "example-service/task-def456",
+      "timestamp": 1790845262500,
+      "message": "ERROR something broke"
+    }
+  ]
+}
