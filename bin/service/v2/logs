@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <service_name>      - service name"
+  echo "  -S <since>             - start of the window: a relative age (e.g. '30m', '2h', '1d', '1w')"
+  echo "                           or anything 'date -d' accepts (e.g. '2026-10-01 09:00') - Defaults to '10m' (Optional)"
+  echo "  -U <until>             - end of the window, same formats as -S - Defaults to now (Optional, not with -f)"
+  echo "  -p <filter_pattern>    - CloudWatch Logs filter pattern (e.g. 'ERROR') (Optional)"
+  echo "  -o <output_file>       - write the logs to this file instead of stdout (Optional, not with -f)"
+  echo "  -f                     - follow: keep printing new log events as they arrive (Optional)"
+  exit 1
+}
+
+# Turns a relative age or a date string into epoch milliseconds
+to_epoch_ms() {
+  local value="$1"
+  local unit
+  if [[ "$value" =~ ^([0-9]+)([smhdw])$ ]]
+  then
+    case "${BASH_REMATCH[2]}" in
+      s) unit="seconds" ;;
+      m) unit="minutes" ;;
+      h) unit="hours" ;;
+      d) unit="days" ;;
+      w) unit="weeks" ;;
+    esac
+    value="${BASH_REMATCH[1]} $unit ago"
+  fi
+  gdate -d "$value" +%s%3N
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+ usage
+fi
+
+SINCE="10m"
+UNTIL=""
+FILTER_PATTERN=""
+OUTPUT_FILE=""
+FOLLOW=0
+while getopts "i:e:s:S:U:p:o:fh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      SERVICE_NAME=$OPTARG
+      ;;
+    S)
+      SINCE=$OPTARG
+      ;;
+    U)
+      UNTIL=$OPTARG
+      ;;
+    p)
+      FILTER_PATTERN=$OPTARG
+      ;;
+    o)
+      OUTPUT_FILE=$OPTARG
+      ;;
+    f)
+      FOLLOW=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+  || -z "$SERVICE_NAME"
+]]
+then
+  usage
+fi
+
+if [[ "$FOLLOW" -eq 1 && ( -n "$UNTIL" || -n "$OUTPUT_FILE" ) ]]
+then
+  err "-f cannot be combined with -U or -o"
+  exit 1
+fi
+
+if ! START_TIME_MS="$(to_epoch_ms "$SINCE" 2> /dev/null)"
+then
+  err "Could not parse -S '$SINCE'"
+  exit 1
+fi
+if [ -n "$UNTIL" ]
+then
+  if ! END_TIME_MS="$(to_epoch_ms "$UNTIL" 2> /dev/null)"
+  then
+    err "Could not parse -U '$UNTIL'"
+    exit 1
+  fi
+else
+  END_TIME_MS="$(gdate +%s%3N)"
+fi
+if [ "$START_TIME_MS" -ge "$END_TIME_MS" ]
+then
+  err "The start of the window (-S) must be before its end (-U)"
+  exit 1
+fi
+
+log_info -l "Finding log group..." -q "$QUIET_MODE"
+
+PROJECT_NAME="$(jq -r '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
+CLUSTER="$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT-infrastructure"
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+
+TASK_DEFINITION_ARN="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  ecs describe-services \
+  --cluster "$CLUSTER" \
+  --services "$SERVICE_NAME" \
+  | jq -r '.services[0].taskDefinition // empty'
+)"
+if [ -z "$TASK_DEFINITION_ARN" ]
+then
+  err "Service $SERVICE_NAME not found in cluster $CLUSTER"
+  exit 1
+fi
+
+TASK_DEFINITION="$(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  ecs describe-task-definition \
+  --task-definition "$TASK_DEFINITION_ARN"
+)"
+# Read the log group from the container rather than rebuilding its name: the
+# infrastructure only sends a service to CloudWatch Logs when
+# enable_cloudwatch_logs is set and logspout is off, and otherwise uses syslog.
+# Container definitions are registered sorted by name, so a sidecar may come
+# first; select by name.
+LOG_CONFIGURATION="$(
+  echo "$TASK_DEFINITION" \
+  | jq -c --arg service_name "$SERVICE_NAME" \
+    '.taskDefinition.containerDefinitions[]? | select(.name == $service_name) | .logConfiguration // {}'
+)"
+if [ -z "$LOG_CONFIGURATION" ]
+then
+  err "No container named $SERVICE_NAME found in task definition $TASK_DEFINITION_ARN"
+  exit 1
+fi
+LOG_DRIVER="$(echo "$LOG_CONFIGURATION" | jq -r '.logDriver // "none"')"
+LOG_GROUP="$(echo "$LOG_CONFIGURATION" | jq -r '.options["awslogs-group"] // empty')"
+if [[ "$LOG_DRIVER" != "awslogs" || -z "$LOG_GROUP" ]]
+then
+  err "Service $SERVICE_NAME logs with the '$LOG_DRIVER' driver, not to CloudWatch Logs"
+  exit 1
+fi
+
+FILTER_ARGS=()
+if [ -n "$FILTER_PATTERN" ]
+then
+  FILTER_ARGS=(--filter-pattern "$FILTER_PATTERN")
+fi
+
+if [ "$FOLLOW" -eq 1 ]
+then
+  log_info -l "Following $LOG_GROUP (Ctrl-C to stop)..." -q "$QUIET_MODE"
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    logs tail "$LOG_GROUP" \
+    --follow \
+    --since "$(gdate -u -d "@$(( START_TIME_MS / 1000 ))" +%Y-%m-%dT%H:%M:%SZ)" \
+    "${FILTER_ARGS[@]}"
+  exit 0
+fi
+
+log_info -l "Fetching events from $LOG_GROUP..." -q "$QUIET_MODE"
+
+# Same shape as `aws logs tail`: timestamp, log stream, then the message
+# verbatim, so an event holding a multiline message spans several lines
+fetch_events() {
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    logs filter-log-events \
+    --log-group-name "$LOG_GROUP" \
+    --start-time "$START_TIME_MS" \
+    --end-time "$END_TIME_MS" \
+    "${FILTER_ARGS[@]}" \
+  | jq -r '.events[]? | "\(.timestamp / 1000 | floor | todate) \(.logStreamName) \(.message | rtrimstr("\n"))"'
+}
+
+if [ -n "$OUTPUT_FILE" ]
+then
+  # Application logs can hold personal data or leaked secrets, so a file this
+  # creates is readable only by its owner
+  (umask 077 && fetch_events > "$OUTPUT_FILE")
+  log_info -l "Logs written to $OUTPUT_FILE" -q "$QUIET_MODE"
+else
+  fetch_events
+fi
