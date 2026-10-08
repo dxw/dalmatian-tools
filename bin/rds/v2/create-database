@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -d <db_name>           - name of database to create"
+  echo "  -u <user_name>         - name of user to create"
+  echo "  -P <user_password>     - password for the user (optional; by default the one already"
+  echo "                           stored for the user is reused, or a new one is generated)"
+  echo
+  echo "The user's password is kept in SSM Parameter Store at"
+  echo "/<infrastructure>/<environment>/rds/<rds_name>/<user_name>/password"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+while getopts "i:e:r:d:u:P:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    d)
+      DB_NAME=$OPTARG
+      ;;
+    u)
+      USER_NAME=$OPTARG
+      ;;
+    P)
+      USER_PASSWORD=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE"
+  || -z "$ENVIRONMENT"
+  || -z "$RDS_NAME"
+  || -z "$DB_NAME"
+  || -z "$USER_NAME"
+]]
+then
+  usage
+fi
+
+# Everything below is substituted into a script the utilities container runs,
+# so each value is held to a pattern that cannot break out of it. Names are
+# restricted to what both engines accept as identifiers rather than escaped
+IDENTIFIER_PATTERN='^[A-Za-z_][A-Za-z0-9_]{0,62}$'
+if [[ ! "$DB_NAME" =~ $IDENTIFIER_PATTERN ]]
+then
+  err "Database name must be letters, digits and underscores, not starting with a digit"
+  exit 1
+fi
+if [[ ! "$USER_NAME" =~ $IDENTIFIER_PATTERN ]]
+then
+  err "User name must be letters, digits and underscores, not starting with a digit"
+  exit 1
+fi
+if [[ ! "$INFRASTRUCTURE/$ENVIRONMENT/$RDS_NAME" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+then
+  err "Infrastructure, environment and RDS names must be letters, digits, '.', '_' and '-'"
+  exit 1
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+RDS_IDENTIFIER="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -l)-$RDS_NAME"
+# The path `dalmatian aws put-secret` stores under, and the one the utilities
+# task role is allowed to read
+SECRET_NAME="rds/$RDS_NAME/$USER_NAME/password"
+PARAMETER_NAME="/$INFRASTRUCTURE/$ENVIRONMENT/$SECRET_NAME"
+
+log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
+
+RDS_INFO="$(rds_info -p "$PROFILE" -i "$RDS_IDENTIFIER")"
+RDS_ENGINE="$(echo "$RDS_INFO" | jq -r '.engine')"
+RDS_ROOT_USERNAME="$(echo "$RDS_INFO" | jq -r '.master_username')"
+# The utilities task's own DB_HOST is a cluster's reader endpoint, which
+# cannot take writes, so point it at the writer
+RDS_ENDPOINT="$(echo "$RDS_INFO" | jq -r '.endpoint')"
+
+if [[ ! "$RDS_ENDPOINT" =~ ^[A-Za-z0-9.-]+$ ]]
+then
+  err "Unexpected endpoint for $RDS_IDENTIFIER: $RDS_ENDPOINT"
+  exit 1
+fi
+if [[ ! "$RDS_ROOT_USERNAME" =~ $IDENTIFIER_PATTERN ]]
+then
+  err "Unexpected root username for $RDS_IDENTIFIER: $RDS_ROOT_USERNAME"
+  exit 1
+fi
+
+REGION="$("$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  configure get region)"
+if [[ ! "$REGION" =~ ^[a-z0-9-]+$ ]]
+then
+  err "Unexpected region for profile $PROFILE: $REGION"
+  exit 1
+fi
+
+if [ -z "$USER_PASSWORD" ]
+then
+  ERROR_FILE="$(mktemp)"
+  STATUS=0
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    ssm get-parameter \
+    --name "$PARAMETER_NAME" \
+    --query Parameter.ARN \
+    --output text \
+    > /dev/null 2> "$ERROR_FILE" || STATUS=$?
+
+  if [ "$STATUS" -eq 0 ]
+  then
+    log_info -l "Using the password already stored in $PARAMETER_NAME" -q "$QUIET_MODE"
+  elif grep -q "ParameterNotFound" "$ERROR_FILE"
+  then
+    log_info -l "Generating a password for $USER_NAME ..." -q "$QUIET_MODE"
+    RANDOM_CHARACTERS="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
+    USER_PASSWORD="${RANDOM_CHARACTERS:0:32}"
+  else
+    cat "$ERROR_FILE" >&2
+    rm -f "$ERROR_FILE"
+    exit "$STATUS"
+  fi
+  rm -f "$ERROR_FILE"
+fi
+
+if [ -n "$USER_PASSWORD" ]
+then
+  log_info -l "Storing the password in $PARAMETER_NAME ..." -q "$QUIET_MODE"
+  printf '%s' "$USER_PASSWORD" | "$APP_ROOT/bin/dalmatian" aws put-secret \
+    -i "$INFRASTRUCTURE" \
+    -e "$ENVIRONMENT" \
+    -n "$SECRET_NAME" \
+    > /dev/null
+fi
+
+# The container fetches the password itself with its task role, so it never
+# appears in the RunTask request
+case "$RDS_ENGINE" in
+  mysql|aurora-mysql)
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+PASSWORD="$(aws ssm get-parameter --region @REGION@ --name @PARAMETER_NAME@ --with-decryption --query Parameter.Value --output text)"
+PASSWORD="${PASSWORD//\\/\\\\}"
+PASSWORD="${PASSWORD//\'/\'\'}"
+MYSQL_PWD="$DB_PASSWORD" mysql -u "$DB_USER" -h @RDS_ENDPOINT@ <<SQL
+CREATE DATABASE \`@DB_NAME@\` DEFAULT CHARSET utf8mb4;
+CREATE USER '@USER_NAME@'@'%' IDENTIFIED BY '$PASSWORD';
+GRANT ALL ON \`@DB_NAME@\`.* TO '@USER_NAME@'@'%';
+SQL
+SCRIPT
+)"
+    ;;
+  postgres|aurora-postgresql)
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+PASSWORD="$(aws ssm get-parameter --region @REGION@ --name @PARAMETER_NAME@ --with-decryption --query Parameter.Value --output text)"
+PGPASSWORD="$DB_PASSWORD" psql -v ON_ERROR_STOP=1 -v password="$PASSWORD" -U "$DB_USER" -h @RDS_ENDPOINT@ -d postgres <<'SQL'
+CREATE USER "@USER_NAME@" WITH PASSWORD :'password';
+GRANT "@USER_NAME@" TO "@RDS_ROOT_USERNAME@";
+CREATE DATABASE "@DB_NAME@" OWNER "@USER_NAME@";
+SQL
+SCRIPT
+)"
+    ;;
+  *)
+    err "Unrecognised engine: $RDS_ENGINE"
+    exit 1
+    ;;
+esac
+
+TASK_SCRIPT="${TASK_SCRIPT//@REGION@/$REGION}"
+TASK_SCRIPT="${TASK_SCRIPT//@PARAMETER_NAME@/$PARAMETER_NAME}"
+TASK_SCRIPT="${TASK_SCRIPT//@RDS_ENDPOINT@/$RDS_ENDPOINT}"
+TASK_SCRIPT="${TASK_SCRIPT//@RDS_ROOT_USERNAME@/$RDS_ROOT_USERNAME}"
+TASK_SCRIPT="${TASK_SCRIPT//@DB_NAME@/$DB_NAME}"
+TASK_SCRIPT="${TASK_SCRIPT//@USER_NAME@/$USER_NAME}"
+
+# Base64 so that none of the script's quoting has to survive
+# utilities run-command and the container's bash -c
+TASK_SCRIPT_BASE64="$(printf '%s\n' "$TASK_SCRIPT" | base64 | tr -d '\n')"
+
+log_info -l "Creating database $DB_NAME and user $USER_NAME on $RDS_IDENTIFIER ..." -q "$QUIET_MODE"
+
+"$APP_ROOT/bin/dalmatian" utilities run-command \
+  -i "$INFRASTRUCTURE" \
+  -e "$ENVIRONMENT" \
+  -r "$RDS_NAME" \
+  -c "echo $TASK_SCRIPT_BASE64 | base64 -d | bash"
+
+log_msg -l "The password for $USER_NAME is in SSM Parameter Store at $PARAMETER_NAME" -q "$QUIET_MODE"
