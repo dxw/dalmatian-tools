@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -o <output_file_path>  - output file path (optional, defaults to ~/Downloads/<backup>)"
+  echo "  -d <date>              - date (optional e.g %Y-%m-%d, defaults to today)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+DATE="$(date +%Y-%m-%d)"
+
+while getopts "i:e:r:o:d:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    o)
+      OUTPUT_FILE_PATH=$OPTARG
+      ;;
+    d)
+      DATE=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE"
+  || -z "$ENVIRONMENT"
+  || -z "$RDS_NAME"
+]]
+then
+  usage
+fi
+
+# The date is matched as a prefix of the object's LastModified inside a
+# JMESPath literal, so a year or year-month narrows less, and nothing else
+# is allowed in
+if [[ ! "$DATE" =~ ^[0-9]{4}(-[0-9]{2}){0,2}$ ]]
+then
+  err "Date must be in the form YYYY-MM-DD, YYYY-MM or YYYY"
+  exit 1
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+RDS_IDENTIFIER="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -l)-$RDS_NAME"
+S3_BUCKET_NAME="$RESOURCE_PREFIX_HASH-infrastructure-rds-s3-backups"
+
+log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
+
+BACKUP_HOST="$(rds_info -p "$PROFILE" -i "$RDS_IDENTIFIER" | jq -r '.backup_host')"
+
+log_info -l "Listing SQL backups from $DATE in $S3_BUCKET_NAME ..." -q "$QUIET_MODE"
+
+BACKUPS=()
+while IFS='' read -r KEY
+do
+  BACKUPS+=("${KEY#"$BACKUP_HOST/"}")
+done < <(
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    s3api list-objects-v2 \
+    --bucket "$S3_BUCKET_NAME" \
+    --prefix "$BACKUP_HOST/" \
+    --query "Contents[?starts_with(LastModified,\`$DATE\`)].Key" \
+    --output json \
+    | jq -r '.[]?'
+)
+
+BACKUP_COUNT="${#BACKUPS[@]}"
+
+log_info -l "Found $BACKUP_COUNT backups from $DATE" -q "$QUIET_MODE"
+
+if [ "$BACKUP_COUNT" -lt 1 ]
+then
+  err "No backups found. Please specify a different date."
+  exit 1
+fi
+
+if [[ "${DALMATIAN_FZF_ENABLED:-1}" == "1" ]] && command -v fzf > /dev/null
+then
+  SQL_FILE_NAME="$(printf "%s\n" "${BACKUPS[@]}" | fzf --height 40% --reverse --header "Select backup to download")"
+  if [ -z "$SQL_FILE_NAME" ]
+  then
+    err "No backup selected"
+    exit 1
+  fi
+else
+  echo
+  cat -n < <(printf "%s\n" "${BACKUPS[@]}")
+  echo
+
+  while true
+  do
+    read -rp 'Select backup to download: ' n || exit 1
+    if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt 0 ] && [ "$n" -le "$BACKUP_COUNT" ]
+    then
+      break
+    fi
+  done
+
+  SQL_FILE_NAME="${BACKUPS[$((n-1))]}"
+fi
+
+if [ -z "$OUTPUT_FILE_PATH" ]
+then
+  OUTPUT_FILE_PATH="$HOME/Downloads/$SQL_FILE_NAME"
+fi
+
+log_info -l "Downloading $SQL_FILE_NAME to $OUTPUT_FILE_PATH ..." -q "$QUIET_MODE"
+
+"$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  s3 cp "s3://$S3_BUCKET_NAME/$BACKUP_HOST/$SQL_FILE_NAME" "$OUTPUT_FILE_PATH"

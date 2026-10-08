@@ -1,0 +1,13 @@
+{
+  "DBClusters": [
+    {
+      "DBClusterIdentifier": "ccb69c87-example-rds",
+      "Engine": "aurora-mysql",
+      "MasterUsername": "root",
+      "Endpoint": "ccb69c87-example-rds.cluster-abcdefghijkl.eu-west-2.rds.amazonaws.com",
+      "ReaderEndpoint": "ccb69c87-example-rds.cluster-ro-abcdefghijkl.eu-west-2.rds.amazonaws.com",
+      "MasterUserSecret": { "SecretArn": "arn:aws:secretsmanager:eu-west-2:123456789012:secret:rds!cluster-00000000-0000-0000-0000-000000000000-AbCdEf" },
+      "DBSubnetGroup": "example-subnet-group"
+    }
+  ]
+}
