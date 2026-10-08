@@ -91,6 +91,13 @@ then
   cat "$responses/$match.out"
 fi
 
+# What a failing call says on stderr, for code that tells failures apart by
+# their message, such as an AWS "not found" fault from an access error
+if [ -f "$responses/$match.err" ]
+then
+  cat "$responses/$match.err" >&2
+fi
+
 if [ -f "$responses/$match.exit" ]
 then
   exit "$(cat "$responses/$match.exit")"
