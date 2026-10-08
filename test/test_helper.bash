@@ -218,9 +218,19 @@ stub_stderr() {
   printf '%s\n' "$2" > "$DALMATIAN_STUB_RESPONSES/$1.err"
 }
 
+# Make a stub read its stdin and keep it, for a command that pipes a value in.
+# stub_stdin reads back what it was given
+stub_capture_stdin() {
+  : > "$DALMATIAN_STUB_RESPONSES/$1.stdin"
+}
+
+stub_stdin() {
+  cat "$DALMATIAN_STUB_RESPONSES/$1.stdin"
+}
+
 # Remove everything staged for a key, so a test can replace what setup staged
 unstub() {
-  rm -f "$DALMATIAN_STUB_RESPONSES/$1".{out,exit,err}
+  rm -f "$DALMATIAN_STUB_RESPONSES/$1".{out,exit,err,stdin}
 }
 
 # Answer an RDS describe call the way AWS does for an identifier of the other
