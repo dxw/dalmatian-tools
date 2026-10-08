@@ -136,33 +136,69 @@ fi
 
 WORKSPACE_TFVARS_FILE="$TFVARS_FILE_NUMBER-$SELECTED_WORKSPACE.tfvars"
 WORKSPACE_TFVARS_FILE_EXISTS=0
+SKIP_EDIT=0
+REMOTE_TFVARS_FILE=""
+trap 'if [ -n "$REMOTE_TFVARS_FILE" ]; then rm -f "$REMOTE_TFVARS_FILE"; fi' EXIT
 
 log_info -l "Checking $WORKSPACE_TFVARS_FILE file ..." -q "$QUIET_MODE"
 
 if aws s3api head-object --bucket "$TFVARS_BUCKET_NAME" --key "$WORKSPACE_TFVARS_FILE" > /dev/null 2>&1
 then
-  aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" > /dev/null
-  if ! diff "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > /dev/null
+  # Unique per run, so concurrent runs, view-tfvars and set-global-tfvars
+  # never overwrite or clean up each other's copy
+  REMOTE_TFVARS_FILE="$(mktemp "$CONFIG_TFVARS_DIR/temp-diff-check.XXXXXX")"
+  aws s3 cp "s3://$TFVARS_BUCKET_NAME/$WORKSPACE_TFVARS_FILE" "$REMOTE_TFVARS_FILE" > /dev/null
+  if [ ! -f "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" ]
+  then
+    log_info -l "No local copy of $WORKSPACE_TFVARS_FILE, using the remote copy" -q "$QUIET_MODE"
+    mv "$REMOTE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+  elif ! diff "$REMOTE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" > /dev/null
   then
     err "The remote $WORKSPACE_TFVARS_FILE file is different than your local cached copy."
     err "This is either because the remote copy has been updated, or you have already edited your local copy"
-    log_info -l "What do you want to do?" -q "$QUIET_MODE"
-    echo "1) Edit my local copy"
-    echo "2) Use the remote copy and edit"
-    echo "3) Show the diff"
-    read -rp "?: " DIFF_OPTION
-    if [ "$DIFF_OPTION" == "1" ]
-    then
-      rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
-    elif [ "$DIFF_OPTION" == "2" ]
-    then
-      mv "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
-    elif [ "$DIFF_OPTION" == "3" ]
-    then
-      diff "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
-      rm "$CONFIG_TFVARS_DIR/temp-diff-check.tfvars"
-      exit 0
-    fi
+    while true
+    do
+      log_info -l "What do you want to do?" -q "$QUIET_MODE"
+      echo "1) Edit my local copy"
+      echo "2) Use the remote copy and edit"
+      echo "3) Show the diff"
+      echo "4) Apply my local copy"
+      echo "5) Apply the remote copy"
+      echo "6) Abort"
+      if ! read -rp "?: " DIFF_OPTION
+      then
+        err "No selection made, aborting"
+        exit 1
+      fi
+      case "$DIFF_OPTION" in
+        1)
+          break
+          ;;
+        2)
+          mv "$REMOTE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+          break
+          ;;
+        3)
+          diff -u --label remote --label local "$REMOTE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE" || true
+          ;;
+        4)
+          SKIP_EDIT=1
+          break
+          ;;
+        5)
+          mv "$REMOTE_TFVARS_FILE" "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
+          SKIP_EDIT=1
+          break
+          ;;
+        6)
+          log_info -l "Aborted, $WORKSPACE_TFVARS_FILE left unchanged" -q "$QUIET_MODE"
+          exit 0
+          ;;
+        *)
+          err "Invalid selection. Please enter a number from 1 to 6"
+          ;;
+      esac
+    done
   fi
   WORKSPACE_TFVARS_FILE_EXISTS=1
 fi
@@ -179,7 +215,10 @@ then
   fi
 fi
 
-if [ "$WORKSPACE_TFVARS_FILE_EXISTS" == "1" ]
+if [[
+  "$WORKSPACE_TFVARS_FILE_EXISTS" == "1" &&
+  "$SKIP_EDIT" == "0"
+]]
 then
   $EDITOR "$CONFIG_TFVARS_DIR/$WORKSPACE_TFVARS_FILE"
 fi
@@ -195,7 +234,10 @@ fi
 
 echo "$TFVARS_PATHS_JSON" > "$CONFIG_TFVARS_PATHS_FILE"
 
-log_info -l "$WORKSPACE_TFVARS_FILE edited!" -q "$QUIET_MODE"
+if [ "$SKIP_EDIT" == "0" ]
+then
+  log_info -l "$WORKSPACE_TFVARS_FILE edited!" -q "$QUIET_MODE"
+fi
 log_info -l "Running terraform plan for $SELECTED_WORKSPACE .." -q "$QUIET_MODE"
 "$APP_ROOT/bin/dalmatian" deploy "$DEPLOY_PROJECT" "$DEPLOY_FLAG" "$SELECTED_WORKSPACE" -p
 
