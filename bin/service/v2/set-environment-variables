@@ -69,7 +69,15 @@ ENVIRONMENT_FILE_KEY="$(
   '.environment_file_key')"
 
 ENVIRONMENT_FILE_S3_URI="s3://$ENVIRONMENT_FILE_BUCKET/$ENVIRONMENT_FILE_KEY"
-LOCAL_ENVIRONMENT_FILE="$TMP_SERVICE_ENV_DIR/$INFRASTRUCTURE_NAME-$ENVIRONMENT-$SERVICE_NAME.env"
+
+# The env file holds the service's secrets, so it is edited in a private
+# directory under the user's own TMPDIR, and that directory goes on every
+# exit, failures and interrupts included
+umask 077
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORK_DIR"' EXIT
+LOCAL_ENVIRONMENT_FILE="$WORK_DIR/$INFRASTRUCTURE_NAME-$ENVIRONMENT-$SERVICE_NAME.env"
+ORIGINAL_ENVIRONMENT_FILE="$WORK_DIR/original.env"
 
 ENVIRONMENT_FILE_META_JSON="$(
   "$APP_ROOT/bin/dalmatian" aws run-command \
@@ -92,18 +100,17 @@ else
   then
     exit 0
   fi
+  : > "$LOCAL_ENVIRONMENT_FILE"
 fi
 
-cp "$LOCAL_ENVIRONMENT_FILE" "$LOCAL_ENVIRONMENT_FILE-orig"
+cp "$LOCAL_ENVIRONMENT_FILE" "$ORIGINAL_ENVIRONMENT_FILE"
 "$EDITOR" "$LOCAL_ENVIRONMENT_FILE"
 
-DIFF="$(colordiff -u "$LOCAL_ENVIRONMENT_FILE-orig" "$LOCAL_ENVIRONMENT_FILE" || true)"
-rm "$LOCAL_ENVIRONMENT_FILE-orig"
+DIFF="$(colordiff -u "$ORIGINAL_ENVIRONMENT_FILE" "$LOCAL_ENVIRONMENT_FILE" || true)"
 
 if [[ -z "$DIFF" ]]
 then
   log_info -l "No changes were made to the environment file, exiting ..." -q "$QUIET_MODE"
-  rm "$LOCAL_ENVIRONMENT_FILE"
   exit 0
 fi
 
@@ -115,17 +122,16 @@ log_msg -l "" -q "$QUIET_MODE"
 
 if ! yes_no "Do you want to upload these changes?" "y"
 then
-  rm "$LOCAL_ENVIRONMENT_FILE"
   exit 0
 fi
 
-log_info -l "Uploading then removing $LOCAL_ENVIRONMENT_FILE ..." -q "$QUIET_MODE"
+log_info -l "Uploading $ENVIRONMENT_FILE_S3_URI ..." -q "$QUIET_MODE"
 
 "$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   s3 cp "$LOCAL_ENVIRONMENT_FILE" "$ENVIRONMENT_FILE_S3_URI"
 
-rm "$LOCAL_ENVIRONMENT_FILE"
+rm -rf "$WORK_DIR"
 
 if yes_no "Environment file updated, do you want to redeploy the service now?" "y"
 then

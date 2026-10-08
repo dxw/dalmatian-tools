@@ -6,8 +6,10 @@ setup() {
   setup_sandbox
   use_stubs
   export QUIET_MODE=1
-  export PAGER=true
-  export TMP_SERVICE_ENV_DIR="$SANDBOX/service-environment-files"
+  # The pager keeps what it was given, to show the file reached it
+  printf '#!/usr/bin/env bash\ncat > %q\n' "$SANDBOX/paged" > "$SANDBOX/bin/pager"
+  chmod +x "$SANDBOX/bin/pager"
+  export PAGER="$SANDBOX/bin/pager"
   stub_cli
   stub_response_file dalmatian-deploy-list_infrastructures list-infrastructures.json
   stub_response aws-configure-list_profiles "example-account"
@@ -55,13 +57,24 @@ setup() {
   assert_stub_called_with "service list-services -i example-infra -e staging -s example-service"
 }
 
-@test "get-environment-variables downloads the file from the exact bucket and key named by the service" {
+@test "get-environment-variables streams the file from the exact bucket and key named by the service to the pager" {
   stub_response dalmatian-aws-run_command-p-example_account-s3api-head_object '{"ContentLength": 42}'
+  stub_response dalmatian-aws-run_command-p-example_account-s3-cp "EXAMPLE_VAR=1"
 
   run run_command bin/service/v2/get-environment-variables -i "example-infra" -e "staging" -s "example-service"
   assert_success
   assert_stub_called_with "s3api head-object --bucket example-bucket --key example-service.env"
-  assert_stub_called_with "s3 cp s3://example-bucket/example-service.env $TMP_SERVICE_ENV_DIR/example-infra-staging-example-service.env"
+  assert_call_args dalmatian aws run-command -p example-account s3 cp s3://example-bucket/example-service.env -
+  [ "$(cat "$SANDBOX/paged")" == "EXAMPLE_VAR=1" ]
+}
+
+@test "get-environment-variables leaves no copy of the file on disk" {
+  stub_response dalmatian-aws-run_command-p-example_account-s3api-head_object '{"ContentLength": 42}'
+  stub_response dalmatian-aws-run_command-p-example_account-s3-cp "EXAMPLE_VAR=1"
+
+  run run_command bin/service/v2/get-environment-variables -i "example-infra" -e "staging" -s "example-service"
+  assert_success
+  [ -z "$(find "$SANDBOX" -name "*.env")" ] || fail "an env file was written"
 }
 
 @test "get-environment-variables reports a missing file and exits 1 without downloading" {
