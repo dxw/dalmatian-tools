@@ -68,7 +68,6 @@ ENVIRONMENT_FILE_KEY="$(
 )"
 
 ENVIRONMENT_FILE_S3_URI="s3://$ENVIRONMENT_FILE_BUCKET/$ENVIRONMENT_FILE_KEY"
-LOCAL_ENVIRONMENT_FILE="$TMP_SERVICE_ENV_DIR/$INFRASTRUCTURE_NAME-$ENVIRONMENT-$SERVICE_NAME.env"
 
 ENVIRONMENT_FILE_META_JSON="$(
   "$APP_ROOT/bin/dalmatian" aws run-command \
@@ -79,15 +78,16 @@ ENVIRONMENT_FILE_META_JSON="$(
     2> /dev/null || true
 )"
 
-if [[ "$ENVIRONMENT_FILE_META_JSON" ]]; then
-  log_info -l "Downloading and opening '$ENVIRONMENT_FILE_S3_URI' ..." -q "$QUIET_MODE"
-
-  "$APP_ROOT/bin/dalmatian" aws run-command \
-    -p "$PROFILE" \
-    s3 cp "$ENVIRONMENT_FILE_S3_URI" "$LOCAL_ENVIRONMENT_FILE"
-else
+if [[ -z "$ENVIRONMENT_FILE_META_JSON" ]]; then
   log_info -l "Environment file '$ENVIRONMENT_FILE_S3_URI' does not exist." -q "$QUIET_MODE"
   exit 1
 fi
 
-"$PAGER" "$LOCAL_ENVIRONMENT_FILE"
+log_info -l "Opening '$ENVIRONMENT_FILE_S3_URI' ..." -q "$QUIET_MODE"
+
+# Streamed straight to the pager: the file holds the service's secrets, so a
+# copy on disk would outlive the command
+"$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  s3 cp "$ENVIRONMENT_FILE_S3_URI" - \
+  | "${PAGER:-less}"
