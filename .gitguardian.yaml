@@ -1,0 +1,8 @@
+version: 2
+
+secret:
+  # Terraform working copies cloned from other repos by
+  # `dalmatian terraform-dependencies clone`; gitignored, and scanned in
+  # their own repos
+  ignored_paths:
+    - "tmp/"
