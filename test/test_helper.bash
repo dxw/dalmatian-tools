@@ -212,6 +212,27 @@ stub_exit() {
   printf '%s\n' "$2" > "$DALMATIAN_STUB_RESPONSES/$1.exit"
 }
 
+# Make a stub write to stderr. Only consulted once a key has matched, so pair
+# it with stub_exit or stub_response
+stub_stderr() {
+  printf '%s\n' "$2" > "$DALMATIAN_STUB_RESPONSES/$1.err"
+}
+
+# Remove everything staged for a key, so a test can replace what setup staged
+unstub() {
+  rm -f "$DALMATIAN_STUB_RESPONSES/$1".{out,exit,err}
+}
+
+# Answer an RDS describe call the way AWS does for an identifier of the other
+# type, or one that does not exist: no output, the named fault, exit 254
+stub_rds_not_found() {
+  local key=$1 fault=$2
+
+  unstub "$key"
+  stub_exit "$key" 254
+  stub_stderr "$key" "An error occurred ($fault) when calling the operation: not found."
+}
+
 assert_stub_called_with() {
   if ! grep -qF -- "$1" "$DALMATIAN_STUB_LOG"
   then
