@@ -1,0 +1,410 @@
+#!/usr/bin/env bash
+
+# Print completion candidates for a dalmatian command line, one per line.
+#
+# bash-completion.sh and zsh-completion.sh call this with the index of the word
+# being completed followed by every word on the line, eg.
+#
+#   dalmatian-complete 4 dalmatian rds shell -i ''
+#
+# Only candidates starting with the word being completed are printed. Exit
+# status 2 means "complete a filename here", which the shell side does itself.
+#
+# Flags come from each command's `getopts` spec, read statically rather than by
+# running the script. What a flag's value means comes from the placeholder in
+# its usage line (`-i <infrastructure>`), not the letter: `-s` is a service,
+# a stack or a source depending on the command. Values are looked up in local
+# state only, so completion stays fast and works without an AWS session:
+#
+# - v2: the selected installation's tfvars cache
+# - v1: the compiled dalmatian.yml at DALMATIAN_CONFIG_PATH, or the clone
+#   `dalmatian-refresh-config` keeps under bin/tmp, as bin/config/v1 reads it
+#
+# Nothing is ever written to stderr: it would land in the middle of the
+# command line being edited.
+
+exec 2> /dev/null
+
+APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+CONFIG_DIR="$HOME/.config/dalmatian"
+CONFIG_INSTALLATIONS_DIR="$CONFIG_DIR/installations"
+# Read by installation_default
+# shellcheck disable=SC2034
+CONFIG_INSTALLATIONS_JSON_FILE="$CONFIG_DIR/installations.json"
+
+# shellcheck source=lib/bash-functions/installation_default.sh
+source "$APP_ROOT/lib/bash-functions/installation_default.sh"
+# shellcheck source=lib/bash-functions/installation_name_valid.sh
+source "$APP_ROOT/lib/bash-functions/installation_name_valid.sh"
+# Those files enable errexit; a lookup that finds nothing must not end the run
+set +e +o pipefail
+
+CWORD="${1-}"
+shift
+WORDS=( "$@" )
+CUR="${WORDS[CWORD]-}"
+INFRASTRUCTURE=""
+ENVIRONMENT=""
+
+VERSION="v1"
+if [ -f "$CONFIG_DIR/version.json" ]
+then
+  VERSION="$(jq -r '.version // "v1"' < "$CONFIG_DIR/version.json")"
+fi
+
+# Print each line of stdin that starts with the word being completed, once each
+emit() {
+  local candidate
+  while IFS='' read -r candidate
+  do
+    if [[ -n "$candidate" && "$candidate" == "$CUR"* ]]
+    then
+      printf '%s\n' "$candidate"
+    fi
+  done | LC_ALL=C sort -u
+}
+
+# Names of the scripts directly inside a directory
+script_names() {
+  find "$1" -mindepth 1 -maxdepth 1 \( -type f -o -type l \) -not -name '.*' -exec basename {} \;
+}
+
+subcommand_names() {
+  local dir
+
+  for dir in "$APP_ROOT"/bin/*/
+  do
+    dir="$(basename "$dir")"
+    case "$dir" in
+      configure-commands|tmp) ;;
+      *)
+        if [ -d "$APP_ROOT/bin/$dir/$VERSION" ]
+        then
+          echo "$dir"
+        fi
+        ;;
+    esac
+  done
+  script_names "$APP_ROOT/bin/configure-commands/$VERSION"
+}
+
+installation_names() {
+  if [ -d "$CONFIG_INSTALLATIONS_DIR" ]
+  then
+    find "$CONFIG_INSTALLATIONS_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;
+  fi
+}
+
+# The tfvars cache of the installation bin/dalmatian would select
+tfvars_dir() {
+  local name="${DALMATIAN_INSTALLATION:-$(installation_default)}"
+
+  if installation_name_valid "$name"
+  then
+    echo "$CONFIG_INSTALLATIONS_DIR/$name/.cache/tfvars"
+  fi
+}
+
+# Print "<infrastructure> <environment> <file>" for each infrastructure tfvars
+# file in the cache.
+#
+# Those are named 200-<account workspace>-<infrastructure>-<environment>, and
+# the account workspace and infrastructure can both contain dashes, so the
+# account workspace is matched against the 100-<account workspace> files the
+# account bootstrap keeps alongside them. The same split
+# `deploy list-infrastructures` makes of the Terraform workspaces.
+v2_infrastructures() {
+  local dir file name account rest
+  local accounts=()
+
+  dir="$(tfvars_dir)"
+  if [[ -z "$dir" || ! -d "$dir" ]]
+  then
+    return 0
+  fi
+
+  for file in "$dir"/100-*.tfvars
+  do
+    [ -f "$file" ] || continue
+    name="$(basename "$file" .tfvars)"
+    accounts+=( "${name#100-}" )
+  done
+
+  for file in "$dir"/200-*.tfvars
+  do
+    [ -f "$file" ] || continue
+    name="$(basename "$file" .tfvars)"
+    name="${name#200-}"
+    for account in "${accounts[@]}"
+    do
+      if [[ "$name" == "$account-"* ]]
+      then
+        rest="${name#"$account-"}"
+        echo "${rest%-*} ${rest##*-} $file"
+      fi
+    done
+  done
+}
+
+# The infrastructure tfvars files matching the -i and -e values on the line,
+# where given
+v2_infrastructure_files() {
+  local infrastructure environment file
+
+  while read -r infrastructure environment file
+  do
+    if [[
+      ( -z "$INFRASTRUCTURE" || "$infrastructure" == "$INFRASTRUCTURE" ) &&
+      ( -z "$ENVIRONMENT" || "$environment" == "$ENVIRONMENT" )
+    ]]
+    then
+      echo "$file"
+    fi
+  done < <(v2_infrastructures)
+}
+
+# Print the keys of a top-level map variable in tfvars files. Terraform's
+# canonical formatting puts them two spaces in, one per line, as `key = {`.
+tfvars_map_keys() {
+  local variable=$1
+  shift
+
+  [ "$#" -gt 0 ] || return 0
+  awk -v variable="$variable" '
+    $0 ~ "^" variable "[ ]*=[ ]*[{][ ]*$" { inside = 1; next }
+    inside && /^[}]/ { inside = 0 }
+    inside && /^  "?[A-Za-z0-9_-]+"?[ ]*=[ ]*[{]/ {
+      key = $1
+      gsub(/"/, "", key)
+      print key
+    }
+  ' "$@"
+}
+
+v1_config_file() {
+  echo "${DALMATIAN_CONFIG_PATH:-$APP_ROOT/bin/tmp/dalmatian-config/dalmatian.yml}"
+}
+
+# Run a yq expression against the v1 config's infrastructures, limited to the
+# one on the line when -i has been given. The name reaches yq through the
+# environment, never the expression, so it can't change what is evaluated.
+v1_query() {
+  local expression=$1 file
+
+  file="$(v1_config_file)"
+  if [[ ! -f "$file" ]] || ! command -v yq > /dev/null
+  then
+    return 0
+  fi
+
+  if [ -n "$INFRASTRUCTURE" ]
+  then
+    INFRASTRUCTURE="$INFRASTRUCTURE" yq -r ".infrastructures[strenv(INFRASTRUCTURE)] | $expression" "$file"
+  else
+    yq -r ".infrastructures[] | $expression" "$file"
+  fi
+}
+
+# What kind of value a placeholder asks for. The same placeholder means
+# different things under different subcommands: `<cluster_name>` is an
+# ElastiCache cluster under elasticache but an ECS cluster under service, and
+# the aurora commands name their cluster `<rds_name>` as well as
+# `<aurora_name>`.
+value_kind() {
+  local subcommand=$1 placeholder=$2
+
+  case "$subcommand:$placeholder" in
+    *:infrastructure|*:infrastructure_name) echo infrastructure ;;
+    *:environment) echo environment ;;
+    *:service|*:service_name) echo service ;;
+    aurora:rds_name|aurora:aurora_name) echo aurora ;;
+    *:rds_name) echo rds ;;
+    elasticache:cluster_name) echo elasticache ;;
+    *_file|*_path) echo file ;;
+  esac
+}
+
+values() {
+  local kind=$1
+
+  if [ "$VERSION" == "v2" ]
+  then
+    case "$kind" in
+      infrastructure) v2_infrastructures | cut -d' ' -f1 ;;
+      environment)
+        v2_infrastructures | while read -r infrastructure environment _
+        do
+          if [[ -z "$INFRASTRUCTURE" || "$infrastructure" == "$INFRASTRUCTURE" ]]
+          then
+            echo "$environment"
+          fi
+        done
+        ;;
+      service) v2_infrastructure_files | xargs_tfvars_map_keys infrastructure_ecs_cluster_services ;;
+      rds) v2_infrastructure_files | xargs_tfvars_map_keys infrastructure_rds ;;
+    esac
+  else
+    case "$kind" in
+      infrastructure)
+        if [[ -f "$(v1_config_file)" ]] && command -v yq > /dev/null
+        then
+          yq -r '.infrastructures | keys | .[]' "$(v1_config_file)"
+        fi
+        ;;
+      environment) v1_query '(.environments // {}) | keys | .[]' ;;
+      service) v1_query '(.services // [])[].name' ;;
+      rds) v1_query '(.rds // [])[].identifier' ;;
+      aurora) v1_query '(.aurora // [])[].identifier' ;;
+      elasticache) v1_query '(.elasticache_cluster // [])[].identifier' ;;
+    esac
+  fi
+}
+
+xargs_tfvars_map_keys() {
+  local files=()
+  local file
+
+  while read -r file
+  do
+    files+=( "$file" )
+  done
+  tfvars_map_keys "$1" "${files[@]}"
+}
+
+# Complete the options of the command script $1, whose own arguments start at
+# word $2 of the line
+complete_options() {
+  local script=$1 first=$2 subcommand=$3
+  local spec flags_with_value i word flag kind
+  local -A used=()
+  local -A placeholder=()
+  local expecting=""
+
+  spec="$(grep -m1 -o 'getopts "[^"]*"' "$script" | cut -d'"' -f2)"
+  spec="${spec#:}"
+  [ -n "$spec" ] || return 0
+
+  # Letters followed by a colon take a value
+  flags_with_value="$(grep -o '[A-Za-z]:' <<< "$spec" | tr -d ':\n')"
+
+  while read -r flag word
+  do
+    flag="${flag#-}"
+    word="${word#<}"
+    word="${word%>}"
+    if [ -z "${placeholder[$flag]-}" ]
+    then
+      placeholder[$flag]="$word"
+    fi
+  done < <(grep -o -E -- '-[A-Za-z][[:space:]]+<[^>]+>' "$script")
+
+  INFRASTRUCTURE=""
+  ENVIRONMENT=""
+  for (( i = first; i < CWORD; i++ ))
+  do
+    word="${WORDS[i]}"
+    if [ -n "$expecting" ]
+    then
+      case "$(value_kind "$subcommand" "${placeholder[$expecting]-}")" in
+        infrastructure) INFRASTRUCTURE="$word" ;;
+        environment) ENVIRONMENT="$word" ;;
+      esac
+      expecting=""
+    elif [[ "$word" =~ ^-([A-Za-z])$ ]]
+    then
+      flag="${BASH_REMATCH[1]}"
+      used[$flag]=1
+      if [[ "$flags_with_value" == *"$flag"* ]]
+      then
+        expecting="$flag"
+      fi
+    fi
+  done
+
+  if [ -n "$expecting" ]
+  then
+    kind="$(value_kind "$subcommand" "${placeholder[$expecting]-}")"
+    if [ "$kind" == "file" ]
+    then
+      exit 2
+    fi
+    if [ -n "$kind" ]
+    then
+      values "$kind" | emit
+    fi
+    return 0
+  fi
+
+  if [[ -z "$CUR" || "$CUR" == -* ]]
+  then
+    for (( i = 0; i < ${#spec}; i++ ))
+    do
+      flag="${spec:i:1}"
+      if [[ "$flag" != ":" && -z "${used[$flag]-}" ]]
+      then
+        printf -- "-%s\n" "$flag"
+      fi
+    done | emit
+  fi
+}
+
+main() {
+  local subcommand="${WORDS[1]-}" command="${WORDS[2]-}"
+
+  if [ "$CWORD" -le 1 ]
+  then
+    if [[ "$CUR" == -* ]]
+    then
+      printf '%s\n' -h -l | emit
+    else
+      subcommand_names | emit
+    fi
+    return 0
+  fi
+
+  if [[ -f "$APP_ROOT/bin/configure-commands/$VERSION/$subcommand" ]]
+  then
+    if [[ "$subcommand" == "installation" ]]
+    then
+      complete_installation
+    else
+      complete_options "$APP_ROOT/bin/configure-commands/$VERSION/$subcommand" 2 "$subcommand"
+    fi
+    return 0
+  fi
+
+  if [[ "$subcommand" == "configure-commands" || "$subcommand" == "tmp" || ! -d "$APP_ROOT/bin/$subcommand/$VERSION" ]]
+  then
+    return 0
+  fi
+
+  if [ "$CWORD" -eq 2 ]
+  then
+    script_names "$APP_ROOT/bin/$subcommand/$VERSION" | emit
+    return 0
+  fi
+
+  if [[ "$command" != */* && -f "$APP_ROOT/bin/$subcommand/$VERSION/$command" ]]
+  then
+    complete_options "$APP_ROOT/bin/$subcommand/$VERSION/$command" 3 "$subcommand"
+  fi
+}
+
+# `installation` takes a subcommand rather than options, and `remove` parses
+# -y only before the name
+complete_installation() {
+  local action="${WORDS[2]-}"
+
+  if [ "$CWORD" -eq 2 ]
+  then
+    printf '%s\n' list use remove | emit
+  elif [[ "$CWORD" -eq 3 && "$action" == "remove" && "$CUR" == -* ]]
+  then
+    printf -- "-y\n" | emit
+  elif [[ "$action" == "use" || "$action" == "remove" ]]
+  then
+    installation_names | emit
+  fi
+}
+
+main

@@ -1,0 +1,28 @@
+# The compiled dalmatian.yml shape support/dalmatian-complete reads for v1:
+# environments is a map, and services, rds, aurora and elasticache_cluster are
+# lists keyed by name or identifier. Two infrastructures, so narrowing by -i
+# can be told apart from listing everything.
+infrastructures:
+  example-infra:
+    environments:
+      staging:
+        min_servers: 1
+      prod:
+        min_servers: 2
+    services:
+      - name: web
+      - name: worker
+    rds:
+      - identifier: maindb
+    aurora:
+      - identifier: clusterdb
+    elasticache_cluster:
+      - identifier: cache
+  other-infra:
+    environments:
+      dev:
+        min_servers: 1
+    services:
+      - name: api
+    rds:
+      - identifier: otherdb
