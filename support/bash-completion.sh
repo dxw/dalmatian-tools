@@ -1,120 +1,30 @@
 #!/usr/bin/env bash
+# Candidates come from support/dalmatian-complete in whichever checkout the
+# dalmatian on PATH belongs to; see that script for what is completed.
 _dalmatian_completion() {
-  if ! command -v dalmatian > /dev/null
+  local dalmatian helper candidates candidate helper_status
+  COMPREPLY=()
+
+  dalmatian="$(command -v dalmatian)" || return 0
+  helper="$(dirname "$dalmatian")/../support/dalmatian-complete"
+  [ -x "$helper" ] || return 0
+
+  candidates="$("$helper" "$COMP_CWORD" "${COMP_WORDS[@]}")"
+  helper_status=$?
+
+  if [ "$helper_status" -eq 2 ]
   then
-    return 0
+    compopt -o filenames 2> /dev/null
+    candidates="$(compgen -f -- "${COMP_WORDS[COMP_CWORD]}")"
   fi
-  DALMATIAN_BIN_PATH=$(dirname "$(command -v dalmatian)")
-  VERSION="v1"
-  CONFIG_DIR="$HOME/.config/dalmatian"
-  CONFIG_VERSION_JSON_FILE="$CONFIG_DIR/version.json"
-  if [ -f "$CONFIG_VERSION_JSON_FILE" ]
-  then
-    VERSION=$(jq -r '.version' < "$CONFIG_VERSION_JSON_FILE")
-  fi
 
-  if [ "${#COMP_WORDS[@]}" == 2 ]
-  then
-    SUBCOMMANDS=()
-
-    DIRS=()
-    while IFS=  read -r -d $'\0'; do
-      DIRS+=("$REPLY")
-    done < <(find "$DALMATIAN_BIN_PATH" -maxdepth 1 -type d -print0)
-
-    FILES=()
-    while IFS=  read -r -d $'\0'; do
-      FILES+=("$REPLY")
-    done < <(find "$DALMATIAN_BIN_PATH/configure-commands/$VERSION" -maxdepth 1 -type f -print0)
-
-    while IFS=  read -r -d $'\0'; do
-      FILES+=("$REPLY")
-    done < <(find "$DALMATIAN_BIN_PATH/configure-commands/$VERSION" -maxdepth 1 -type l -print0)
-
-    for d in "${DIRS[@]}"
-    do
-      SUBCOMMAND="$(basename "$d")"
-      if [[
-        "$SUBCOMMAND" != "bin" &&
-        "$SUBCOMMAND" != "configure-commands" &&
-        "$SUBCOMMAND" != "tmp" &&
-        -d "$d/$VERSION"
-      ]]
-      then
-        SUBCOMMANDS+=("$SUBCOMMAND")
-      fi
-    done
-    for f in "${FILES[@]}"
-    do
-      SUBCOMMANDS+=("$(basename "$f")")
-    done
-    IFS=" " read -r -a SUBCOMMANDS <<< "$(sort <<<"${SUBCOMMANDS[*]}")"
-
-    COMPREPLY=()
-    while IFS='' read -r comp
-    do
-      COMPREPLY+=("$comp")
-    done < <(compgen -W "$(printf "'%s' " "${SUBCOMMANDS[@]}")" -- "${COMP_WORDS[COMP_CWORD]}")
-    return 0
-  elif [[ "${COMP_WORDS[1]}" == "installation" && "$VERSION" == "v2" ]]
-  then
-    COMPREPLY=()
-    if [ "${#COMP_WORDS[@]}" == 3 ]
+  while IFS='' read -r candidate
+  do
+    if [ -n "$candidate" ]
     then
-      while IFS='' read -r comp
-      do
-        COMPREPLY+=("$comp")
-      done < <(compgen -W "list use remove" -- "${COMP_WORDS[COMP_CWORD]}")
-    # -y is only parsed before the name, so only offer it there
-    elif [[ "${#COMP_WORDS[@]}" == 4 && "${COMP_WORDS[2]}" == "remove" && "${COMP_WORDS[COMP_CWORD]:0:1}" == "-" ]]
-    then
-      while IFS='' read -r comp
-      do
-        COMPREPLY+=("$comp")
-      done < <(compgen -W "-y" -- "${COMP_WORDS[COMP_CWORD]}")
-    elif [[ "${#COMP_WORDS[@]}" -ge 4 && ( "${COMP_WORDS[2]}" == "use" || "${COMP_WORDS[2]}" == "remove" ) ]]
-    then
-      INSTALLATIONS_DIR="$CONFIG_DIR/installations"
-      if [ -d "$INSTALLATIONS_DIR" ]
-      then
-        while IFS='' read -r comp
-        do
-          COMPREPLY+=("$comp")
-        done < <(compgen -W "$(find "$INSTALLATIONS_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)" -- "${COMP_WORDS[COMP_CWORD]}")
-      fi
+      COMPREPLY+=("$candidate")
     fi
-    return 0
-  elif [ "${#COMP_WORDS[@]}" == 3 ]
-  then
-    if [[
-      "$1" != "bin" &&
-      "$1" != "configure-commands" &&
-      "$1" != "tmp" &&
-      -d "$DALMATIAN_BIN_PATH/${COMP_WORDS[1]}/$VERSION"
-    ]]
-    then
-      FILES=()
-      while IFS=  read -r -d $'\0'; do
-        FILES+=("$REPLY")
-      done < <(find "$DALMATIAN_BIN_PATH/${COMP_WORDS[1]}/$VERSION" -maxdepth 1 -type f -print0)
-      while IFS=  read -r -d $'\0'; do
-        FILES+=("$REPLY")
-      done < <(find "$DALMATIAN_BIN_PATH/${COMP_WORDS[1]}/$VERSION" -maxdepth 1 -type l -print0)
-      COMMANDS=()
-
-      for f in "${FILES[@]}"
-      do
-        COMMANDS+=("$(basename "$f")")
-      done
-      IFS=" " read -r -a COMMANDS <<< "$(sort <<<"${COMMANDS[*]}")"
-
-      COMPREPLY=()
-      while IFS='' read -r comp
-      do
-        COMPREPLY+=("$comp")
-      done < <(compgen -W "$(printf "'%s' " "${COMMANDS[@]}")" -- "${COMP_WORDS[COMP_CWORD]}")
-      return 0
-    fi
-  fi
+  done <<< "$candidates"
+  return 0
 }
 complete -F _dalmatian_completion dalmatian
