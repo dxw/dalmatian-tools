@@ -1,0 +1,14 @@
+{
+  "Stacks": [
+    {
+      "StackName": "cf-ccb69c87-marklogic-cluster",
+      "StackStatus": "UPDATE_COMPLETE",
+      "Parameters": [
+        { "ParameterKey": "AdminUser", "ParameterValue": "example-marklogic-admin" },
+        { "ParameterKey": "AdminPass", "ParameterValue": "****" },
+        { "ParameterKey": "Licensee", "ParameterValue": "Example Licensee - Unrestricted" },
+        { "ParameterKey": "LicenseKey", "ParameterValue": "AAAA-BBBB-CCCC-DDDD-EEEE-3000" }
+      ]
+    }
+  ]
+}

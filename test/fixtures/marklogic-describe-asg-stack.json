@@ -1,0 +1,7 @@
+{
+  "AutoScalingGroups": [
+    { "AutoScalingGroupName": "cf-ccb69c87-marklogic-cluster-MarkLogicServerGroup1-AAAAAAAAAAAA", "MinSize": 0, "MaxSize": 1, "DesiredCapacity": 1 },
+    { "AutoScalingGroupName": "cf-ccb69c87-marklogic-cluster-MarkLogicServerGroup2-BBBBBBBBBBBB", "MinSize": 0, "MaxSize": 1, "DesiredCapacity": 1 },
+    { "AutoScalingGroupName": "cf-ccb69c87-marklogic-cluster-MarkLogicServerGroup3-CCCCCCCCCCCC", "MinSize": 0, "MaxSize": 1, "DesiredCapacity": 1 }
+  ]
+}

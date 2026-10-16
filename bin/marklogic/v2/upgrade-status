@@ -1,0 +1,294 @@
+#!/usr/bin/env bash
+
+# Report how a MarkLogic upgrade is going across a cluster: each host's
+# software version, the cluster's effective version, and whether the upgrade
+# is committed, waiting to be committed, or still part-way across the hosts.
+#
+# Exits 0 when every host is on the same version and the cluster runs as
+# that version, 1 when the upgrade is in progress or a version cannot be
+# read, and 2 when no node can be reached.
+#
+# MarkLogic gives versions either as an encoded number (11.3.7 is 11030700:
+# major x 1000000 + minor x 10000 + patch x 100) or as a dotted string. Both
+# are normalised to compare them, and the raw value is shown alongside so a
+# misreading is visible. The version fields are searched for anywhere in the
+# responses, because their documented locations come from MarkLogic 9.
+#
+# The Security database upgrade that follows a commit has no documented REST
+# status, so it is only pointed out, not checked.
+#
+# One SSM tunnel to any reachable node is enough: the Manage API on any host
+# reports on every host in the cluster.
+
+# exit on failures
+set -e
+set -o pipefail
+
+MANAGE_PORT=8002
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <stack>             - custom CloudFormation stack key, as in the tfvars 'custom_cloudformation_stacks' map"
+  echo "  -p <profile>           - aws profile name (optional, resolved from the infrastructure and environment if omitted)"
+  echo "  -u <user>              - your MarkLogic user (optional, from MARKLOGIC_USER or prompted for if omitted)"
+  echo "  -A                     - use the stack's admin user instead, in an emergency"
+  echo "  -I <instance_id>       - node to tunnel through (optional, the first reachable node if omitted)"
+  echo "The password is read from MARKLOGIC_PASSWORD, or prompted for."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+  usage
+fi
+
+INFRASTRUCTURE_NAME=""
+ENVIRONMENT=""
+STACK_KEY=""
+AWS_SSO_PROFILE=""
+USER_OPTION=""
+USE_STACK_ADMIN=""
+INSTANCE_ID=""
+
+while getopts "i:e:s:p:u:AI:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      STACK_KEY=$OPTARG
+      ;;
+    p)
+      AWS_SSO_PROFILE=$OPTARG
+      ;;
+    u)
+      USER_OPTION=$OPTARG
+      ;;
+    A)
+      USE_STACK_ADMIN=1
+      ;;
+    I)
+      INSTANCE_ID=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$STACK_KEY" ]]
+then
+  usage
+fi
+
+if ! [[ "$STACK_KEY" =~ ^[a-zA-Z0-9-]+$ ]]
+then
+  err "Stack key '$STACK_KEY' may only contain letters, digits and hyphens"
+  exit 1
+fi
+
+if [ -n "$AWS_SSO_PROFILE" ]
+then
+  PROFILE="$AWS_SSO_PROFILE"
+else
+  PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+fi
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+STACK_NAME="cf-$RESOURCE_PREFIX_HASH-$STACK_KEY"
+
+aws_cmd() {
+  "$APP_ROOT/bin/dalmatian" aws run-command -p "$PROFILE" "$@"
+}
+
+log_info -l "Finding running nodes of stack '$STACK_NAME'..." -q "$QUIET_MODE"
+NODES="$(marklogic_stack_nodes -p "$PROFILE" -n "$STACK_NAME")"
+NODE_IDS=()
+while IFS='' read -r line
+do
+  [ -n "$line" ] && NODE_IDS+=("$line")
+done < <(echo "$NODES" | jq -r '.Reservations[].Instances[].InstanceId')
+
+if [ "${#NODE_IDS[@]}" -eq 0 ]
+then
+  err "No running nodes found for stack '$STACK_NAME' in profile '$PROFILE'"
+  exit 1
+fi
+
+if [ -n "$INSTANCE_ID" ]
+then
+  if ! printf '%s\n' "${NODE_IDS[@]}" | grep -qFx -- "$INSTANCE_ID"
+  then
+    err "Instance '$INSTANCE_ID' is not a running node of stack '$STACK_NAME'"
+    exit 1
+  fi
+  NODE_IDS=("$INSTANCE_ID")
+fi
+
+# The stack is only read for its admin user, so only when that is asked for
+STACK_ADMIN_USER=""
+if [ -n "$USE_STACK_ADMIN" ]
+then
+  STACK_ADMIN_USER="$(aws_cmd cloudformation describe-stacks --stack-name "$STACK_NAME" \
+    | jq -r '(.Stacks[0].Parameters[]? | select(.ParameterKey == "AdminUser") | .ParameterValue) // empty')"
+fi
+ML_USER="$(marklogic_user -u "$USER_OPTION" -a "$STACK_ADMIN_USER" ${USE_STACK_ADMIN:+-A})"
+
+if [ -z "${MARKLOGIC_PASSWORD:-}" ]
+then
+  read -r -s -p "MarkLogic password for '$ML_USER': " MARKLOGIC_PASSWORD || true
+  echo >&2
+fi
+if [ -z "$MARKLOGIC_PASSWORD" ]
+then
+  err "No MarkLogic password given"
+  exit 1
+fi
+
+# The credentials reach curl as a config file on a process substitution:
+# never on its command line and never on disk
+CURL_CONFIG_LINE="$(marklogic_curl_config -u "$ML_USER" -p "$MARKLOGIC_PASSWORD")"
+trap marklogic_tunnel_close EXIT
+
+log_info -l "Reading the Manage API as '$ML_USER'..." -q "$QUIET_MODE"
+
+GATEWAY=""
+for NODE_ID in "${NODE_IDS[@]}"
+do
+  if marklogic_tunnel_open -p "$PROFILE" -I "$NODE_ID" -P "$MANAGE_PORT"
+  then
+    GATEWAY="$NODE_ID"
+    break
+  fi
+done
+if [ -z "$GATEWAY" ]
+then
+  err "No node of stack '$STACK_NAME' is reachable through Systems Manager"
+  exit 2
+fi
+
+# Normalise a version to MarkLogic's encoded number, or print nothing if it
+# is in neither known form
+encode_version() {
+  local V=$1
+  if [[ "$V" =~ ^[0-9]+$ ]]
+  then
+    echo "$V"
+  elif [[ "$V" =~ ^([0-9]+)\.([0-9]+)[.-]([0-9]+)(\.([0-9]+))?$ ]]
+  then
+    echo $(( BASH_REMATCH[1] * 1000000 + BASH_REMATCH[2] * 10000 + BASH_REMATCH[3] * 100 + ${BASH_REMATCH[5]:-0} ))
+  fi
+}
+
+# Show a version as dotted, with the raw value alongside when it was encoded
+show_version() {
+  local V=$1 N
+  N="$(encode_version "$V")"
+  if [ -z "$V" ]
+  then
+    echo "unknown"
+  elif [ -z "$N" ] || [ "$N" != "$V" ]
+  then
+    echo "$V"
+  else
+    echo "$(( N / 1000000 )).$(( N / 10000 % 100 )).$(( N / 100 % 100 ))$( (( N % 100 )) && echo ".$(( N % 100 ))") ($V)"
+  fi
+}
+
+# The first value of any of the given keys, anywhere in the document,
+# unwrapped from {"value": ...}
+find_value() {
+  local JSON=$1
+  shift
+  echo "$JSON" | jq -r --args '[.. | objects | to_entries[] | select(.key as $k | $ARGS.positional | index($k)) | .value
+    | if type == "object" then .value else . end | select(. != null) | tostring][0] // ""' "$@"
+}
+
+manage_get() {
+  local WHAT=$1 URL_PATH=$2 GOT
+  GOT="$(marklogic_tunnel_request -X GET -u "$URL_PATH" -K <(printf '%s\n' "$CURL_CONFIG_LINE"))"
+  if [ "${GOT##*$'\n'}" != "200" ]
+  then
+    err "Manage API returned HTTP ${GOT##*$'\n'} for $WHAT (user '$ML_USER')"
+    return 1
+  fi
+  printf '%s\n' "${GOT%$'\n'*}"
+}
+
+CLUSTER="$(manage_get "the cluster" "/manage/v2?format=json")"
+EFFECTIVE_VERSION="$(find_value "$CLUSTER" effective-version)"
+
+HOSTS="$(manage_get "the host list" "/manage/v2/hosts?format=json")"
+HOST_NAMES=()
+while IFS='' read -r line
+do
+  [ -n "$line" ] && HOST_NAMES+=("$line")
+done < <(echo "$HOSTS" | jq -r '.["host-default-list"]["list-items"]["list-item"][]?.nameref')
+
+if [ "${#HOST_NAMES[@]}" -eq 0 ]
+then
+  err "The Manage API listed no hosts"
+  exit 1
+fi
+
+UNREADABLE=0
+HOST_VERSIONS=()
+echo "HOST | INSTANCE | SOFTWARE VERSION"
+for HOST_NAME in "${HOST_NAMES[@]}"
+do
+  HOST_PATH="$(jq -rn --arg h "$HOST_NAME" '$h | @uri')"
+  STATUS="$(manage_get "the status of host '$HOST_NAME'" "/manage/v2/hosts/$HOST_PATH?view=status&format=json")"
+  VERSION="$(find_value "$STATUS" software-version version)"
+  ENCODED="$(encode_version "$VERSION")"
+  if [ -z "$ENCODED" ]
+  then
+    UNREADABLE=$(( UNREADABLE + 1 ))
+  else
+    HOST_VERSIONS+=("$ENCODED")
+  fi
+
+  # MarkLogic names hosts after the managed network interface the template
+  # gives each node, so every interface is matched, not just the primary one
+  INSTANCE_LABEL="$(echo "$NODES" | jq -r --arg h "$HOST_NAME" \
+    '[.Reservations[].Instances[]
+      | select(([.PrivateDnsName, .PrivateIpAddress] + [.NetworkInterfaces[]? | .PrivateDnsName, .PrivateIpAddress]) | index($h))
+      | .InstanceId + " (" + (((.Tags[]? | select(.Key == "Name") | .Value | select(. != "")) // "No Name")) + ")"][0] // "-"')"
+
+  echo "$HOST_NAME | $INSTANCE_LABEL | $(show_version "$VERSION")"
+done
+
+echo "Effective version: $(show_version "$EFFECTIVE_VERSION")"
+
+DISTINCT="$(printf '%s\n' "${HOST_VERSIONS[@]}" | sort -u | grep -c . || true)"
+EFFECTIVE_ENCODED="$(encode_version "$EFFECTIVE_VERSION")"
+if [[ "$UNREADABLE" -gt 0 || -z "$EFFECTIVE_ENCODED" ]]
+then
+  echo "State: unknown, a version could not be read"
+  RESULT=1
+elif [ "$DISTINCT" -gt 1 ]
+then
+  echo "State: in progress, hosts are on different versions"
+  RESULT=1
+elif [ "${HOST_VERSIONS[0]}" != "$EFFECTIVE_ENCODED" ]
+then
+  HOSTS_SHOWN="$(show_version "${HOST_VERSIONS[0]}")"
+  EFFECTIVE_SHOWN="$(show_version "$EFFECTIVE_ENCODED")"
+  echo "State: waiting to commit, every host is on ${HOSTS_SHOWN%% (*} but the cluster runs as ${EFFECTIVE_SHOWN%% (*}"
+  RESULT=1
+else
+  echo "State: committed"
+  RESULT=0
+fi
+
+log_msg -l "The Security database upgrade that follows a commit has no REST status. Log in to the Admin Interface on port 8001: it asks to upgrade the Security database if that is still needed." -q "$QUIET_MODE"
+
+exit "$RESULT"

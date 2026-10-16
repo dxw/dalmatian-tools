@@ -1,0 +1,28 @@
+{
+  "AutoScalingGroups": [
+    {
+      "AutoScalingGroupName": "cf-ccb69c87-marklogic-cluster-MarkLogicServerGroup1-AAAAAAAAAAAA",
+      "MinSize": 0,
+      "MaxSize": 1,
+      "DesiredCapacity": 1,
+      "TargetGroupARNs": [
+        "arn:aws:elasticloadbalancing:eu-west-2:123456789012:targetgroup/cf-ccb-AlbTa-8000/aaaaaaaaaaaaaaaa",
+        "arn:aws:elasticloadbalancing:eu-west-2:123456789012:targetgroup/cf-ccb-AlbTa-8001/bbbbbbbbbbbbbbbb"
+      ],
+      "Instances": [
+        {
+          "InstanceId": "i-0aaaaaaaaaaaaaaaa",
+          "AvailabilityZone": "eu-west-2a",
+          "LifecycleState": "Terminating",
+          "HealthStatus": "Healthy"
+        },
+        {
+          "InstanceId": "i-0ddddddddddddddddd",
+          "AvailabilityZone": "eu-west-2a",
+          "LifecycleState": "InService",
+          "HealthStatus": "Healthy"
+        }
+      ]
+    }
+  ]
+}

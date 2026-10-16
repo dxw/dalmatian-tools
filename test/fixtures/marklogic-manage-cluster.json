@@ -1,0 +1,8 @@
+{
+  "local-cluster-default": {
+    "id": "5555555555555555555",
+    "name": "Example-cluster",
+    "effective-version": 11030700,
+    "relations": { "relation-group": [] }
+  }
+}
