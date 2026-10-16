@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+
+# Report when the MarkLogic licence on every host of a cluster expires, and
+# how many days are left.
+#
+# Exits 0 when every host is licensed beyond the warning window, 1 when any
+# host is inside it, expired, unlicensed or has an expiry that cannot be
+# read, and 2 when no node can be reached. That makes it usable as a check
+# from cron or CI as well as by hand.
+#
+# One SSM tunnel to any reachable node is enough: the Manage API on any host
+# reports the status of every host in the cluster.
+
+# exit on failures
+set -e
+set -o pipefail
+
+MANAGE_PORT=8002
+DEFAULT_WARN_DAYS=30
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <stack>             - custom CloudFormation stack key, as in the tfvars 'custom_cloudformation_stacks' map"
+  echo "  -p <profile>           - aws profile name (optional, resolved from the infrastructure and environment if omitted)"
+  echo "  -u <user>              - your MarkLogic user (optional, from MARKLOGIC_USER or prompted for if omitted)"
+  echo "  -A                     - use the stack's admin user instead, in an emergency"
+  echo "  -I <instance_id>       - node to tunnel through (optional, the first reachable node if omitted)"
+  echo "  -w <days>              - flag licences expiring within this many days (default: $DEFAULT_WARN_DAYS)"
+  echo "The password is read from MARKLOGIC_PASSWORD, or prompted for."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+  usage
+fi
+
+INFRASTRUCTURE_NAME=""
+ENVIRONMENT=""
+STACK_KEY=""
+AWS_SSO_PROFILE=""
+USER_OPTION=""
+USE_STACK_ADMIN=""
+INSTANCE_ID=""
+WARN_DAYS="$DEFAULT_WARN_DAYS"
+
+while getopts "i:e:s:p:u:AI:w:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      STACK_KEY=$OPTARG
+      ;;
+    p)
+      AWS_SSO_PROFILE=$OPTARG
+      ;;
+    u)
+      USER_OPTION=$OPTARG
+      ;;
+    A)
+      USE_STACK_ADMIN=1
+      ;;
+    I)
+      INSTANCE_ID=$OPTARG
+      ;;
+    w)
+      WARN_DAYS=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$STACK_KEY" ]]
+then
+  usage
+fi
+
+if ! [[ "$STACK_KEY" =~ ^[a-zA-Z0-9-]+$ ]]
+then
+  err "Stack key '$STACK_KEY' may only contain letters, digits and hyphens"
+  exit 1
+fi
+
+# Validated before it reaches bash arithmetic, which would evaluate anything
+if ! [[ "$WARN_DAYS" =~ ^[0-9]+$ ]]
+then
+  err "-w must be a whole number of days"
+  exit 1
+fi
+
+if [ -n "$AWS_SSO_PROFILE" ]
+then
+  PROFILE="$AWS_SSO_PROFILE"
+else
+  PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+fi
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+STACK_NAME="cf-$RESOURCE_PREFIX_HASH-$STACK_KEY"
+
+aws_cmd() {
+  "$APP_ROOT/bin/dalmatian" aws run-command -p "$PROFILE" "$@"
+}
+
+log_info -l "Finding running nodes of stack '$STACK_NAME'..." -q "$QUIET_MODE"
+NODES="$(marklogic_stack_nodes -p "$PROFILE" -n "$STACK_NAME")"
+NODE_IDS=()
+while IFS='' read -r line
+do
+  [ -n "$line" ] && NODE_IDS+=("$line")
+done < <(echo "$NODES" | jq -r '.Reservations[].Instances[].InstanceId')
+
+if [ "${#NODE_IDS[@]}" -eq 0 ]
+then
+  err "No running nodes found for stack '$STACK_NAME' in profile '$PROFILE'"
+  exit 1
+fi
+
+if [ -n "$INSTANCE_ID" ]
+then
+  if ! printf '%s\n' "${NODE_IDS[@]}" | grep -qFx -- "$INSTANCE_ID"
+  then
+    err "Instance '$INSTANCE_ID' is not a running node of stack '$STACK_NAME'"
+    exit 1
+  fi
+  NODE_IDS=("$INSTANCE_ID")
+fi
+
+# The stack is only read for its admin user, so only when that is asked for
+STACK_ADMIN_USER=""
+if [ -n "$USE_STACK_ADMIN" ]
+then
+  STACK_ADMIN_USER="$(aws_cmd cloudformation describe-stacks --stack-name "$STACK_NAME" \
+    | jq -r '(.Stacks[0].Parameters[]? | select(.ParameterKey == "AdminUser") | .ParameterValue) // empty')"
+fi
+ML_USER="$(marklogic_user -u "$USER_OPTION" -a "$STACK_ADMIN_USER" ${USE_STACK_ADMIN:+-A})"
+
+if [ -z "${MARKLOGIC_PASSWORD:-}" ]
+then
+  read -r -s -p "MarkLogic password for '$ML_USER': " MARKLOGIC_PASSWORD || true
+  echo >&2
+fi
+if [ -z "$MARKLOGIC_PASSWORD" ]
+then
+  err "No MarkLogic password given"
+  exit 1
+fi
+
+# The credentials reach curl as a config file on a process substitution:
+# never on its command line and never on disk
+CURL_CONFIG_LINE="$(marklogic_curl_config -u "$ML_USER" -p "$MARKLOGIC_PASSWORD")"
+trap marklogic_tunnel_close EXIT
+
+log_info -l "Reading the Manage API as '$ML_USER'..." -q "$QUIET_MODE"
+
+GATEWAY=""
+for NODE_ID in "${NODE_IDS[@]}"
+do
+  if marklogic_tunnel_open -p "$PROFILE" -I "$NODE_ID" -P "$MANAGE_PORT"
+  then
+    GATEWAY="$NODE_ID"
+    break
+  fi
+done
+if [ -z "$GATEWAY" ]
+then
+  err "No node of stack '$STACK_NAME' is reachable through Systems Manager"
+  exit 2
+fi
+
+LICENCES="$(marklogic_host_licences -j "$NODES" -u "$ML_USER" -c "$CURL_CONFIG_LINE")"
+
+NOW="$(gdate -u +%s)"
+ATTENTION=0
+echo "HOST | INSTANCE | EXPIRES | DAYS LEFT | STATUS"
+# Unit separator, not tab: read collapses runs of whitespace separators, which
+# would shift the fields of an unlicensed host
+while IFS=$'\x1f' read -r HOST_NAME INSTANCE_LABEL HOST_KEY HOST_EXPIRES
+do
+  if [ -z "$HOST_KEY" ]
+  then
+    EXPIRY_DATE="-"
+    DAYS_LEFT="-"
+    STATE="unlicensed"
+  elif ! EXPIRES_AT="$(gdate -u -d "$HOST_EXPIRES" +%s 2> /dev/null)" || [ -z "$HOST_EXPIRES" ]
+  then
+    EXPIRY_DATE="${HOST_EXPIRES:--}"
+    DAYS_LEFT="-"
+    STATE="unknown"
+  else
+    EXPIRY_DATE="$(gdate -u -d "@$EXPIRES_AT" +%Y-%m-%d)"
+    REMAINING=$(( EXPIRES_AT - NOW ))
+    # Whole days, rounded down in both directions, so a licence that ran out
+    # an hour ago reads -1 rather than 0
+    if [ "$REMAINING" -ge 0 ]
+    then
+      DAYS_LEFT=$(( REMAINING / 86400 ))
+    else
+      DAYS_LEFT=$(( -((-REMAINING + 86399) / 86400) ))
+    fi
+    if [ "$REMAINING" -le 0 ]
+    then
+      STATE="expired"
+    elif [ "$DAYS_LEFT" -le "$WARN_DAYS" ]
+    then
+      STATE="expiring"
+    else
+      STATE="ok"
+    fi
+  fi
+
+  if [ "$STATE" != "ok" ]
+  then
+    ATTENTION=$(( ATTENTION + 1 ))
+  fi
+
+  echo "$HOST_NAME | $INSTANCE_LABEL | $EXPIRY_DATE | $DAYS_LEFT | $STATE"
+done < <(echo "$LICENCES" | jq -r '[.host, .instance, .key, .expires] | join("\u001f")')
+
+if [ "$ATTENTION" -gt 0 ]
+then
+  err "$ATTENTION host(s) need attention: a licence expiring within $WARN_DAYS days, expired, missing or unreadable"
+  exit 1
+fi
