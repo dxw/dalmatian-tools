@@ -67,7 +67,7 @@ match=""
 probe="$key"
 while [ -n "$probe" ]
 do
-  if [ -f "$responses/$probe.out" ] || [ -f "$responses/$probe.exit" ]
+  if [ -f "$responses/$probe.out" ] || [ -f "$responses/$probe.exit" ] || [ -f "$responses/$probe.hold" ]
   then
     match="$probe"
     break
@@ -94,6 +94,19 @@ fi
 if [ -f "$responses/$match.exit" ]
 then
   exit "$(cat "$responses/$match.exit")"
+fi
+
+# A held call stays alive until it is killed, the way a real port-forwarding
+# session does, so code that manages a background process can be tested
+# against one. An .exit file takes precedence over a hold. /bin/sleep by
+# full path, because sleep itself may be stubbed, and as a child rather than
+# via exec so this process keeps its recorded arguments and a test can find
+# it with pgrep. Bounded, so a test that forgets to close it leaks nothing
+# for long
+if [ -f "$responses/$match.hold" ]
+then
+  /bin/sleep 30
+  exit 0
 fi
 
 exit 0
