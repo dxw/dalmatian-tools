@@ -1,0 +1,12 @@
+{
+  "host-default-list": {
+    "list-items": {
+      "list-count": { "units": "quantity", "value": 3 },
+      "list-item": [
+        { "nameref": "ip-10-0-1-10.eu-west-2.compute.internal", "idref": "1111111111111111111" },
+        { "nameref": "ip-10-0-2-10.eu-west-2.compute.internal", "idref": "2222222222222222222" },
+        { "nameref": "ip-10-0-3-10.eu-west-2.compute.internal", "idref": "3333333333333333333" }
+      ]
+    }
+  }
+}
