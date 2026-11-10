@@ -1,0 +1,9 @@
+{
+  "tasks": [],
+  "failures": [
+    {
+      "arn": "arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/abc123def456",
+      "reason": "MISSING"
+    }
+  ]
+}

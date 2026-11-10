@@ -1,0 +1,12 @@
+{
+  "tasks": [
+    {
+      "taskArn": "arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/abc123def456",
+      "stoppedReason": "Essential container in task exited",
+      "containers": [
+        { "name": "aaa-sidecar", "exitCode": 0 },
+        { "name": "utilities-example-rds", "exitCode": 0 }
+      ]
+    }
+  ]
+}

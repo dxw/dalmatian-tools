@@ -12,6 +12,7 @@ usage() {
   echo "  -e <environment>                     - environment name (e.g. 'staging' or 'prod')"
   echo "  -c <command>                         - The command to run in the utilities container"
   echo "  -s                                   - Run the command on the RDS rather than the container"
+  echo "  -R <result_file>                     - Write the task outcome to this file: 'exited <n>' or 'never-ran' (Optional, not with -I)"
   echo "  -I                                   - Run an interactive shell (Optional)"
   echo "  -D <keep>_alive_delay>               - delay in seconds to check for mysql/psql/bash processes before exiting the interactive shell (default 60)"
   echo "  -M <keep_alive_maximum_lifetime>     - maximum time in seconds before the container is stopped when using interactive shell (default 600 seconds)"
@@ -26,9 +27,10 @@ fi
 
 RUN_ON_RDS=0
 INTERACTIVE=0
+RESULT_FILE=""
 KEEP_ALIVE_DELAY=60
 KEEP_ALIVE_MAX_LIFETIME=600
-while getopts "i:e:r:c:sID:M:h" opt; do
+while getopts "i:e:r:c:sIR:D:M:h" opt; do
   case $opt in
     i)
       INFRASTRUCTURE=$OPTARG
@@ -47,6 +49,9 @@ while getopts "i:e:r:c:sID:M:h" opt; do
       ;;
     I)
       INTERACTIVE=1
+      ;;
+    R)
+      RESULT_FILE=$OPTARG
       ;;
     D)
       KEEP_ALIVE_DELAY=$OPTARG
@@ -67,6 +72,7 @@ if [[
   -z "$INFRASTRUCTURE"
   || ( -z "$COMMAND" && "$INTERACTIVE" == "0" )
   || -z "$ENVIRONMENT"
+  || ( -n "$RESULT_FILE" && "$INTERACTIVE" == "1" )
 ]]
 then
   usage
@@ -304,13 +310,28 @@ TASK_ID="$(echo "$TASK_ARN" | cut -d'/' -f3)"
 
 log_info -l "Waiting for task to start running ...." -q "$QUIET_MODE"
 
+# tasks-running treats a STOPPED task as a terminal failure, and a short
+# command is often already STOPPED by its first poll. tasks-stopped and
+# describe-tasks below decide the outcome, so a failure here is not one.
 "$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
   ecs wait tasks-running \
   --cluster "$CLUSTER_NAME" \
-  --tasks "$TASK_ARN"
+  --tasks "$TASK_ARN" \
+  || true
 
 log_info -l "Tailing logs ..." -q "$QUIET_MODE"
+
+LOG_PID=""
+stop_log_tail() {
+  if [ -n "$LOG_PID" ]
+  then
+    kill "$LOG_PID" 2>/dev/null || true
+    wait "$LOG_PID" 2>/dev/null || true
+    LOG_PID=""
+  fi
+}
+trap stop_log_tail EXIT
 
 "$APP_ROOT/bin/dalmatian" aws run-command \
   -p "$PROFILE" \
@@ -326,5 +347,43 @@ LOG_PID=$!
   --cluster "$CLUSTER_NAME" \
   --tasks "$TASK_ARN"
 
+stop_log_tail
+
 log_info -l "Container stopped" -q "$QUIET_MODE"
-kill $LOG_PID
+
+TASK_RESULT="$("$APP_ROOT/bin/dalmatian" aws run-command \
+  -p "$PROFILE" \
+  ecs describe-tasks \
+  --cluster "$CLUSTER_NAME" \
+  --tasks "$TASK_ARN")"
+
+if [ "$(echo "$TASK_RESULT" | jq -r '.tasks[0] // empty | length')" == "" ]
+then
+  FAILURE_REASON="$(echo "$TASK_RESULT" | jq -r '[.failures[]?.reason] | join(", ")')"
+  err "Could not determine the outcome of task $TASK_ARN: describe-tasks returned no task. ${FAILURE_REASON:+Failure reason: $FAILURE_REASON}"
+  exit 1
+fi
+
+EXIT_CODE="$(echo "$TASK_RESULT" \
+  | jq -r --arg container_name "$CONTAINER_NAME" \
+  '.tasks[0] | [.containers[]? | select(.name == $container_name)][0].exitCode // empty')"
+
+if [ -z "$EXIT_CODE" ]
+then
+  STOPPED_REASON="$(echo "$TASK_RESULT" | jq -r '.tasks[0].stoppedReason // "unknown"')"
+  STARTED_AT="$(echo "$TASK_RESULT" | jq -r '.tasks[0].startedAt // empty')"
+  # A task that started may have run the command before it was stopped, so
+  # only a task that never started is known not to have run it.
+  if [ -n "$RESULT_FILE" ] && [ -z "$STARTED_AT" ]
+  then
+    echo "never-ran" > "$RESULT_FILE"
+  fi
+  err "The $CONTAINER_NAME container has no exit code. Task stopped reason: $STOPPED_REASON"
+  exit 1
+fi
+
+if [ -n "$RESULT_FILE" ]
+then
+  echo "exited $EXIT_CODE" > "$RESULT_FILE"
+fi
+exit "$EXIT_CODE"
