@@ -243,25 +243,22 @@ log_info -l "Changing the password of $USER_NAME on $RDS_IDENTIFIER ..." -q "$QU
 
 STATUS=0
 rds_run_task_script -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -s "$TASK_SCRIPT" -R "$RESULT_FILE" || STATUS=$?
-OUTCOME="$(cat "$RESULT_FILE")"
+OUTCOME="$(rds_task_outcome "$RESULT_FILE")"
 
-if [[ "$OUTCOME" =~ ^exited\ ([0-9]+)$ ]]
-then
-  TASK_STATUS="${BASH_REMATCH[1]}"
-elif [ "$OUTCOME" == "never-ran" ]
-then
-  TASK_STATUS=never-ran
-else
-  TASK_STATUS=unknown
-fi
+case "$OUTCOME" in
+  "exited "*)
+    TASK_STATUS="${OUTCOME#exited }"
+    ;;
+  *)
+    TASK_STATUS="$OUTCOME"
+    ;;
+esac
 
 case "$TASK_STATUS" in
   0)
     log_msg -l "The password of $USER_NAME has changed. Anything using $USER_NAME is broken until it picks up the new password from SSM Parameter Store at $PARAMETER_NAME" -q "$QUIET_MODE"
     ;;
-  # A killed container (SIGKILL, SIGTERM) may have been stopped after the
-  # ALTER USER committed
-  unknown|137|143)
+  unknown)
     report_unknown_outcome
     if [ "$STATUS" -eq 0 ]
     then
