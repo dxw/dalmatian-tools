@@ -67,7 +67,7 @@ match=""
 probe="$key"
 while [ -n "$probe" ]
 do
-  if [ -f "$responses/$probe.out" ] || [ -f "$responses/$probe.exit" ]
+  if [ -f "$responses/$probe.out" ] || [ -f "$responses/$probe.exit" ] || [ -f "$responses/$probe.stdin" ]
   then
     match="$probe"
     break
@@ -86,9 +86,23 @@ then
   exit 0
 fi
 
+# Opt-in, because reading stdin unasked would hang a stub whose caller
+# leaves it connected to something that never closes
+if [ -f "$responses/$match.stdin" ]
+then
+  cat > "$responses/$match.stdin"
+fi
+
 if [ -f "$responses/$match.out" ]
 then
   cat "$responses/$match.out"
+fi
+
+# What a failing call says on stderr, for code that tells failures apart by
+# their message, such as an AWS "not found" fault from an access error
+if [ -f "$responses/$match.err" ]
+then
+  cat "$responses/$match.err" >&2
 fi
 
 if [ -f "$responses/$match.exit" ]
