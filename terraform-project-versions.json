@@ -1,4 +1,4 @@
 {
   "terraform-dxw-dalmatian-account-bootstrap": "v0.16.0",
-  "terraform-dxw-dalmatian-infrastructure": "v0.51.0"
+  "terraform-dxw-dalmatian-infrastructure": "0.52.0"
 }
