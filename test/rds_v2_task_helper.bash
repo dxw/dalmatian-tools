@@ -24,7 +24,9 @@ task_script() {
 # parameter lookup with $1 and mysql/psql recording their arguments and stdin.
 # When $2 is given (it may be empty), a mysql/psql call made as a lookup (psql
 # -tA, mysql -N) prints it instead, and leaves the recorded arguments and stdin
-# to the later calls that do the work
+# to the later calls that do the work. TASK_LOOKUP_EXIT and TASK_CLIENT_EXIT,
+# when exported, make the lookup and the main call exit with that status after
+# doing their usual work, as a failing psql (3) or mysql (1) would
 run_task_script() {
   local password=$1
 
@@ -45,11 +47,12 @@ do
   then
     cat > /dev/null
     cat "$SANDBOX/answer"
-    exit 0
+    exit "\${TASK_LOOKUP_EXIT:-0}"
   fi
 done
 printf "%s\\n" "\$@" > "$SANDBOX/$client.args"
 cat > "$SANDBOX/$client.stdin"
+exit "\${TASK_CLIENT_EXIT:-0}"
 FAKE
   done
   chmod +x "$SANDBOX/container/"*
