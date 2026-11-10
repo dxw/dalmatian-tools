@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -d <db_name>           - name of the database to remove"
+  echo "  -y                     - do not ask for confirmation"
+  echo
+  echo "Drops the database, and on MySQL then revokes the grants on it, which outlive the drop."
+  echo "Users and their SSM parameters are left alone; remove them with remove-user."
+  echo "Postgres refuses to drop a database while connections to it are open."
+  echo "Safe to run again after a failure, whatever state the database is in."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+ASSUME_YES=0
+
+while getopts "i:e:r:d:yh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    d)
+      DB_NAME=$OPTARG
+      ;;
+    y)
+      ASSUME_YES=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE"
+  || -z "$ENVIRONMENT"
+  || -z "$RDS_NAME"
+  || -z "$DB_NAME"
+]]
+then
+  usage
+fi
+
+rds_validate_names -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -d "$DB_NAME"
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+RDS_IDENTIFIER="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -l)-$RDS_NAME"
+
+log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
+
+RDS_TARGET="$(rds_target -p "$PROFILE" -i "$RDS_IDENTIFIER")"
+RDS_ENGINE="$(echo "$RDS_TARGET" | jq -r '.engine')"
+RDS_ENDPOINT="$(echo "$RDS_TARGET" | jq -r '.endpoint')"
+
+LOWER_DB_NAME="$(echo "$DB_NAME" | tr '[:upper:]' '[:lower:]')"
+
+# The DROP runs whether or not the database was found; exit 10 alone says
+# there was nothing to drop when the check ran. psql and mysql exit with small
+# codes of their own (psql 3 when a statement fails under ON_ERROR_STOP), so
+# every client call is normalised to exit 1 on failure; no client status can
+# then be read as that verdict
+case "$RDS_ENGINE" in
+  mysql|aurora-mysql)
+    case "$LOWER_DB_NAME" in
+      mysql|sys|information_schema|performance_schema)
+        err "$DB_NAME is a system database of $RDS_IDENTIFIER and cannot be removed."
+        exit 1
+        ;;
+    esac
+    # Grants survive a DROP DATABASE, so they are revoked after it: a DROP
+    # that fails then leaves the database's users with their access to it.
+    # Grants made before create-user escaped underscores are stored
+    # unescaped, so both forms are matched; mysql.db holds the escaped form
+    # (app\_db). The generator needs -r: batch mode escapes backslashes in its
+    # output, which would turn the quoted name into `app\\_db` and make every
+    # REVOKE fail with "no such grant". REVOKE ALL leaves GRANT OPTION behind,
+    # so it is revoked for the rows that carry it
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+FOUND="$(MYSQL_PWD="$DB_PASSWORD" mysql -N -u "$DB_USER" -h @RDS_ENDPOINT@ -e "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '@DB_NAME@'")" || exit 1
+MYSQL_PWD="$DB_PASSWORD" mysql -u "$DB_USER" -h @RDS_ENDPOINT@ <<'SQL' || exit 1
+DROP DATABASE IF EXISTS `@DB_NAME@`;
+SQL
+MYSQL_PWD="$DB_PASSWORD" mysql -N -r -u "$DB_USER" -h @RDS_ENDPOINT@ <<'SQL' | MYSQL_PWD="$DB_PASSWORD" mysql -u "$DB_USER" -h @RDS_ENDPOINT@ || exit 1
+SELECT CONCAT('REVOKE ALL ON ', sys.quote_identifier(Db), '.* FROM ', QUOTE(User), '@', QUOTE(Host), ';') FROM mysql.db WHERE Db IN ('@DB_NAME@', REPLACE('@DB_NAME@', '_', '\\_'))
+UNION ALL
+SELECT CONCAT('REVOKE GRANT OPTION ON ', sys.quote_identifier(Db), '.* FROM ', QUOTE(User), '@', QUOTE(Host), ';') FROM mysql.db WHERE Db IN ('@DB_NAME@', REPLACE('@DB_NAME@', '_', '\\_')) AND Grant_priv = 'Y';
+SQL
+if [ -z "$FOUND" ]
+then
+  echo "Database @DB_NAME@ did not exist" >&2
+  exit 10
+fi
+SCRIPT
+)"
+    ;;
+  postgres|aurora-postgresql)
+    case "$LOWER_DB_NAME" in
+      postgres|template0|template1|rdsadmin)
+        err "$DB_NAME is a system database of $RDS_IDENTIFIER and cannot be removed."
+        exit 1
+        ;;
+    esac
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+FOUND="$(PGPASSWORD="$DB_PASSWORD" psql -v ON_ERROR_STOP=1 -tA -U "$DB_USER" -h @RDS_ENDPOINT@ -d postgres -v db='@DB_NAME@' <<'SQL'
+SELECT 1 FROM pg_database WHERE datname = :'db';
+SQL
+)" || exit 1
+PGPASSWORD="$DB_PASSWORD" psql -v ON_ERROR_STOP=1 -U "$DB_USER" -h @RDS_ENDPOINT@ -d postgres <<'SQL' || exit 1
+DROP DATABASE IF EXISTS "@DB_NAME@";
+SQL
+if [ -z "$FOUND" ]
+then
+  echo "Database @DB_NAME@ did not exist" >&2
+  exit 10
+fi
+SCRIPT
+)"
+    ;;
+  *)
+    err "Unrecognised engine: $RDS_ENGINE"
+    exit 1
+    ;;
+esac
+
+TASK_SCRIPT="${TASK_SCRIPT//@RDS_ENDPOINT@/$RDS_ENDPOINT}"
+TASK_SCRIPT="${TASK_SCRIPT//@DB_NAME@/$DB_NAME}"
+
+if [ "$ASSUME_YES" -eq 0 ]
+then
+  warning "Database $DB_NAME will be dropped from $RDS_IDENTIFIER ($INFRASTRUCTURE $ENVIRONMENT), with everything in it."
+  warning "Anything using $DB_NAME stops working. This cannot be undone."
+  if ! yes_no "Drop $DB_NAME from $RDS_IDENTIFIER? (y/N)" "n"
+  then
+    log_msg -l "Nothing was changed" -q "$QUIET_MODE"
+    exit 0
+  fi
+fi
+
+RESULT_FILE="$(mktemp)"
+trap 'rm -f "$RESULT_FILE"' EXIT
+
+# A handler, unlike an ignored signal, is reset for child processes, so Ctrl-C
+# still stops the task in progress and its outcome is reported as unknown
+# below instead of killing this script silently
+trap ':' INT
+
+log_info -l "Dropping $DB_NAME from $RDS_IDENTIFIER ..." -q "$QUIET_MODE"
+
+STATUS=0
+rds_run_task_script -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -s "$TASK_SCRIPT" -R "$RESULT_FILE" || STATUS=$?
+OUTCOME="$(rds_task_outcome "$RESULT_FILE")"
+
+case "$OUTCOME" in
+  "exited "*)
+    TASK_STATUS="${OUTCOME#exited }"
+    ;;
+  *)
+    TASK_STATUS="$OUTCOME"
+    ;;
+esac
+
+case "$TASK_STATUS" in
+  0)
+    log_msg -l "Dropped $DB_NAME from $RDS_IDENTIFIER" -q "$QUIET_MODE"
+    ;;
+  10)
+    log_msg -l "$DB_NAME did not exist on $RDS_IDENTIFIER" -q "$QUIET_MODE"
+    ;;
+  unknown)
+    err "Could not tell whether $DB_NAME was dropped from $RDS_IDENTIFIER; it may or may not have been."
+    err "Running remove-database again is safe."
+    if [ "$STATUS" -eq 0 ]
+    then
+      STATUS=1
+    fi
+    exit "$STATUS"
+    ;;
+  *)
+    NEVER_RAN=0
+    if [ "$TASK_STATUS" == "never-ran" ]
+    then
+      NEVER_RAN=1
+      TASK_STATUS=1
+    fi
+    case "$RDS_ENGINE" in
+      postgres|aurora-postgresql)
+        err "$DB_NAME was not dropped from $RDS_IDENTIFIER."
+        err "Postgres refuses to drop a database while connections to it are open; stop the services using $DB_NAME and try again."
+        ;;
+      *)
+        if [ "$NEVER_RAN" -eq 1 ]
+        then
+          err "$DB_NAME was not dropped from $RDS_IDENTIFIER."
+        else
+          err "$DB_NAME may not have been dropped from $RDS_IDENTIFIER, or its grants may not all have been revoked."
+          err "Running remove-database again is safe."
+        fi
+        ;;
+    esac
+    if [ "$NEVER_RAN" -eq 0 ]
+    then
+      err "These commands need terraform-dxw-dalmatian-infrastructure v0.51.0 or later."
+    fi
+    exit "$TASK_STATUS"
+    ;;
+esac
+
+log_msg -l "Users of $DB_NAME are not removed; remove each with remove-user" -q "$QUIET_MODE"
