@@ -1,0 +1,12 @@
+{
+  "tasks": [
+    {
+      "taskArn": "arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/abc123def456",
+      "stoppedReason": "CannotPullContainerError: image not found",
+      "containers": [
+        { "name": "aaa-sidecar", "exitCode": 0 },
+        { "name": "utilities-example-rds", "reason": "CannotPullContainerError: image not found" }
+      ]
+    }
+  ]
+}
