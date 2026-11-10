@@ -67,27 +67,15 @@ setup() {
   stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_instances v2-rds-describe-db-instances.json
   stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_subnet_groups v2-rds-describe-db-subnet-groups.json
 
-  # The exit status is deliberately not asserted, because it is a race.
-  #
-  # The stubbed `logs tail --follow &` background job exits almost instantly
-  # (the stub has no real "follow" behaviour), so the script's final
-  # `kill $LOG_PID` may find the process already gone -- in which case kill
-  # returns non-zero and errexit fails the whole script even though every AWS
-  # call above it succeeded -- or may still win, in which case the script exits
-  # 0. Which way it falls depends on whether the shell has reaped the job yet,
-  # so asserting either outcome makes the test flaky. That unguarded kill is
-  # filed as part of #523; the same thing would happen for real if `aws logs
-  # tail` exited early (expired credentials, a reset connection, a very
-  # short-lived task).
-  #
-  # What is deterministic is everything up to the kill, which is what the
-  # assertions below cover.
+  stub_response_file dalmatian-aws-run_command-p-example_account-ecs-describe_tasks v2-ecs-describe-tasks-exited-0.json
+
   run run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "echo hi"
+  assert_success
   assert_stub_called_with "rds describe-db-instances --db-instance-identifier ccb69c87-example-rds"
   assert_stub_called_with "ecs run-task --cluster example-project-example-infra-staging-infrastructure-utilities --launch-type FARGATE --task-definition example-project-example-infra-staging-infrastructure-utilities-example-rds"
 
   # The `logs tail` call is deliberately not asserted. The script backgrounds
-  # it with `&` (line 315-321), so whether the stub has written its line to the
+  # it with `&`, so whether the stub has written its line to the
   # call log by the time this test reads the log is a second race, separate
   # from the kill one. Asserting it failed roughly one run in twenty.
 }
@@ -105,9 +93,8 @@ setup() {
   stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_clusters v2-rds-describe-db-clusters-aurora-mysql.json
   stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_subnet_groups v2-rds-describe-db-subnet-groups.json
 
-  # As in the "finds the DB instance" test above, the exit status is a race on
-  # the final `kill $LOG_PID` and so is not asserted. The wrapping is what
-  # this test is for, and that is deterministic.
+  stub_response_file dalmatian-aws-run_command-p-example_account-ecs-describe_tasks v2-ecs-describe-tasks-exited-0.json
+
   run run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "SELECT 1;" -s
   assert_stub_called_with "MYSQL_PWD=\$DB_PASSWORD mysql -u \$DB_USER -h \$DB_HOST"
 }
@@ -125,11 +112,6 @@ setup() {
 
   run --separate-stderr run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "SELECT 1;" -s
 
-  # Matched without a trailing space on purpose. The message really is
-  # "Unrecognised engine: " with nothing after the colon, but whether that
-  # trailing space survives into $stderr depends on whether another line
-  # follows it -- and what follows is the kill race described above. Asserting
-  # the space made this test fail roughly a third of the time.
   assert_stderr_contains "Unrecognised engine:"
 
   # The point of the test: $ENGINE is unset, so the real engine name must not
@@ -160,4 +142,82 @@ setup() {
   assert_stub_called_with "rds describe-db-instances --db-instance-identifier ccb69c87-example-rds"
   assert_stub_called_with "ecs run-task --cluster example-project-example-infra-staging-infrastructure-utilities --launch-type FARGATE --task-definition example-project-example-infra-staging-infrastructure-utilities-example-rds"
 
+}
+
+run_rc_setup() {
+  stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_instances v2-rds-describe-db-instances.json
+  stub_response_file dalmatian-aws-run_command-p-example_account-rds-describe_db_subnet_groups v2-rds-describe-db-subnet-groups.json
+  stub_response_file dalmatian-aws-run_command-p-example_account-ecs-describe_tasks "v2-ecs-describe-tasks-$1.json"
+}
+
+@test "run-command exits with the utilities container's exit code" {
+  run_rc_setup exited-3
+  run run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "false"
+  assert_failure 3
+}
+
+@test "run-command exits 0 when the container exits 0" {
+  run_rc_setup exited-0
+  run run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "true"
+  assert_success
+}
+
+@test "run-command writes the outcome to the -R file" {
+  run_rc_setup exited-3
+  run run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "false" -R "$SANDBOX/result"
+  assert_failure 3
+  [ "$(cat "$SANDBOX/result")" = "exited 3" ] || fail "result file was: $(cat "$SANDBOX/result")"
+}
+
+@test "run-command writes never-ran and the stopped reason when the container has no exit code" {
+  run_rc_setup never-ran
+  run --separate-stderr run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "true" -R "$SANDBOX/result"
+  assert_failure 1
+  [ "$(cat "$SANDBOX/result")" = "never-ran" ] || fail "result file was: $(cat "$SANDBOX/result")"
+  assert_stderr_contains "CannotPullContainerError: image not found"
+}
+
+@test "run-command leaves -R empty and fails when the task started but the container has no exit code" {
+  run_rc_setup started-no-exit-code
+  : > "$SANDBOX/result"
+  run --separate-stderr run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "true" -R "$SANDBOX/result"
+  assert_failure 1
+  [ ! -s "$SANDBOX/result" ] || fail "result file was: $(cat "$SANDBOX/result")"
+  assert_stderr_contains "Task stopped by user"
+}
+
+# A task that finishes within one 6 s poll is already STOPPED when
+# tasks-running first looks, which that waiter treats as a terminal failure.
+@test "run-command still reports the exit code when the tasks-running wait fails" {
+  run_rc_setup exited-3
+  stub_exit dalmatian-aws-run_command-p-example_account-ecs-wait-tasks_running 255
+  run run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "false" -R "$SANDBOX/result"
+  assert_failure 3
+  [ "$(cat "$SANDBOX/result")" = "exited 3" ] || fail "result file was: $(cat "$SANDBOX/result")"
+  assert_stub_called_with "ecs wait tasks-stopped"
+}
+
+@test "run-command leaves the -R file empty when the wait fails" {
+  run_rc_setup exited-0
+  stub_exit dalmatian-aws-run_command-p-example_account-ecs-wait-tasks_stopped 255
+  : > "$SANDBOX/result"
+  run run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "true" -R "$SANDBOX/result"
+  assert_failure
+  [ ! -s "$SANDBOX/result" ] || fail "result file was: $(cat "$SANDBOX/result")"
+}
+
+@test "run-command leaves the -R file empty when describe-tasks returns no task" {
+  run_rc_setup no-task
+  : > "$SANDBOX/result"
+  run --separate-stderr run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -r "example-rds" -c "true" -R "$SANDBOX/result"
+  assert_failure 1
+  [ ! -s "$SANDBOX/result" ] || fail "result file was: $(cat "$SANDBOX/result")"
+  assert_stderr_contains "Could not determine the outcome"
+  assert_stderr_contains "MISSING"
+}
+
+@test "run-command refuses -R with -I" {
+  run --separate-stderr run_command bin/utilities/v2/run-command -i "example-infra" -e "staging" -I -R "$SANDBOX/result"
+  assert_failure 1
+  assert_stderr_contains "Usage: run-command"
 }

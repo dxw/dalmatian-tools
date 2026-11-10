@@ -1,0 +1,13 @@
+{
+  "tasks": [
+    {
+      "taskArn": "arn:aws:ecs:eu-west-2:123456789012:task/example-cluster/abc123def456",
+      "startedAt": "2026-11-10T12:00:00+00:00",
+      "stoppedReason": "Task stopped by user",
+      "containers": [
+        { "name": "aaa-sidecar", "exitCode": 0 },
+        { "name": "utilities-example-rds", "lastStatus": "STOPPED" }
+      ]
+    }
+  ]
+}
