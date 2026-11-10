@@ -116,7 +116,7 @@ use_v1_config() {
 @test "commands are those of the subcommand under the active version" {
   complete_line dalmatian rds ""
   assert_success
-  assert_candidates "count-sql-backups create-database create-user download-sql-backup get-root-password run-command shell"
+  assert_candidates "count-sql-backups create-database create-user download-sql-backup get-root-password run-command shell update-user"
 }
 
 @test "commands are filtered by the word being completed" {

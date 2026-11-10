@@ -9,9 +9,10 @@ fake_password() {
   printf 'fake%s%s' "$1" "$BATS_TEST_NUMBER"
 }
 
-# The command handed to `utilities run-command -c`
+# The command handed to `utilities run-command -c`, without the -R that
+# follows it when the caller asks for the task's outcome
 task_command() {
-  sed -n 's/^dalmatian utilities run-command -i [^ ]* -e [^ ]* -r [^ ]* -c //p' "$DALMATIAN_STUB_LOG"
+  sed -n 's/^dalmatian utilities run-command -i [^ ]* -e [^ ]* -r [^ ]* -c //p' "$DALMATIAN_STUB_LOG" | sed 's/ -R [^ ]*$//'
 }
 
 # The script it runs with bash -c in the container, decoded

@@ -445,6 +445,40 @@ stub_cli() {
   export DALMATIAN_TEST_APP_ROOT="$SANDBOX/cli"
 }
 
+# After stub_cli, make `dalmatian utilities run-command ... -R <file>` report
+# a task outcome by writing $1 into <file>, or leave <file> untouched when $1
+# is empty, as run-command does when it cannot tell what happened.
+#
+# The CLI stub becomes a wrapper that writes the line and then execs a symlink
+# to _dispatch. _dispatch names itself after its own filename, so that symlink
+# is also called dalmatian, and every call is still logged and answered under
+# that name.
+stub_task_outcome() {
+  mkdir -p "$SANDBOX/cli/dispatch"
+  ln -sfn "$DALMATIAN_ROOT/test/stubs/_dispatch" "$SANDBOX/cli/dispatch/dalmatian"
+  # bin/dalmatian is a symlink to _dispatch: writing through it would
+  # overwrite _dispatch itself
+  rm -f "$SANDBOX/cli/bin/dalmatian"
+  cat > "$SANDBOX/cli/bin/dalmatian" <<WRAPPER
+#!/usr/bin/env bash
+line=$(printf '%q' "$1")
+if [ "\${1-} \${2-}" == "utilities run-command" ] && [ -n "\$line" ]
+then
+  previous=""
+  for arg in "\$@"
+  do
+    if [ "\$previous" == "-R" ]
+    then
+      printf '%s\\n' "\$line" > "\$arg"
+    fi
+    previous="\$arg"
+  done
+fi
+exec $(printf '%q' "$SANDBOX/cli/dispatch/dalmatian") "\$@"
+WRAPPER
+  chmod +x "$SANDBOX/cli/bin/dalmatian"
+}
+
 # Assert a stub was called with EXACTLY this argument vector.
 #
 # Takes the stub name then each argument as a separate parameter, and compares
