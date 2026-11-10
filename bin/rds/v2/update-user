@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -u <user_name>         - name of the user whose password to change"
+  echo "  -p                     - read the new password (hidden prompt, or stdin when piped,"
+  echo "                           which needs -y) instead of generating one"
+  echo "  -y                     - do not ask for confirmation"
+  echo
+  echo "Gives the user a new password in the database and in SSM Parameter Store at"
+  echo "/<infrastructure>/<environment>/rds/<rds_name>/<user_name>/password"
+  echo "Anything using the user is broken until it picks up the new password."
+  echo "A user with no stored password, such as one made by hand, is taken over."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+READ_PASSWORD=0
+ASSUME_YES=0
+
+while getopts "i:e:r:u:pyh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    u)
+      USER_NAME=$OPTARG
+      ;;
+    p)
+      READ_PASSWORD=1
+      ;;
+    y)
+      ASSUME_YES=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE"
+  || -z "$ENVIRONMENT"
+  || -z "$RDS_NAME"
+  || -z "$USER_NAME"
+]]
+then
+  usage
+fi
+
+rds_validate_names -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -u "$USER_NAME"
+
+# The confirmation reads stdin too, so it would take a piped password as its
+# answer
+if [ "$READ_PASSWORD" -eq 1 ] && [ "$ASSUME_YES" -eq 0 ] && [ ! -t 0 ]
+then
+  err "-p reading the password from a pipe needs -y"
+  exit 1
+fi
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+RDS_IDENTIFIER="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -l)-$RDS_NAME"
+# The path `dalmatian aws put-secret` stores under, and the one the utilities
+# task role is allowed to read
+SECRET_NAME="rds/$RDS_NAME/$USER_NAME/password"
+PARAMETER_NAME="/$INFRASTRUCTURE/$ENVIRONMENT/$SECRET_NAME"
+
+STORED_VERSION="$(ssm_parameter_version -p "$PROFILE" -n "$PARAMETER_NAME")"
+
+log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
+
+RDS_TARGET="$(rds_target -p "$PROFILE" -i "$RDS_IDENTIFIER")"
+RDS_ENGINE="$(echo "$RDS_TARGET" | jq -r '.engine')"
+RDS_ROOT_USERNAME="$(echo "$RDS_TARGET" | jq -r '.root_username')"
+RDS_ENDPOINT="$(echo "$RDS_TARGET" | jq -r '.endpoint')"
+REGION="$(echo "$RDS_TARGET" | jq -r '.region')"
+
+# RDS keeps the root password itself; changing it here would leave that copy
+# wrong
+if [ "$USER_NAME" == "$RDS_ROOT_USERNAME" ]
+then
+  err "$USER_NAME is the root user of $RDS_IDENTIFIER, whose password RDS manages; see get-root-password."
+  exit 1
+fi
+
+# The container fetches the password itself with its task role, so it never
+# appears in the RunTask request. It exits 4 before changing anything when the
+# user does not exist
+case "$RDS_ENGINE" in
+  mysql|aurora-mysql)
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+FOUND="$(MYSQL_PWD="$DB_PASSWORD" mysql -N -u "$DB_USER" -h @RDS_ENDPOINT@ -e "SELECT User FROM mysql.user WHERE User = '@USER_NAME@' AND Host = '%'")"
+if [ -z "$FOUND" ]
+then
+  echo "User @USER_NAME@ does not exist" >&2
+  exit 4
+fi
+PASSWORD="$(aws ssm get-parameter --region @REGION@ --name @PARAMETER_NAME@ --with-decryption --query Parameter.Value --output text)"
+PASSWORD="${PASSWORD//\\/\\\\}"
+PASSWORD="${PASSWORD//\'/\'\'}"
+MYSQL_PWD="$DB_PASSWORD" mysql -u "$DB_USER" -h @RDS_ENDPOINT@ <<SQL
+ALTER USER '@USER_NAME@'@'%' IDENTIFIED BY '$PASSWORD';
+SQL
+SCRIPT
+)"
+    ;;
+  postgres|aurora-postgresql)
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+FOUND="$(PGPASSWORD="$DB_PASSWORD" psql -v ON_ERROR_STOP=1 -tA -U "$DB_USER" -h @RDS_ENDPOINT@ -d postgres -v user='@USER_NAME@' <<'SQL'
+SELECT 1 FROM pg_roles WHERE rolname = :'user';
+SQL
+)"
+if [ -z "$FOUND" ]
+then
+  echo "User @USER_NAME@ does not exist" >&2
+  exit 4
+fi
+PASSWORD="$(aws ssm get-parameter --region @REGION@ --name @PARAMETER_NAME@ --with-decryption --query Parameter.Value --output text)"
+PGPASSWORD="$DB_PASSWORD" psql -v ON_ERROR_STOP=1 -v password="$PASSWORD" -U "$DB_USER" -h @RDS_ENDPOINT@ -d postgres <<'SQL'
+ALTER USER "@USER_NAME@" WITH PASSWORD :'password';
+SQL
+SCRIPT
+)"
+    ;;
+  *)
+    err "Unrecognised engine: $RDS_ENGINE"
+    exit 1
+    ;;
+esac
+
+TASK_SCRIPT="${TASK_SCRIPT//@REGION@/$REGION}"
+TASK_SCRIPT="${TASK_SCRIPT//@PARAMETER_NAME@/$PARAMETER_NAME}"
+TASK_SCRIPT="${TASK_SCRIPT//@RDS_ENDPOINT@/$RDS_ENDPOINT}"
+TASK_SCRIPT="${TASK_SCRIPT//@USER_NAME@/$USER_NAME}"
+
+if [ "$ASSUME_YES" -eq 0 ]
+then
+  # read -p shows its prompt only on a terminal, so what the change does is
+  # said separately, where it is seen however the command is run
+  if [ -z "$STORED_VERSION" ]
+  then
+    warning "$USER_NAME has no stored password and will be taken over: its database password is replaced and stored in $PARAMETER_NAME."
+  fi
+  warning "Changing the password breaks anything using $USER_NAME until it picks up the new password."
+  if ! yes_no "Change the password of $USER_NAME on $RDS_IDENTIFIER? (y/N)" "n"
+  then
+    log_msg -l "Nothing was changed" -q "$QUIET_MODE"
+    exit 0
+  fi
+fi
+
+if [ -z "$STORED_VERSION" ] && [ "$ASSUME_YES" -eq 1 ]
+then
+  log_info -l "$USER_NAME has no stored password and is being taken over" -q "$QUIET_MODE"
+fi
+
+if [ "$READ_PASSWORD" -eq 1 ]
+then
+  NEW_PASSWORD="$(rds_password -p)"
+else
+  log_info -l "Generating a password for $USER_NAME ..." -q "$QUIET_MODE"
+  NEW_PASSWORD="$(rds_password)"
+fi
+
+# Put the parameter back as it was before this run. The previous value is
+# held only in a variable and piped to put-secret. Called as a condition, so
+# errexit is off and each step checks its own failure
+restore_parameter() {
+  local PREVIOUS_PASSWORD
+  if [ -z "$STORED_VERSION" ]
+  then
+    "$APP_ROOT/bin/dalmatian" aws run-command -p "$PROFILE" ssm delete-parameter --name "$PARAMETER_NAME" > /dev/null
+    return
+  fi
+  PREVIOUS_PASSWORD="$("$APP_ROOT/bin/dalmatian" aws run-command \
+    -p "$PROFILE" \
+    ssm get-parameter \
+    --name "$PARAMETER_NAME:$STORED_VERSION" \
+    --with-decryption \
+    --query Parameter.Value \
+    --output text)" || return 1
+  printf '%s' "$PREVIOUS_PASSWORD" | "$APP_ROOT/bin/dalmatian" aws put-secret \
+    -i "$INFRASTRUCTURE" \
+    -e "$ENVIRONMENT" \
+    -n "$SECRET_NAME" \
+    > /dev/null
+}
+
+report_unknown_outcome() {
+  err "Could not tell whether the database password of $USER_NAME was changed."
+  err "$PARAMETER_NAME holds the new password, but the database may still have the old password."
+  err "Run update-user again to set both to a fresh password."
+}
+
+RESULT_FILE="$(mktemp)"
+trap 'rm -f "$RESULT_FILE"' EXIT
+
+# From the SSM write until SSM and the database agree or the mismatch has been
+# reported, Ctrl-C must not kill this script silently. A handler, unlike an
+# ignored signal, is reset for child processes, so Ctrl-C still stops the AWS
+# call or task in progress, and its failure is reported below
+trap ':' INT
+
+log_info -l "Storing the new password in $PARAMETER_NAME ..." -q "$QUIET_MODE"
+# put-secret can fail after put-parameter has succeeded, so the write's
+# outcome is unknown and there is nothing safe to restore
+if ! printf '%s' "$NEW_PASSWORD" | "$APP_ROOT/bin/dalmatian" aws put-secret \
+  -i "$INFRASTRUCTURE" \
+  -e "$ENVIRONMENT" \
+  -n "$SECRET_NAME" \
+  > /dev/null
+then
+  err "Storing the new password failed. The database was not changed, but $PARAMETER_NAME"
+  err "may already hold a new password $USER_NAME does not have. Run update-user again to set both."
+  exit 1
+fi
+
+log_info -l "Changing the password of $USER_NAME on $RDS_IDENTIFIER ..." -q "$QUIET_MODE"
+
+STATUS=0
+rds_run_task_script -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -s "$TASK_SCRIPT" -R "$RESULT_FILE" || STATUS=$?
+OUTCOME="$(cat "$RESULT_FILE")"
+
+if [[ "$OUTCOME" =~ ^exited\ ([0-9]+)$ ]]
+then
+  TASK_STATUS="${BASH_REMATCH[1]}"
+elif [ "$OUTCOME" == "never-ran" ]
+then
+  TASK_STATUS=never-ran
+else
+  TASK_STATUS=unknown
+fi
+
+case "$TASK_STATUS" in
+  0)
+    log_msg -l "The password of $USER_NAME has changed. Anything using $USER_NAME is broken until it picks up the new password from SSM Parameter Store at $PARAMETER_NAME" -q "$QUIET_MODE"
+    ;;
+  # A killed container (SIGKILL, SIGTERM) may have been stopped after the
+  # ALTER USER committed
+  unknown|137|143)
+    report_unknown_outcome
+    if [ "$STATUS" -eq 0 ]
+    then
+      STATUS=1
+    fi
+    exit "$STATUS"
+    ;;
+  *)
+    NEVER_RAN=0
+    if [ "$TASK_STATUS" == "never-ran" ]
+    then
+      NEVER_RAN=1
+      TASK_STATUS=1
+    fi
+    if [ "$TASK_STATUS" == "4" ]
+    then
+      if ! restore_parameter
+      then
+        err "User $USER_NAME does not exist on $RDS_IDENTIFIER, so nothing was changed, but $PARAMETER_NAME"
+        err "could not be restored and holds the password this run stored for it."
+      elif [ -z "$STORED_VERSION" ]
+      then
+        err "User $USER_NAME does not exist on $RDS_IDENTIFIER, so nothing was changed and the password this"
+        err "run stored in $PARAMETER_NAME has been deleted."
+      else
+        err "User $USER_NAME does not exist on $RDS_IDENTIFIER, so nothing was changed and $PARAMETER_NAME"
+        err "has been put back to its previous version."
+      fi
+      err "Create the user with create-user or create-database."
+      exit "$TASK_STATUS"
+    fi
+    if ! restore_parameter
+    then
+      err "The database was not changed, but could not restore $PARAMETER_NAME, which now"
+      err "holds a password $USER_NAME does not have. Run update-user again to set both."
+    elif [ -z "$STORED_VERSION" ]
+    then
+      err "The database was not changed, so the password this run stored in $PARAMETER_NAME"
+      err "has been deleted and $USER_NAME keeps the password it had."
+    else
+      err "The database was not changed, so $PARAMETER_NAME has been restored to the password $USER_NAME still has."
+    fi
+    if [ "$NEVER_RAN" -eq 0 ]
+    then
+      err "These commands need terraform-dxw-dalmatian-infrastructure v0.51.0 or later; on older"
+      err "infrastructure the utilities task role cannot read the password parameter."
+    fi
+    exit "$TASK_STATUS"
+    ;;
+esac
