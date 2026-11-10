@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -d <db_name>           - name of an existing database to give the user access to"
+  echo "  -u <user_name>         - name of user to create"
+  echo "  -p                     - read the user's password (hidden prompt, or stdin when piped)"
+  echo "                           instead of generating one"
+  echo "  -f                     - rerun after a failure: reuse the stored password and skip"
+  echo "                           whatever already exists. Cannot be used with -p"
+  echo
+  echo "The user is given access to the database: all privileges on it in MySQL, and the"
+  echo "role of the database's owner in Postgres."
+  echo "The user's password is kept in SSM Parameter Store at"
+  echo "/<infrastructure>/<environment>/rds/<rds_name>/<user_name>/password"
+  echo "If a password is already stored, nothing is changed unless -f is given; use"
+  echo "update-user to change an existing user's password."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+READ_PASSWORD=0
+FORCE=0
+
+while getopts "i:e:r:d:u:pfh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    d)
+      DB_NAME=$OPTARG
+      ;;
+    u)
+      USER_NAME=$OPTARG
+      ;;
+    p)
+      READ_PASSWORD=1
+      ;;
+    f)
+      FORCE=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE"
+  || -z "$ENVIRONMENT"
+  || -z "$RDS_NAME"
+  || -z "$DB_NAME"
+  || -z "$USER_NAME"
+  || ( "$READ_PASSWORD" -eq 1 && "$FORCE" -eq 1 )
+]]
+then
+  usage
+fi
+
+rds_validate_names -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -d "$DB_NAME" -u "$USER_NAME"
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+RDS_IDENTIFIER="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -l)-$RDS_NAME"
+# The path `dalmatian aws put-secret` stores under, and the one the utilities
+# task role is allowed to read
+SECRET_NAME="rds/$RDS_NAME/$USER_NAME/password"
+PARAMETER_NAME="/$INFRASTRUCTURE/$ENVIRONMENT/$SECRET_NAME"
+
+STORED_VERSION="$(ssm_parameter_version -p "$PROFILE" -n "$PARAMETER_NAME")"
+if [ -n "$STORED_VERSION" ] && [ "$FORCE" -eq 0 ]
+then
+  err "A password for $USER_NAME is already stored in $PARAMETER_NAME, so nothing was changed."
+  err "Use update-user to change the password of an existing user, or rerun with -f to"
+  err "retry a failed create-user with the stored password."
+  exit 1
+fi
+
+log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
+
+RDS_TARGET="$(rds_target -p "$PROFILE" -i "$RDS_IDENTIFIER")"
+RDS_ENGINE="$(echo "$RDS_TARGET" | jq -r '.engine')"
+RDS_ROOT_USERNAME="$(echo "$RDS_TARGET" | jq -r '.root_username')"
+RDS_ENDPOINT="$(echo "$RDS_TARGET" | jq -r '.endpoint')"
+REGION="$(echo "$RDS_TARGET" | jq -r '.region')"
+
+# The container fetches the password itself with its task role, so it never
+# appears in the RunTask request
+case "$RDS_ENGINE" in
+  mysql|aurora-mysql)
+    if [ "${#USER_NAME}" -gt 32 ]
+    then
+      err "MySQL user names must be at most 32 characters"
+      exit 1
+    fi
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+FOUND="$(MYSQL_PWD="$DB_PASSWORD" mysql -N -u "$DB_USER" -h @RDS_ENDPOINT@ -e "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '@DB_NAME@'")"
+if [ -z "$FOUND" ]
+then
+  echo "Database @DB_NAME@ does not exist" >&2
+  exit 4
+fi
+PASSWORD="$(aws ssm get-parameter --region @REGION@ --name @PARAMETER_NAME@ --with-decryption --query Parameter.Value --output text)"
+PASSWORD="${PASSWORD//\\/\\\\}"
+PASSWORD="${PASSWORD//\'/\'\'}"
+MYSQL_PWD="$DB_PASSWORD" mysql -u "$DB_USER" -h @RDS_ENDPOINT@ <<SQL
+CREATE USER @IF_NOT_EXISTS@'@USER_NAME@'@'%' IDENTIFIED BY '$PASSWORD';
+GRANT ALL ON \`@DB_NAME_PATTERN@\`.* TO '@USER_NAME@'@'%';
+SQL
+SCRIPT
+)"
+    ;;
+  postgres|aurora-postgresql)
+    if [ "$FORCE" -eq 1 ]
+    then
+      # psql does not interpolate :'password' inside a quoted string, so the
+      # guarded statement is built by a SELECT and run with \gexec. Granting
+      # a role it already holds only raises a notice
+      CREATE_USER_SQL="SELECT 'CREATE USER \"@USER_NAME@\" WITH PASSWORD ' || quote_literal(:'password') WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '@USER_NAME@')\\gexec"
+    else
+      CREATE_USER_SQL="CREATE USER \"@USER_NAME@\" WITH PASSWORD :'password';"
+    fi
+    # The new user takes the owner's role, so an owner that holds any role or
+    # attribute beyond a plain login would hand those on: a CREATEROLE owner,
+    # for one, lets the user grant itself rds_superuser. Owners made by
+    # create-database are members of nothing
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+LOOKUP="$(PGPASSWORD="$DB_PASSWORD" psql -v ON_ERROR_STOP=1 -tA -U "$DB_USER" -h @RDS_ENDPOINT@ -d postgres -v db='@DB_NAME@' -v root="$DB_USER" <<'SQL'
+SELECT r.rolname, (r.rolname = :'root' OR r.rolsuper OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls OR EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = r.oid)) FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba WHERE d.datname = :'db';
+SQL
+)"
+if [ -z "$LOOKUP" ]
+then
+  echo "Database @DB_NAME@ does not exist" >&2
+  exit 4
+fi
+OWNER="${LOOKUP%|*}"
+if [ "${LOOKUP##*|}" != "f" ]
+then
+  echo "Database @DB_NAME@ is owned by $OWNER, a privileged role; create-user only adds users to databases created by create-database" >&2
+  exit 5
+fi
+PASSWORD="$(aws ssm get-parameter --region @REGION@ --name @PARAMETER_NAME@ --with-decryption --query Parameter.Value --output text)"
+PGPASSWORD="$DB_PASSWORD" psql -v ON_ERROR_STOP=1 -v password="$PASSWORD" -v owner="$OWNER" -U "$DB_USER" -h @RDS_ENDPOINT@ -d postgres <<'SQL'
+@CREATE_USER_SQL@
+GRANT :"owner" TO "@USER_NAME@";
+GRANT "@USER_NAME@" TO "@RDS_ROOT_USERNAME@";
+ALTER ROLE "@USER_NAME@" IN DATABASE "@DB_NAME@" SET role = :'owner';
+SQL
+SCRIPT
+)"
+    TASK_SCRIPT="${TASK_SCRIPT//@CREATE_USER_SQL@/$CREATE_USER_SQL}"
+    ;;
+  *)
+    err "Unrecognised engine: $RDS_ENGINE"
+    exit 1
+    ;;
+esac
+
+if [ "$FORCE" -eq 1 ]
+then
+  TASK_SCRIPT="${TASK_SCRIPT//@IF_NOT_EXISTS@/IF NOT EXISTS }"
+else
+  TASK_SCRIPT="${TASK_SCRIPT//@IF_NOT_EXISTS@/}"
+fi
+TASK_SCRIPT="${TASK_SCRIPT//@REGION@/$REGION}"
+TASK_SCRIPT="${TASK_SCRIPT//@PARAMETER_NAME@/$PARAMETER_NAME}"
+TASK_SCRIPT="${TASK_SCRIPT//@RDS_ENDPOINT@/$RDS_ENDPOINT}"
+TASK_SCRIPT="${TASK_SCRIPT//@RDS_ROOT_USERNAME@/$RDS_ROOT_USERNAME}"
+# MySQL reads _ in a database-level grant as a wildcard, so app_db would also
+# match appXdb; escaped, it names only this database
+TASK_SCRIPT="${TASK_SCRIPT//@DB_NAME_PATTERN@/${DB_NAME//_/\\_}}"
+TASK_SCRIPT="${TASK_SCRIPT//@DB_NAME@/$DB_NAME}"
+TASK_SCRIPT="${TASK_SCRIPT//@USER_NAME@/$USER_NAME}"
+
+WROTE_PARAMETER=0
+if [ "$FORCE" -eq 1 ] && [ -n "$STORED_VERSION" ]
+then
+  log_info -l "Using the password already stored in $PARAMETER_NAME" -q "$QUIET_MODE"
+else
+  WROTE_PARAMETER=1
+  if [ "$READ_PASSWORD" -eq 1 ]
+  then
+    rds_store_user_password -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -u "$USER_NAME" -n "$SECRET_NAME" -p
+  else
+    rds_store_user_password -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -u "$USER_NAME" -n "$SECRET_NAME"
+  fi
+fi
+
+log_info -l "Adding user $USER_NAME to database $DB_NAME on $RDS_IDENTIFIER ..." -q "$QUIET_MODE"
+
+STATUS=0
+rds_run_task_script -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -s "$TASK_SCRIPT" || STATUS=$?
+if [ "$STATUS" -eq 4 ] || [ "$STATUS" -eq 5 ]
+then
+  # The task refused before changing anything, so a password this run stored
+  # belongs to nobody
+  if [ "$WROTE_PARAMETER" -eq 1 ]
+  then
+    "$APP_ROOT/bin/dalmatian" aws run-command -p "$PROFILE" ssm delete-parameter --name "$PARAMETER_NAME" > /dev/null \
+      || err "Could not delete the password this run stored in $PARAMETER_NAME; delete it by hand."
+  fi
+  if [ "$STATUS" -eq 4 ]
+  then
+    err "Database $DB_NAME does not exist on $RDS_IDENTIFIER. Create it with create-database first."
+  else
+    err "Database $DB_NAME is owned by a privileged role, so $USER_NAME was not added."
+    err "create-user only adds users to databases created by create-database."
+  fi
+  exit "$STATUS"
+fi
+if [ "$STATUS" -ne 0 ]
+then
+  err "Adding $USER_NAME to $DB_NAME may have been left half done. The password is stored in"
+  err "$PARAMETER_NAME; rerun with -f to retry with it, skipping whatever already exists."
+  err "These commands need terraform-dxw-dalmatian-infrastructure v0.51.0 or later; on older"
+  err "infrastructure the utilities task role cannot read the password parameter."
+  exit "$STATUS"
+fi
+
+log_msg -l "The password for $USER_NAME is in SSM Parameter Store at $PARAMETER_NAME" -q "$QUIET_MODE"
+if [ "$FORCE" -eq 1 ]
+then
+  log_msg -l "If $USER_NAME already existed, its database password was left as it was; run update-user to bring it in line with $PARAMETER_NAME" -q "$QUIET_MODE"
+fi

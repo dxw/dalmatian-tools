@@ -20,18 +20,38 @@ task_script() {
 }
 
 # Run the decoded script as the container would, with aws answering the
-# parameter lookup with $1 and mysql/psql recording their arguments and stdin
+# parameter lookup with $1 and mysql/psql recording their arguments and stdin.
+# When $2 is given (it may be empty), a mysql/psql call made as a lookup (psql
+# -tA, mysql -N) prints it instead, and leaves the recorded arguments and stdin
+# to the later calls that do the work
 run_task_script() {
   local password=$1
 
   mkdir -p "$SANDBOX/container"
   printf '#!/usr/bin/env bash\nprintf "%%s" %q\n' "$password" > "$SANDBOX/container/aws"
+  rm -f "$SANDBOX/answer"
+  if [ $# -ge 2 ]
+  then
+    printf '%s' "$2" > "$SANDBOX/answer"
+  fi
   for client in mysql psql
   do
-    printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > %q\ncat > %q\n' \
-      "$SANDBOX/$client.args" "$SANDBOX/$client.stdin" > "$SANDBOX/container/$client"
+    cat > "$SANDBOX/container/$client" <<FAKE
+#!/usr/bin/env bash
+for arg in "\$@"
+do
+  if [ -e "$SANDBOX/answer" ] && { [ "\$arg" == "-tA" ] || [ "\$arg" == "-N" ]; }
+  then
+    cat > /dev/null
+    cat "$SANDBOX/answer"
+    exit 0
+  fi
+done
+printf "%s\\n" "\$@" > "$SANDBOX/$client.args"
+cat > "$SANDBOX/$client.stdin"
+FAKE
   done
   chmod +x "$SANDBOX/container/"*
   task_script > "$SANDBOX/task-script"
-  DB_USER=root DB_PASSWORD="$(fake_password root)" PATH="$SANDBOX/container:$PATH" bash "$SANDBOX/task-script"
+  DB_USER=root DB_PASSWORD="$(fake_password root)" PATH="$SANDBOX/container:$PATH" bash "$SANDBOX/task-script" < /dev/null
 }
