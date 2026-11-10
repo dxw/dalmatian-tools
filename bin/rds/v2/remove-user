@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config)"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -u <user_name>         - name of the user to remove"
+  echo "  -y                     - do not ask for confirmation"
+  echo
+  echo "Drops the user from the database, then deletes its password from SSM Parameter Store at"
+  echo "/<infrastructure>/<environment>/rds/<rds_name>/<user_name>/password"
+  echo "Safe to run again after a failure, whatever state the user and parameter are in."
+  echo "A user that owns a database cannot be dropped on Postgres; remove the database first."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+ASSUME_YES=0
+
+while getopts "i:e:r:u:yh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    u)
+      USER_NAME=$OPTARG
+      ;;
+    y)
+      ASSUME_YES=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE"
+  || -z "$ENVIRONMENT"
+  || -z "$RDS_NAME"
+  || -z "$USER_NAME"
+]]
+then
+  usage
+fi
+
+rds_validate_names -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -u "$USER_NAME"
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+RDS_IDENTIFIER="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -l)-$RDS_NAME"
+PARAMETER_NAME="/$INFRASTRUCTURE/$ENVIRONMENT/rds/$RDS_NAME/$USER_NAME/password"
+
+log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
+
+RDS_TARGET="$(rds_target -p "$PROFILE" -i "$RDS_IDENTIFIER")"
+RDS_ENGINE="$(echo "$RDS_TARGET" | jq -r '.engine')"
+RDS_ROOT_USERNAME="$(echo "$RDS_TARGET" | jq -r '.root_username')"
+RDS_ENDPOINT="$(echo "$RDS_TARGET" | jq -r '.endpoint')"
+
+if [ "$USER_NAME" == "$RDS_ROOT_USERNAME" ]
+then
+  err "$USER_NAME is the root user of $RDS_IDENTIFIER and cannot be removed."
+  exit 1
+fi
+
+# The DROP runs whether or not the user was found, so a user created between
+# the check and the DROP is still removed. Exit 10 alone says there was
+# nothing to drop when the check ran. psql and mysql exit with small codes of
+# their own (psql 3 when a statement fails under ON_ERROR_STOP), so every
+# client call is normalised to exit 1 on failure; no client status can then
+# be read as that verdict
+case "$RDS_ENGINE" in
+  mysql|aurora-mysql)
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+FOUND="$(MYSQL_PWD="$DB_PASSWORD" mysql -N -u "$DB_USER" -h @RDS_ENDPOINT@ -e "SELECT User FROM mysql.user WHERE User = '@USER_NAME@' AND Host = '%'")" || exit 1
+MYSQL_PWD="$DB_PASSWORD" mysql -u "$DB_USER" -h @RDS_ENDPOINT@ <<'SQL' || exit 1
+DROP USER IF EXISTS '@USER_NAME@'@'%';
+SQL
+if [ -z "$FOUND" ]
+then
+  echo "User @USER_NAME@ did not exist" >&2
+  exit 10
+fi
+SCRIPT
+)"
+    ;;
+  postgres|aurora-postgresql)
+    TASK_SCRIPT="$(cat <<'SCRIPT'
+set -eo pipefail
+FOUND="$(PGPASSWORD="$DB_PASSWORD" psql -v ON_ERROR_STOP=1 -tA -U "$DB_USER" -h @RDS_ENDPOINT@ -d postgres -v user='@USER_NAME@' <<'SQL'
+SELECT 1 FROM pg_roles WHERE rolname = :'user';
+SQL
+)" || exit 1
+PGPASSWORD="$DB_PASSWORD" psql -v ON_ERROR_STOP=1 -U "$DB_USER" -h @RDS_ENDPOINT@ -d postgres <<'SQL' || exit 1
+DROP USER IF EXISTS "@USER_NAME@";
+SQL
+if [ -z "$FOUND" ]
+then
+  echo "User @USER_NAME@ did not exist" >&2
+  exit 10
+fi
+SCRIPT
+)"
+    ;;
+  *)
+    err "Unrecognised engine: $RDS_ENGINE"
+    exit 1
+    ;;
+esac
+
+TASK_SCRIPT="${TASK_SCRIPT//@RDS_ENDPOINT@/$RDS_ENDPOINT}"
+TASK_SCRIPT="${TASK_SCRIPT//@USER_NAME@/$USER_NAME}"
+
+if [ "$ASSUME_YES" -eq 0 ]
+then
+  warning "$USER_NAME will be dropped from $RDS_IDENTIFIER ($INFRASTRUCTURE $ENVIRONMENT) and its password deleted from $PARAMETER_NAME."
+  warning "Anything using $USER_NAME stops working."
+  if ! yes_no "Remove $USER_NAME from $RDS_IDENTIFIER? (y/N)" "n"
+  then
+    log_msg -l "Nothing was changed" -q "$QUIET_MODE"
+    exit 0
+  fi
+fi
+
+RESULT_FILE="$(mktemp)"
+trap 'rm -f "$RESULT_FILE"' EXIT
+
+# A handler, unlike an ignored signal, is reset for child processes, so Ctrl-C
+# still stops the task in progress and its outcome is reported as unknown
+# below instead of killing this script silently
+trap ':' INT
+
+log_info -l "Dropping $USER_NAME from $RDS_IDENTIFIER ..." -q "$QUIET_MODE"
+
+STATUS=0
+rds_run_task_script -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -s "$TASK_SCRIPT" -R "$RESULT_FILE" || STATUS=$?
+OUTCOME="$(rds_task_outcome "$RESULT_FILE")"
+
+case "$OUTCOME" in
+  "exited "*)
+    TASK_STATUS="${OUTCOME#exited }"
+    ;;
+  *)
+    TASK_STATUS="$OUTCOME"
+    ;;
+esac
+
+case "$TASK_STATUS" in
+  0)
+    log_msg -l "Dropped $USER_NAME from $RDS_IDENTIFIER" -q "$QUIET_MODE"
+    ;;
+  10)
+    log_msg -l "$USER_NAME did not exist on $RDS_IDENTIFIER" -q "$QUIET_MODE"
+    ;;
+  unknown)
+    err "Could not tell whether $USER_NAME was dropped from $RDS_IDENTIFIER; it may or may not have been."
+    err "$PARAMETER_NAME has been kept. Running remove-user again is safe."
+    if [ "$STATUS" -eq 0 ]
+    then
+      STATUS=1
+    fi
+    exit "$STATUS"
+    ;;
+  *)
+    NEVER_RAN=0
+    if [ "$TASK_STATUS" == "never-ran" ]
+    then
+      NEVER_RAN=1
+      TASK_STATUS=1
+    fi
+    err "$USER_NAME was not dropped from $RDS_IDENTIFIER, so $PARAMETER_NAME has been kept."
+    case "$RDS_ENGINE" in
+      postgres|aurora-postgresql)
+        err "A user that owns a database cannot be dropped; remove the database with remove-database first."
+        ;;
+    esac
+    if [ "$NEVER_RAN" -eq 0 ]
+    then
+      err "These commands need terraform-dxw-dalmatian-infrastructure v0.51.0 or later."
+    fi
+    exit "$TASK_STATUS"
+    ;;
+esac
+
+log_info -l "Deleting $PARAMETER_NAME ..." -q "$QUIET_MODE"
+if DELETE_ERROR="$("$APP_ROOT/bin/dalmatian" aws run-command -p "$PROFILE" ssm delete-parameter --name "$PARAMETER_NAME" 2>&1 >/dev/null)"
+then
+  log_msg -l "Deleted $PARAMETER_NAME" -q "$QUIET_MODE"
+elif [[ "$DELETE_ERROR" == *ParameterNotFound* ]]
+then
+  log_msg -l "$PARAMETER_NAME was already absent" -q "$QUIET_MODE"
+else
+  err "$USER_NAME was dropped from $RDS_IDENTIFIER, but deleting $PARAMETER_NAME failed, so it remains:"
+  err "$DELETE_ERROR"
+  err "Run remove-user again to delete it."
+  exit 1
+fi
