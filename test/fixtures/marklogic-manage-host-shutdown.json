@@ -1,0 +1,6 @@
+{
+  "restart": {
+    "last-startup": [ { "value": "2026-10-12T09:00:00Z", "host-id": "1111111111111111111" } ],
+    "message": "Shutdown of host ip-10-0-1-10.eu-west-2.compute.internal (1111111111111111111) initiated."
+  }
+}

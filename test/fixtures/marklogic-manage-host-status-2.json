@@ -1,0 +1,30 @@
+{
+  "host-status": {
+    "id": "2222222222222222222",
+    "name": "ip-10-0-2-10.eu-west-2.compute.internal",
+    "status-properties": {
+      "online": {
+        "units": "bool",
+        "value": true
+      },
+      "status-detail": {
+        "license-key": "AAAA-BBBB-CCCC-DDDD-EEEE-3000",
+        "licensee": "Example Licensee - Unrestricted",
+        "license-key-expires": {
+          "units": "datetime",
+          "value": "2027-06-30T00:00:00Z"
+        },
+        "license-key-cores": {
+          "units": "quantity",
+          "value": "8"
+        },
+        "license-key-option": [
+          {
+            "units": "enum",
+            "value": "failover"
+          }
+        ]
+      }
+    }
+  }
+}

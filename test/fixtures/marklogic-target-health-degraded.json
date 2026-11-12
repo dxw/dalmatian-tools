@@ -1,0 +1,7 @@
+{
+  "TargetHealthDescriptions": [
+    { "Target": { "Id": "i-0aaaaaaaaaaaaaaaa", "Port": 8000 }, "TargetHealth": { "State": "healthy" } },
+    { "Target": { "Id": "i-0bbbbbbbbbbbbbbbb", "Port": 8000 }, "TargetHealth": { "State": "unhealthy", "Reason": "Target.FailedHealthChecks" } },
+    { "Target": { "Id": "i-0ccccccccccccccccc", "Port": 8000 }, "TargetHealth": { "State": "healthy" } }
+  ]
+}

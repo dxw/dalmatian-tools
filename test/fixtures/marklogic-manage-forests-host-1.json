@@ -1,0 +1,11 @@
+{
+  "forest-default-list": {
+    "list-items": {
+      "list-count": { "units": "quantity", "value": 2 },
+      "list-item": [
+        { "nameref": "Documents-1", "idref": "1001" },
+        { "nameref": "Documents-2-replica", "idref": "1002" }
+      ]
+    }
+  }
+}

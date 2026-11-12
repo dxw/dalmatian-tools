@@ -1,0 +1,9 @@
+{
+  "forest-status": {
+    "id": "1002",
+    "name": "Documents-2-replica",
+    "status-properties": {
+      "state": { "units": "enum", "value": "sync replicating" }
+    }
+  }
+}

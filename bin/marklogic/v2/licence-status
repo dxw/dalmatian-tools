@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+
+# Report the MarkLogic licence on every host of a cluster and compare it with
+# the CloudFormation stack's Licensee and LicenseKey parameters.
+#
+# A licence is per host, and a replacement node comes up without one even
+# though the stack carries a key, so the comparison is what shows which
+# hosts still need `set-licence` after a rotation.
+#
+# One SSM tunnel to any reachable node is enough: the Manage API on any host
+# reports the status of every host in the cluster.
+
+# exit on failures
+set -e
+set -o pipefail
+
+MANAGE_PORT=8002
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <stack>             - custom CloudFormation stack key, as in the tfvars 'custom_cloudformation_stacks' map"
+  echo "  -p <profile>           - aws profile name (optional, resolved from the infrastructure and environment if omitted)"
+  echo "  -u <user>              - your MarkLogic user (optional, from MARKLOGIC_USER or prompted for if omitted)"
+  echo "  -A                     - use the stack's admin user instead, in an emergency"
+  echo "  -I <instance_id>       - node to tunnel through (optional, the first reachable node if omitted)"
+  echo "  -k                     - show full licence keys rather than the last group only"
+  echo "The password is read from MARKLOGIC_PASSWORD, or prompted for."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+  usage
+fi
+
+INFRASTRUCTURE_NAME=""
+ENVIRONMENT=""
+STACK_KEY=""
+AWS_SSO_PROFILE=""
+USER_OPTION=""
+USE_STACK_ADMIN=""
+INSTANCE_ID=""
+SHOW_KEYS=""
+
+while getopts "i:e:s:p:u:AI:kh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      STACK_KEY=$OPTARG
+      ;;
+    p)
+      AWS_SSO_PROFILE=$OPTARG
+      ;;
+    u)
+      USER_OPTION=$OPTARG
+      ;;
+    A)
+      USE_STACK_ADMIN=1
+      ;;
+    I)
+      INSTANCE_ID=$OPTARG
+      ;;
+    k)
+      SHOW_KEYS=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$STACK_KEY" ]]
+then
+  usage
+fi
+
+if ! [[ "$STACK_KEY" =~ ^[a-zA-Z0-9-]+$ ]]
+then
+  err "Stack key '$STACK_KEY' may only contain letters, digits and hyphens"
+  exit 1
+fi
+
+if [ -n "$AWS_SSO_PROFILE" ]
+then
+  PROFILE="$AWS_SSO_PROFILE"
+else
+  PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+fi
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+STACK_NAME="cf-$RESOURCE_PREFIX_HASH-$STACK_KEY"
+
+aws_cmd() {
+  "$APP_ROOT/bin/dalmatian" aws run-command -p "$PROFILE" "$@"
+}
+
+# Keys are shown by their last group only unless -k, and anything that does
+# not look like a key is not shown at all
+mask_key() {
+  if [ -z "$1" ]
+  then
+    echo "(none)"
+  elif [ -n "$SHOW_KEYS" ]
+  then
+    echo "$1"
+  elif [[ "$1" =~ ^([A-Za-z0-9]{4}-)+[A-Za-z0-9]{4}$ ]]
+  then
+    echo "****-${1##*-}"
+  else
+    echo "****"
+  fi
+}
+
+log_info -l "Finding running nodes of stack '$STACK_NAME'..." -q "$QUIET_MODE"
+NODES="$(marklogic_stack_nodes -p "$PROFILE" -n "$STACK_NAME")"
+NODE_IDS=()
+while IFS='' read -r line
+do
+  [ -n "$line" ] && NODE_IDS+=("$line")
+done < <(echo "$NODES" | jq -r '.Reservations[].Instances[].InstanceId')
+
+if [ "${#NODE_IDS[@]}" -eq 0 ]
+then
+  err "No running nodes found for stack '$STACK_NAME' in profile '$PROFILE'"
+  exit 1
+fi
+
+if [ -n "$INSTANCE_ID" ]
+then
+  if ! printf '%s\n' "${NODE_IDS[@]}" | grep -qFx -- "$INSTANCE_ID"
+  then
+    err "Instance '$INSTANCE_ID' is not a running node of stack '$STACK_NAME'"
+    exit 1
+  fi
+  NODE_IDS=("$INSTANCE_ID")
+fi
+
+STACK="$(aws_cmd cloudformation describe-stacks --stack-name "$STACK_NAME")"
+stack_parameter() {
+  echo "$STACK" | jq -r --arg k "$1" '(.Stacks[0].Parameters[]? | select(.ParameterKey == $k) | .ParameterValue) // empty'
+}
+STACK_ADMIN_USER="$(stack_parameter AdminUser)"
+STACK_LICENSEE="$(stack_parameter Licensee)"
+STACK_LICENSE_KEY="$(stack_parameter LicenseKey)"
+
+ML_USER="$(marklogic_user -u "$USER_OPTION" -a "$STACK_ADMIN_USER" ${USE_STACK_ADMIN:+-A})"
+
+if [ -z "${MARKLOGIC_PASSWORD:-}" ]
+then
+  read -r -s -p "MarkLogic password for '$ML_USER': " MARKLOGIC_PASSWORD || true
+  echo >&2
+fi
+if [ -z "$MARKLOGIC_PASSWORD" ]
+then
+  err "No MarkLogic password given"
+  exit 1
+fi
+
+# The credentials reach curl as a config file on a process substitution:
+# never on its command line and never on disk
+CURL_CONFIG_LINE="$(marklogic_curl_config -u "$ML_USER" -p "$MARKLOGIC_PASSWORD")"
+trap marklogic_tunnel_close EXIT
+
+log_info -l "Reading the Manage API as '$ML_USER'..." -q "$QUIET_MODE"
+
+GATEWAY=""
+for NODE_ID in "${NODE_IDS[@]}"
+do
+  if marklogic_tunnel_open -p "$PROFILE" -I "$NODE_ID" -P "$MANAGE_PORT"
+  then
+    GATEWAY="$NODE_ID"
+    break
+  fi
+done
+if [ -z "$GATEWAY" ]
+then
+  err "No node of stack '$STACK_NAME' is reachable through Systems Manager"
+  exit 2
+fi
+
+LICENCES="$(marklogic_host_licences -j "$NODES" -u "$ML_USER" -c "$CURL_CONFIG_LINE")"
+
+MISMATCHES=0
+echo "HOST | INSTANCE | LICENSEE | KEY | EXPIRES | STACK"
+# Unit separator, not tab: read collapses runs of whitespace separators, which
+# would shift the fields of an unlicensed host
+while IFS=$'\x1f' read -r HOST_NAME INSTANCE_LABEL HOST_LICENSEE HOST_KEY HOST_EXPIRES
+do
+  if [ -z "$STACK_LICENSE_KEY" ]
+  then
+    VERDICT="stack has no LicenseKey parameter"
+  elif [[ "$HOST_KEY" == "$STACK_LICENSE_KEY" && "$HOST_LICENSEE" == "$STACK_LICENSEE" ]]
+  then
+    VERDICT="matches stack"
+  elif [ "$HOST_KEY" != "$STACK_LICENSE_KEY" ]
+  then
+    VERDICT="MISMATCH: stack has $(mask_key "$STACK_LICENSE_KEY")"
+    MISMATCHES=$(( MISMATCHES + 1 ))
+  else
+    VERDICT="MISMATCH: stack licensee is '$STACK_LICENSEE'"
+    MISMATCHES=$(( MISMATCHES + 1 ))
+  fi
+
+  echo "$HOST_NAME | $INSTANCE_LABEL | ${HOST_LICENSEE:-(none)} | $(mask_key "$HOST_KEY") | $HOST_EXPIRES | $VERDICT"
+done < <(echo "$LICENCES" | jq -r '[.host, .instance, .licensee, .key, .expires] | join("\u001f")')
+
+if [ "$MISMATCHES" -gt 0 ]
+then
+  err "$MISMATCHES host(s) do not match the stack's licence. Run \`dalmatian marklogic set-licence -S\` to apply the stack's key to them"
+  exit 1
+fi

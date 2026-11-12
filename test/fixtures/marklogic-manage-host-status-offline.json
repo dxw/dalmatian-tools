@@ -1,0 +1,9 @@
+{
+  "host-status": {
+    "id": "1111111111111111111",
+    "name": "ip-10-0-1-10.eu-west-2.compute.internal",
+    "status-properties": {
+      "online": { "units": "bool", "value": false }
+    }
+  }
+}

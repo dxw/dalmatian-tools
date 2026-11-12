@@ -1,0 +1,10 @@
+{
+  "Volumes": [
+    {
+      "VolumeId": "vol-0aaaaaaaaaaaaaaaa",
+      "State": "available",
+      "AvailabilityZone": "eu-west-2a",
+      "Attachments": []
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "Volumes": [
+    {
+      "VolumeId": "vol-0aaaaaaaaaaaaaaaa",
+      "State": "in-use",
+      "AvailabilityZone": "eu-west-2a",
+      "Attachments": [
+        { "InstanceId": "i-0aaaaaaaaaaaaaaaa", "Device": "/dev/sdf", "State": "attached" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "forest-status": {
+    "id": "1001",
+    "name": "Documents-1",
+    "status-properties": {
+      "state": { "units": "enum", "value": "open" },
+      "replica-forests": { "replica-forest": [ { "value": "9001" } ] }
+    }
+  }
+}

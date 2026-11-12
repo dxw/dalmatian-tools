@@ -1,0 +1,158 @@
+{
+  "Reservations": [
+    {
+      "Instances": [
+        {
+          "InstanceId": "i-0aaaaaaaaaaaaaaaa",
+          "ImageId": "ami-0old0000000000000",
+          "LaunchTime": "2026-07-09T15:43:13+00:00",
+          "Placement": {
+            "AvailabilityZone": "eu-west-2a"
+          },
+          "BlockDeviceMappings": [
+            {
+              "DeviceName": "/dev/xvda",
+              "Ebs": {
+                "VolumeId": "vol-0roota00000000000",
+                "DeleteOnTermination": true
+              }
+            },
+            {
+              "DeviceName": "/dev/sdf",
+              "Ebs": {
+                "VolumeId": "vol-0aaaaaaaaaaaaaaaa",
+                "DeleteOnTermination": false
+              }
+            }
+          ],
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "marklogic-1"
+            },
+            {
+              "Key": "marklogic:stack:name",
+              "Value": "cf-ccb69c87-marklogic-cluster"
+            },
+            {
+              "Key": "aws:autoscaling:groupName",
+              "Value": "cf-ccb69c87-marklogic-cluster-MarkLogicServerGroup1-AAAAAAAAAAAA"
+            },
+            {
+              "Key": "aws:cloudformation:logical-id",
+              "Value": "MarkLogicServerGroup1"
+            }
+          ],
+          "PrivateDnsName": "ip-10-0-1-200.eu-west-2.compute.internal",
+          "PrivateIpAddress": "10.0.1.200",
+          "NetworkInterfaces": [
+            {
+              "NetworkInterfaceId": "eni-0primary000000000",
+              "PrivateDnsName": "ip-10-0-1-200.eu-west-2.compute.internal",
+              "PrivateIpAddress": "10.0.1.200",
+              "Attachment": {
+                "DeviceIndex": 0
+              }
+            },
+            {
+              "NetworkInterfaceId": "eni-0managed000000000",
+              "PrivateDnsName": "ip-10-0-1-10.eu-west-2.compute.internal",
+              "PrivateIpAddress": "10.0.1.10",
+              "Attachment": {
+                "DeviceIndex": 1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "Instances": [
+        {
+          "InstanceId": "i-0bbbbbbbbbbbbbbbb",
+          "ImageId": "ami-0old0000000000000",
+          "LaunchTime": "2026-07-09T16:19:10+00:00",
+          "Placement": {
+            "AvailabilityZone": "eu-west-2b"
+          },
+          "BlockDeviceMappings": [
+            {
+              "DeviceName": "/dev/xvda",
+              "Ebs": {
+                "VolumeId": "vol-0rootb00000000000",
+                "DeleteOnTermination": true
+              }
+            },
+            {
+              "DeviceName": "/dev/sdf",
+              "Ebs": {
+                "VolumeId": "vol-0bbbbbbbbbbbbbbbb",
+                "DeleteOnTermination": false
+              }
+            }
+          ],
+          "Tags": [
+            {
+              "Key": "marklogic:stack:name",
+              "Value": "cf-ccb69c87-marklogic-cluster"
+            },
+            {
+              "Key": "aws:autoscaling:groupName",
+              "Value": "cf-ccb69c87-marklogic-cluster-MarkLogicServerGroup2-BBBBBBBBBBBB"
+            },
+            {
+              "Key": "aws:cloudformation:logical-id",
+              "Value": "MarkLogicServerGroup2"
+            }
+          ],
+          "PrivateDnsName": "ip-10-0-2-10.eu-west-2.compute.internal",
+          "PrivateIpAddress": "10.0.2.10"
+        },
+        {
+          "InstanceId": "i-0ccccccccccccccccc",
+          "ImageId": "ami-0old0000000000000",
+          "LaunchTime": "2026-07-09T16:30:32+00:00",
+          "Placement": {
+            "AvailabilityZone": "eu-west-2c"
+          },
+          "BlockDeviceMappings": [
+            {
+              "DeviceName": "/dev/xvda",
+              "Ebs": {
+                "VolumeId": "vol-0rootc00000000000",
+                "DeleteOnTermination": true
+              }
+            },
+            {
+              "DeviceName": "/dev/sdf",
+              "Ebs": {
+                "VolumeId": "vol-0ccccccccccccccccc",
+                "DeleteOnTermination": false
+              }
+            }
+          ],
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "marklogic-3"
+            },
+            {
+              "Key": "marklogic:stack:name",
+              "Value": "cf-ccb69c87-marklogic-cluster"
+            },
+            {
+              "Key": "aws:autoscaling:groupName",
+              "Value": "cf-ccb69c87-marklogic-cluster-MarkLogicServerGroup3-CCCCCCCCCCCC"
+            },
+            {
+              "Key": "aws:cloudformation:logical-id",
+              "Value": "MarkLogicServerGroup3"
+            }
+          ],
+          "PrivateDnsName": "ip-10-0-3-10.eu-west-2.compute.internal",
+          "PrivateIpAddress": "10.0.3.10"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "Reservations": [
+    {
+      "Instances": [
+        {
+          "InstanceId": "i-0ddddddddddddddddd",
+          "ImageId": "ami-0new0000000000000",
+          "LaunchTime": "2026-09-30T10:00:00+00:00",
+          "Placement": {
+            "AvailabilityZone": "eu-west-2a"
+          },
+          "BlockDeviceMappings": [
+            {
+              "DeviceName": "/dev/xvda",
+              "Ebs": {
+                "VolumeId": "vol-0rootd00000000000",
+                "DeleteOnTermination": true
+              }
+            },
+            {
+              "DeviceName": "/dev/sdf",
+              "Ebs": {
+                "VolumeId": "vol-0aaaaaaaaaaaaaaaa",
+                "DeleteOnTermination": false
+              }
+            }
+          ],
+          "Tags": [
+            {
+              "Key": "marklogic:stack:name",
+              "Value": "cf-ccb69c87-marklogic-cluster"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

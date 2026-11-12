@@ -212,6 +212,53 @@ stub_exit() {
   printf '%s\n' "$2" > "$DALMATIAN_STUB_RESPONSES/$1.exit"
 }
 
+# A local TCP port with nothing listening on it, for tests of code that
+# refuses a port already in use. A fixed port would make those tests depend
+# on whatever else happens to run on the machine, a developer's own tunnel
+# included
+free_local_port() {
+  local port tries
+  for (( tries = 0; tries < 50; tries++ ))
+  do
+    port=$(( 40000 + RANDOM % 10000 ))
+    if ! (exec 3<> "/dev/tcp/127.0.0.1/$port") 2> /dev/null
+    then
+      echo "$port"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Stage the response curl gives for one MarkLogic API request through the
+# tunnel helpers, which put the method and URL first so that the request is
+# all that identifies the response.
+#
+#   stub_marklogic_api GET "/manage/v2/hosts?format=json" marklogic-manage-hosts.json
+#   stub_marklogic_api POST "/admin/v1/init" - 204
+#
+# The fixture is the body, or "-" for none; the status defaults to 200 and is
+# appended as the last line, as the helpers' --write-out does. Needs
+# DALMATIAN_MARKLOGIC_LOCAL_PORT set to the port the tunnel will use.
+stub_marklogic_api() {
+  local method=$1 path=$2 fixture=$3 status=${4:-200} key
+
+  key="http://localhost:${DALMATIAN_MARKLOGIC_LOCAL_PORT}${path}"
+  key="curl-request-${method}-url-${key//[^A-Za-z0-9_]/_}"
+  {
+    if [ "$fixture" != "-" ]
+    then
+      cat "$DALMATIAN_ROOT/test/fixtures/$fixture"
+    fi
+    printf '%s\n' "$status"
+  } > "$DALMATIAN_STUB_RESPONSES/$key.out"
+}
+
+# Make a stubbed call block until killed, like a live port-forwarding session
+stub_hold() {
+  : > "$DALMATIAN_STUB_RESPONSES/$1.hold"
+}
+
 assert_stub_called_with() {
   if ! grep -qF -- "$1" "$DALMATIAN_STUB_LOG"
   then

@@ -1,0 +1,365 @@
+#!/usr/bin/env bash
+
+# Set the MarkLogic licence on every host of a cluster, one host at a time,
+# through each host's Admin API. Equivalent to running on each host:
+#
+#   curl --anyauth -X POST -u <admin>:<password> \
+#     --data-urlencode "license-key=<key>" --data-urlencode "licensee=<licensee>" \
+#     http://localhost:8001/admin/v1/init
+#
+# On an initialised host that only updates the licence: 204 means done, 202
+# means the new key needs a restart, which MarkLogic performs itself. Hosts
+# are done in turn, and a restarting host is waited for until its startup
+# timestamp has moved on before the next host is touched, so the cluster is
+# never restarting two hosts at once.
+#
+# The key comes from the stack's own LicenseKey parameter (-S), a file or
+# the prompt, and reaches curl through a process substitution: never on a
+# command line, never in shell history, never on disk.
+
+# exit on failures
+set -e
+set -o pipefail
+
+ADMIN_PORT=8001
+RESTART_POLL_INTERVAL=5
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <stack>             - custom CloudFormation stack key, as in the tfvars 'custom_cloudformation_stacks' map"
+  echo "  -p <profile>           - aws profile name (optional, resolved from the infrastructure and environment if omitted)"
+  echo "  -u <user>              - your MarkLogic user (optional, from MARKLOGIC_USER or prompted for if omitted)"
+  echo "  -A                     - use the stack's admin user instead, in an emergency"
+  echo "  -S                     - use the key in the stack's LicenseKey parameter"
+  echo "  -f <key_file>          - file holding the new licence key (optional, prompted for if neither -S nor -f is given)"
+  echo "  -L <licensee>          - licensee (optional, defaults to the stack's Licensee parameter)"
+  echo "  -I <instance_id>       - set the licence on this node only (optional, all nodes if omitted)"
+  echo "  -y                     - do not ask for confirmation"
+  echo "The password is read from MARKLOGIC_PASSWORD, or prompted for."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+  usage
+fi
+
+INFRASTRUCTURE_NAME=""
+ENVIRONMENT=""
+STACK_KEY=""
+AWS_SSO_PROFILE=""
+USER_OPTION=""
+USE_STACK_ADMIN=""
+USE_STACK_KEY=""
+KEY_FILE=""
+LICENSEE_OPTION=""
+INSTANCE_ID=""
+ASSUME_YES=""
+
+while getopts "i:e:s:p:u:ASf:L:I:yh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    s)
+      STACK_KEY=$OPTARG
+      ;;
+    p)
+      AWS_SSO_PROFILE=$OPTARG
+      ;;
+    u)
+      USER_OPTION=$OPTARG
+      ;;
+    A)
+      USE_STACK_ADMIN=1
+      ;;
+    S)
+      USE_STACK_KEY=1
+      ;;
+    f)
+      KEY_FILE=$OPTARG
+      ;;
+    L)
+      LICENSEE_OPTION=$OPTARG
+      ;;
+    I)
+      INSTANCE_ID=$OPTARG
+      ;;
+    y)
+      ASSUME_YES=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$STACK_KEY" ]]
+then
+  usage
+fi
+
+if ! [[ "$STACK_KEY" =~ ^[a-zA-Z0-9-]+$ ]]
+then
+  err "Stack key '$STACK_KEY' may only contain letters, digits and hyphens"
+  exit 1
+fi
+
+if [[ -n "$USE_STACK_KEY" && -n "$KEY_FILE" ]]
+then
+  err "-S and -f cannot be used together"
+  exit 1
+fi
+
+if [ -n "$AWS_SSO_PROFILE" ]
+then
+  PROFILE="$AWS_SSO_PROFILE"
+else
+  PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+fi
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+STACK_NAME="cf-$RESOURCE_PREFIX_HASH-$STACK_KEY"
+
+aws_cmd() {
+  "$APP_ROOT/bin/dalmatian" aws run-command -p "$PROFILE" "$@"
+}
+
+log_info -l "Finding running nodes of stack '$STACK_NAME'..." -q "$QUIET_MODE"
+NODES="$(marklogic_stack_nodes -p "$PROFILE" -n "$STACK_NAME")"
+NODE_IDS=()
+while IFS='' read -r line
+do
+  [ -n "$line" ] && NODE_IDS+=("$line")
+done < <(echo "$NODES" | jq -r '.Reservations[].Instances[].InstanceId')
+
+if [ "${#NODE_IDS[@]}" -eq 0 ]
+then
+  err "No running nodes found for stack '$STACK_NAME' in profile '$PROFILE'"
+  exit 1
+fi
+
+if [ -n "$INSTANCE_ID" ]
+then
+  if ! printf '%s\n' "${NODE_IDS[@]}" | grep -qFx -- "$INSTANCE_ID"
+  then
+    err "Instance '$INSTANCE_ID' is not a running node of stack '$STACK_NAME'"
+    exit 1
+  fi
+  NODE_IDS=("$INSTANCE_ID")
+fi
+
+node_label() {
+  echo "$NODES" | jq -r --arg i "$1" \
+    '.Reservations[].Instances[] | select(.InstanceId == $i)
+      | .InstanceId + " (" + (((.Tags[]? | select(.Key == "Name") | .Value | select(. != "")) // "No Name")) + ")"'
+}
+
+STACK="$(aws_cmd cloudformation describe-stacks --stack-name "$STACK_NAME")"
+stack_parameter() {
+  echo "$STACK" | jq -r --arg k "$1" '(.Stacks[0].Parameters[]? | select(.ParameterKey == $k) | .ParameterValue) // empty'
+}
+STACK_ADMIN_USER="$(stack_parameter AdminUser)"
+STACK_LICENSEE="$(stack_parameter Licensee)"
+
+ML_USER="$(marklogic_user -u "$USER_OPTION" -a "$STACK_ADMIN_USER" ${USE_STACK_ADMIN:+-A})"
+
+LICENSEE="${LICENSEE_OPTION:-$STACK_LICENSEE}"
+if [ -z "$LICENSEE" ]
+then
+  err "No licensee: the stack has no Licensee parameter, so pass one with -L"
+  exit 1
+fi
+
+if [ -n "$USE_STACK_KEY" ]
+then
+  LICENSE_KEY="$(stack_parameter LicenseKey)"
+  if [ -z "$LICENSE_KEY" ]
+  then
+    err "Stack '$STACK_NAME' has no LicenseKey parameter, so -S cannot be used"
+    exit 1
+  fi
+elif [ -n "$KEY_FILE" ]
+then
+  if [ ! -r "$KEY_FILE" ]
+  then
+    err "Cannot read key file '$KEY_FILE'"
+    exit 1
+  fi
+  LICENSE_KEY="$(head -n 1 "$KEY_FILE")"
+else
+  read -r -p "New MarkLogic licence key: " LICENSE_KEY || true
+fi
+LICENSE_KEY="$(echo "$LICENSE_KEY" | tr -d '[:space:]')"
+
+if ! [[ "$LICENSE_KEY" =~ ^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4})+$ ]]
+then
+  err "The value given does not look like a MarkLogic licence key (groups of four characters separated by hyphens)"
+  exit 1
+fi
+
+if [ -z "${MARKLOGIC_PASSWORD:-}" ]
+then
+  read -r -s -p "MarkLogic password for '$ML_USER': " MARKLOGIC_PASSWORD || true
+  echo >&2
+fi
+if [ -z "$MARKLOGIC_PASSWORD" ]
+then
+  err "No MarkLogic password given"
+  exit 1
+fi
+CURL_CONFIG_LINE="$(marklogic_curl_config -u "$ML_USER" -p "$MARKLOGIC_PASSWORD")"
+
+log_msg -l "Stack:     $STACK_NAME" -q "$QUIET_MODE"
+log_msg -l "Licensee:  $LICENSEE" -q "$QUIET_MODE"
+log_msg -l "Key:       ****-${LICENSE_KEY##*-}" -q "$QUIET_MODE"
+log_msg -l "Hosts:     ${#NODE_IDS[@]}" -q "$QUIET_MODE"
+
+if [ -z "$ASSUME_YES" ]
+then
+  if ! yes_no "Set this licence on ${#NODE_IDS[@]} host(s)? MarkLogic restarts a host if the new key requires it (y/N)" "N"
+  then
+    err "Aborted"
+    exit 1
+  fi
+fi
+
+trap marklogic_tunnel_close EXIT
+
+# GET /admin/v1/timestamp answers with the host's last startup time, so a
+# restart shows as a change in it
+startup_timestamp() {
+  local RESPONSE
+  RESPONSE="$(marklogic_tunnel_request -X GET -u "/admin/v1/timestamp" -K <(printf '%s\n' "$CURL_CONFIG_LINE") || true)"
+  if [ "${RESPONSE##*$'\n'}" == "200" ]
+  then
+    echo "${RESPONSE%$'\n'*}"
+  fi
+}
+
+RESTART_ATTEMPTS="${DALMATIAN_MARKLOGIC_RESTART_ATTEMPTS:-60}"
+UPDATED=()
+FAILED=0
+STOPPED=0
+for NODE_ID in "${NODE_IDS[@]}"
+do
+  LABEL="$(node_label "$NODE_ID")"
+
+  if ! marklogic_tunnel_open -p "$PROFILE" -I "$NODE_ID" -P "$ADMIN_PORT"
+  then
+    echo "$LABEL: not reachable through Systems Manager, licence not set"
+    FAILED=$(( FAILED + 1 ))
+    continue
+  fi
+
+  STARTUP_BEFORE="$(startup_timestamp)"
+
+  RESPONSE="$(marklogic_tunnel_request -X POST -u "/admin/v1/init" -K <(printf '%s\n' "$CURL_CONFIG_LINE") -- \
+    --header "Accept: application/json" \
+    --data-urlencode "license-key@/dev/fd/9" \
+    --data-urlencode "licensee=$LICENSEE" \
+    9< <(printf '%s' "$LICENSE_KEY"))"
+  HTTP_STATUS="${RESPONSE##*$'\n'}"
+  BODY="${RESPONSE%$'\n'*}"
+
+  case "$HTTP_STATUS" in
+    204)
+      echo "$LABEL: licence updated"
+      UPDATED+=("$LABEL")
+      ;;
+    202)
+      echo "$LABEL: licence updated, MarkLogic restarting"
+      UPDATED+=("$LABEL")
+      # The 202 body carries the startup time the restart will replace.
+      # Falling back to the time read before the POST covers a body without it
+      LAST_STARTUP="$(echo "$BODY" | jq -r '.restart["last-startup"] | if type == "array" then .[0].value else .value end // empty' 2> /dev/null || true)"
+      if [ -n "$LAST_STARTUP" ]
+      then
+        STARTUP_BEFORE="$LAST_STARTUP"
+      fi
+      BACK=0
+      for (( ATTEMPT = 1; ATTEMPT <= RESTART_ATTEMPTS; ATTEMPT++ ))
+      do
+        sleep "$RESTART_POLL_INTERVAL"
+        STARTUP_NOW="$(startup_timestamp)"
+        if [[ -n "$STARTUP_NOW" && "$STARTUP_NOW" != "$STARTUP_BEFORE" ]]
+        then
+          BACK=1
+          break
+        fi
+      done
+      if [ "$BACK" -eq 1 ]
+      then
+        echo "$LABEL: back"
+      else
+        err "$LABEL did not come back from its restart within $(( RESTART_ATTEMPTS * RESTART_POLL_INTERVAL )) seconds (startup timestamp unchanged). Stopping before any other host is restarted"
+        STOPPED=1
+      fi
+      ;;
+    400)
+      MESSAGE="$(echo "$BODY" | jq -r '.errorResponse.message // empty' 2> /dev/null || true)"
+      err "$LABEL: MarkLogic rejected the licence (HTTP 400)${MESSAGE:+: $MESSAGE}. Stopping before any other host is changed"
+      STOPPED=1
+      ;;
+    401|403)
+      err "$LABEL: the Admin API refused user '$ML_USER' (HTTP $HTTP_STATUS). Stopping"
+      STOPPED=1
+      ;;
+    *)
+      err "$LABEL: unexpected HTTP $HTTP_STATUS from the Admin API"
+      FAILED=$(( FAILED + 1 ))
+      ;;
+  esac
+
+  marklogic_tunnel_close
+  if [ "$STOPPED" -eq 1 ]
+  then
+    break
+  fi
+done
+
+if [ "$FAILED" -gt 0 ]
+then
+  err "$FAILED host(s) were not updated"
+fi
+
+if [ "${#UPDATED[@]}" -gt 0 ]
+then
+  if [ "$STOPPED" -eq 1 ]
+  then
+    warning "The run stopped after these hosts were already changed: ${UPDATED[*]}. The cluster is on mixed licences until the rest are done"
+  fi
+
+  log_info -l "Reading the licence back from every host..." -q "$QUIET_MODE"
+  # The user already decided on, so the report neither asks again nor warns
+  # about -A a second time
+  REPORT_ARGS=(-i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$STACK_KEY" -p "$PROFILE" -u "$ML_USER")
+  if [ -n "$INSTANCE_ID" ]
+  then
+    REPORT_ARGS+=(-I "$INSTANCE_ID")
+  fi
+  # The password reaches the report through its environment rather than its
+  # arguments. With -S the stack already matches, so the report's mismatch
+  # exit only means tfvars still hold a different key
+  MARKLOGIC_PASSWORD="$MARKLOGIC_PASSWORD" \
+    "$APP_ROOT/bin/dalmatian" marklogic licence-status "${REPORT_ARGS[@]}" || true
+
+  if [ -z "$USE_STACK_KEY" ]
+  then
+    warning "Update the LicenseKey parameter for stack '$STACK_KEY' in the infrastructure tfvars (and Licensee if it changed), then run set-tfvars and deploy, so that licence-status and future rotations agree with the hosts"
+  fi
+fi
+
+if [[ "$STOPPED" -eq 1 || "$FAILED" -gt 0 ]]
+then
+  exit 1
+fi

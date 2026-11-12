@@ -1,0 +1,743 @@
+#!/usr/bin/env bash
+
+# Replace one node of a MarkLogic CloudFormation cluster with a fresh instance
+# from its auto scaling group, for example to pick up a new AMI after the
+# template has been updated.
+#
+# The MarkLogic template runs one auto scaling group per availability zone,
+# each attached to every target group of the cluster's load balancers, with a
+# launch lifecycle hook under which the NodeManager Lambda attaches the zone's
+# persistent data volume and network interface to a new instance. So rotating
+# a node is: drain it from the target groups, terminate it, wait for the group
+# to launch and hand over a replacement, and check the volume followed.
+#
+# Draining only stops the load balancers sending the node new requests; every
+# node still reads forests on every other node. So before terminating, the
+# node's MarkLogic is shut down through another node's Manage API with fast
+# failover, which hands its forests to their replicas at once instead of
+# after the cluster's heartbeat timeout. That only works when each forest the
+# node serves has an in-sync replica, which is checked before anything is
+# touched. Afterwards the replacement's forests are waited on until they have
+# caught up again, because rotating the next node before then could fail over
+# to a replica that is behind.
+
+# exit on failures
+set -e
+set -o pipefail
+# Let the ERR trap fire inside functions and command substitutions too
+set -o errtrace
+
+DEFAULT_TIMEOUT_MINUTES=30
+POLL_INTERVAL=15
+DATA_DEVICE="/dev/sdf"
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -s <stack>             - custom CloudFormation stack key, as in the tfvars 'custom_cloudformation_stacks' map"
+  echo "  -p <profile>           - aws profile name (optional, resolved from the infrastructure and environment if omitted)"
+  echo "  -I <instance_id>       - node to rotate (optional, prompted for if omitted)"
+  echo "  -t <minutes>           - how long to wait for each step before giving up (default: $DEFAULT_TIMEOUT_MINUTES)"
+  echo "  -l                     - list the stack's running nodes and exit"
+  echo "  -n                     - do not set the stack's licence on the replacement"
+  echo "  -x                     - terminate without shutting MarkLogic down first, for a node whose MarkLogic is hung"
+  echo "  -F                     - rotate even if a forest the node serves has no in-sync replica (it goes offline)"
+  echo "  -u <user>              - your MarkLogic user (optional, from MARKLOGIC_USER or prompted for)"
+  echo "  -A                     - use the stack's admin user instead, in an emergency"
+  echo "  -y                     - do not ask for confirmation before terminating the node"
+  echo "MarkLogic is shut down with fast failover before the node is terminated, and the stack's"
+  echo "LicenseKey is applied to the replacement. Both need a MarkLogic user with the manage-admin"
+  echo "role, and its password, from MARKLOGIC_USER and MARKLOGIC_PASSWORD or prompts."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]; then
+  usage
+fi
+
+INFRASTRUCTURE_NAME=""
+ENVIRONMENT=""
+STACK_KEY=""
+AWS_SSO_PROFILE=""
+INSTANCE_ID=""
+TIMEOUT_MINUTES="$DEFAULT_TIMEOUT_MINUTES"
+LIST_ONLY=""
+NO_LICENCE=""
+SKIP_SHUTDOWN=""
+FORCE_FORESTS=""
+USER_OPTION=""
+USE_STACK_ADMIN=""
+ASSUME_YES=""
+
+while getopts "i:e:s:p:I:t:lnxFu:Ayh" opt; do
+  case $opt in
+  i)
+    INFRASTRUCTURE_NAME=$OPTARG
+    ;;
+  e)
+    ENVIRONMENT=$OPTARG
+    ;;
+  s)
+    STACK_KEY=$OPTARG
+    ;;
+  p)
+    AWS_SSO_PROFILE=$OPTARG
+    ;;
+  I)
+    INSTANCE_ID=$OPTARG
+    ;;
+  t)
+    TIMEOUT_MINUTES=$OPTARG
+    ;;
+  l)
+    LIST_ONLY=1
+    ;;
+  n)
+    NO_LICENCE=1
+    ;;
+  x)
+    SKIP_SHUTDOWN=1
+    ;;
+  F)
+    FORCE_FORESTS=1
+    ;;
+  u)
+    USER_OPTION=$OPTARG
+    ;;
+  A)
+    USE_STACK_ADMIN=1
+    ;;
+  y)
+    ASSUME_YES=1
+    ;;
+  h)
+    usage
+    ;;
+  *)
+    usage
+    ;;
+  esac
+done
+
+if [[ -z "$INFRASTRUCTURE_NAME" || -z "$ENVIRONMENT" || -z "$STACK_KEY" ]]; then
+  usage
+fi
+
+# Same character set the infrastructure Terraform enforces on stack keys. The
+# key ends up inside an EC2 filter value, where a comma would begin a second
+# value and match other stacks' nodes
+if ! [[ "$STACK_KEY" =~ ^[a-zA-Z0-9-]+$ ]]; then
+  err "Stack key '$STACK_KEY' may only contain letters, digits and hyphens"
+  exit 1
+fi
+
+# Validated before it reaches bash arithmetic, which would evaluate anything
+if ! [[ "$TIMEOUT_MINUTES" =~ ^[1-9][0-9]*$ ]]; then
+  err "-t must be a whole number of minutes"
+  exit 1
+fi
+MAX_ATTEMPTS=$((TIMEOUT_MINUTES * 60 / POLL_INTERVAL))
+if [ "$MAX_ATTEMPTS" -lt 1 ]; then
+  MAX_ATTEMPTS=1
+fi
+
+# -i and -e are needed even with -p: the stack name is derived from them
+if [ -n "$AWS_SSO_PROFILE" ]; then
+  PROFILE="$AWS_SSO_PROFILE"
+else
+  PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+fi
+RESOURCE_PREFIX_HASH="$(resource_prefix_hash -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")"
+STACK_NAME="cf-$RESOURCE_PREFIX_HASH-$STACK_KEY"
+
+aws_cmd() {
+  "$APP_ROOT/bin/dalmatian" aws run-command -p "$PROFILE" "$@"
+}
+
+# State of one instance in a target group's health response, or "missing"
+# when it is not registered there. The template registers each instance once
+# per target group, on the group's own port, so there is one entry to read
+target_state() {
+  echo "$1" | jq -r --arg i "$2" \
+    '[.TargetHealthDescriptions[]? | select(.Target.Id == $i) | .TargetHealth.State][0] // "missing"'
+}
+
+# Sleep between polling attempts, but not after the last one
+pause_unless_last() {
+  if [ "$1" -lt "$MAX_ATTEMPTS" ]; then
+    sleep "$POLL_INTERVAL"
+  fi
+}
+
+# Open a tunnel to the Manage API on the first of the given nodes that
+# Systems Manager can reach, recording which one in GATEWAY. Not used in a
+# command substitution: the tunnel's state has to live in this shell
+open_manage_tunnel() {
+  local NODE_ID
+  GATEWAY=""
+  for NODE_ID in "$@"; do
+    if marklogic_tunnel_open -p "$PROFILE" -I "$NODE_ID" -P 8002; then
+      GATEWAY="$NODE_ID"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# One MarkLogic request through the open tunnel, credentials from the config
+# line. Prints the body, then the HTTP status on the last line
+manage_request() {
+  local METHOD=$1 URL_PATH=$2
+  shift 2
+  marklogic_tunnel_request -X "$METHOD" -u "$URL_PATH" -K <(printf '%s\n' "$CURL_CONFIG_LINE") -- "$@"
+}
+
+log_info -l "Finding running nodes of stack '$STACK_NAME'..." -q "$QUIET_MODE"
+
+NODES="$(marklogic_stack_nodes -p "$PROFILE" -n "$STACK_NAME")"
+NODE_LINES="$(marklogic_node_lines -j "$NODES")"
+
+if [ -z "$NODE_LINES" ]; then
+  err "No running nodes found for stack '$STACK_NAME' in profile '$PROFILE'"
+  exit 1
+fi
+
+if [ -n "$LIST_ONLY" ]; then
+  echo "$NODE_LINES"
+  exit 0
+fi
+
+# Asked for now rather than after the long wait for the replacement, so the
+# rotation never stalls on a prompt nobody is watching. Needed whatever the
+# options: the forest checks read MarkLogic even when -x and -n skip the
+# shutdown and the licensing
+# The stack is only read for its admin user, so only when that is asked for
+STACK_ADMIN_USER=""
+if [ -n "$USE_STACK_ADMIN" ]; then
+  STACK_ADMIN_USER="$(aws_cmd cloudformation describe-stacks --stack-name "$STACK_NAME" |
+    jq -r '(.Stacks[0].Parameters[]? | select(.ParameterKey == "AdminUser") | .ParameterValue) // empty')"
+fi
+ML_USER="$(marklogic_user -u "$USER_OPTION" -a "$STACK_ADMIN_USER" ${USE_STACK_ADMIN:+-A})"
+if [ -z "${MARKLOGIC_PASSWORD:-}" ]; then
+  read -r -s -p "MarkLogic password for '$ML_USER': " MARKLOGIC_PASSWORD || true
+  echo >&2
+fi
+if [ -z "$MARKLOGIC_PASSWORD" ]; then
+  err "No MarkLogic password given. Set MARKLOGIC_PASSWORD, or enter it when asked"
+  exit 1
+fi
+export MARKLOGIC_PASSWORD
+# The credentials reach curl as a config file on a process substitution:
+# never on its command line and never on disk
+CURL_CONFIG_LINE="$(marklogic_curl_config -u "$ML_USER" -p "$MARKLOGIC_PASSWORD")"
+
+if [ -z "$INSTANCE_ID" ]; then
+  INSTANCE_ID="$(pick_ec2_instance -j "$NODES")"
+fi
+
+OLD_NODE="$(echo "$NODES" | jq -c --arg i "$INSTANCE_ID" \
+  '[.Reservations[].Instances[] | select(.InstanceId == $i)][0] // empty')"
+if [ -z "$OLD_NODE" ]; then
+  err "Instance '$INSTANCE_ID' is not a running node of stack '$STACK_NAME'"
+  log_msg -l "Running nodes:" -q "$QUIET_MODE"
+  echo "$NODE_LINES"
+  exit 1
+fi
+
+OLD_AMI="$(echo "$OLD_NODE" | jq -r '.ImageId')"
+OLD_AZ="$(echo "$OLD_NODE" | jq -r '.Placement.AvailabilityZone')"
+ASG_NAME="$(echo "$OLD_NODE" | jq -r '(.Tags[]? | select(.Key == "aws:autoscaling:groupName") | .Value) // empty')"
+LOGICAL_ID="$(echo "$OLD_NODE" | jq -r '(.Tags[]? | select(.Key == "aws:cloudformation:logical-id") | .Value) // empty')"
+NODE_NAME="$(echo "$OLD_NODE" | jq -r '(.Tags[]? | select(.Key == "Name") | .Value | select(. != "")) // empty')"
+DATA_VOLUME="$(echo "$OLD_NODE" | jq -r --arg d "$DATA_DEVICE" \
+  '(.BlockDeviceMappings[]? | select(.DeviceName == $d) | .Ebs.VolumeId) // empty')"
+# Not `// "unknown"`: false is falsy to jq's alternative operator, so a
+# correctly configured volume would read as unknown
+DATA_VOLUME_DELETE_ON_TERMINATION="$(echo "$OLD_NODE" | jq -r --arg d "$DATA_DEVICE" \
+  '[.BlockDeviceMappings[]? | select(.DeviceName == $d) | .Ebs.DeleteOnTermination][0]
+   | if . == null then "unknown" else tostring end')"
+
+if [ -z "$ASG_NAME" ]; then
+  err "Instance '$INSTANCE_ID' carries no 'aws:autoscaling:groupName' tag, so its auto scaling group cannot be found"
+  exit 1
+fi
+
+if [ -z "$DATA_VOLUME" ]; then
+  err "Instance '$INSTANCE_ID' has no data volume at $DATA_DEVICE"
+  exit 1
+fi
+
+# The whole point of the rotation is that the data volume outlives the
+# instance. A mapping that deletes it on termination would destroy the data
+if [ "$DATA_VOLUME_DELETE_ON_TERMINATION" != "false" ]; then
+  err "Data volume $DATA_VOLUME on $INSTANCE_ID is set to delete on termination (DeleteOnTermination: $DATA_VOLUME_DELETE_ON_TERMINATION). Refusing to terminate the node"
+  exit 1
+fi
+
+# The template's groups do not propagate a Name tag, so the replacement would
+# otherwise be nameless. Inherit the old node's name, or make one from the
+# group's logical id (MarkLogicServerGroup2 -> marklogic-2) if it never had one
+if [ -z "$NODE_NAME" ]; then
+  GROUP_NUMBER="${LOGICAL_ID#MarkLogicServerGroup}"
+  if [[ -n "$GROUP_NUMBER" && "$GROUP_NUMBER" =~ ^[0-9]+$ ]]; then
+    NODE_NAME="marklogic-$GROUP_NUMBER"
+  else
+    NODE_NAME="marklogic-$OLD_AZ"
+  fi
+fi
+# JSON rather than the CLI's Key=,Value= shorthand, which a name containing
+# those delimiters would break out of
+NAME_TAGS_JSON="$(jq -nc --arg v "$NODE_NAME" '[{Key: "Name", Value: $v}]')"
+
+ASG="$(aws_cmd autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$ASG_NAME")"
+TARGET_GROUPS=()
+while IFS='' read -r line; do
+  [ -n "$line" ] && TARGET_GROUPS+=("$line")
+done < <(echo "$ASG" | jq -r '.AutoScalingGroups[0].TargetGroupARNs[]?')
+
+if [ "${#TARGET_GROUPS[@]}" -eq 0 ]; then
+  err "Auto scaling group '$ASG_NAME' has no target groups attached"
+  exit 1
+fi
+
+# One node per group is what the template builds (NodesPerZone=1) and what
+# the replacement detection below relies on
+DESIRED_CAPACITY="$(echo "$ASG" | jq -r '.AutoScalingGroups[0].DesiredCapacity // 0')"
+if [ "$DESIRED_CAPACITY" != "1" ]; then
+  err "This command expects one node per auto scaling group, but '$ASG_NAME' has a desired capacity of $DESIRED_CAPACITY"
+  exit 1
+fi
+
+# With any of these suspended the replacement never launches, never comes
+# into service or never reaches the load balancers, and that would only show
+# after the old node was gone
+SUSPENDED="$(echo "$ASG" | jq -r '[.AutoScalingGroups[0].SuspendedProcesses[]?.ProcessName
+  | select(. == "Launch" or . == "Terminate" or . == "AddToLoadBalancer" or . == "HealthCheck")] | join(", ")')"
+if [ -n "$SUSPENDED" ]; then
+  err "Auto scaling group '$ASG_NAME' has suspended processes ($SUSPENDED). A replacement would not launch or be registered"
+  exit 1
+fi
+
+# The cluster's size comes from the stack's groups, not from what happens to
+# be running: a node that is already down is exactly what must stop this
+# rotation, and it would not appear in the running set
+EXPECTED_NODES="$(
+  aws_cmd autoscaling describe-auto-scaling-groups \
+    --filters "Name=tag:marklogic:stack:name,Values=$STACK_NAME" |
+    jq -r '[.AutoScalingGroups[]?.DesiredCapacity] | add // 0'
+)"
+if [ "$EXPECTED_NODES" -lt 1 ]; then
+  err "Found no auto scaling groups tagged for stack '$STACK_NAME'"
+  exit 1
+fi
+EXPECTED_PEERS=$((EXPECTED_NODES - 1))
+
+log_msg -l "Node to rotate:      $INSTANCE_ID ($NODE_NAME, $OLD_AZ, $OLD_AMI)" -q "$QUIET_MODE"
+log_msg -l "Auto scaling group:  $ASG_NAME" -q "$QUIET_MODE"
+log_msg -l "Target groups:       ${#TARGET_GROUPS[@]}" -q "$QUIET_MODE"
+log_msg -l "Data volume:         $DATA_VOLUME" -q "$QUIET_MODE"
+log_msg -l "Cluster size:        $EXPECTED_NODES" -q "$QUIET_MODE"
+
+# Pre-flight: in every target group, every registered node other than this
+# one must be healthy, and there must be as many of them as the stack expects
+log_info -l "Checking the other nodes are healthy before draining..." -q "$QUIET_MODE"
+for TARGET_GROUP in "${TARGET_GROUPS[@]}"; do
+  HEALTH="$(aws_cmd elbv2 describe-target-health --target-group-arn "$TARGET_GROUP")"
+  UNHEALTHY_PEER="$(echo "$HEALTH" | jq -r --arg i "$INSTANCE_ID" \
+    '[.TargetHealthDescriptions[]? | select(.Target.Id != $i and .TargetHealth.State != "healthy")
+      | .Target.Id + " (state: " + .TargetHealth.State + ")"][0] // empty')"
+  if [ -n "$UNHEALTHY_PEER" ]; then
+    err "Node ${UNHEALTHY_PEER/ (/ is unhealthy in target group $TARGET_GROUP (}. Refusing to drain $INSTANCE_ID while another node is not serving"
+    exit 1
+  fi
+  HEALTHY_PEERS="$(echo "$HEALTH" | jq -r --arg i "$INSTANCE_ID" \
+    '[.TargetHealthDescriptions[]? | select(.Target.Id != $i and .TargetHealth.State == "healthy")] | length')"
+  if [ "$HEALTHY_PEERS" -lt "$EXPECTED_PEERS" ]; then
+    err "Only $HEALTHY_PEERS of the $EXPECTED_PEERS other nodes expected are healthy in target group $TARGET_GROUP. Refusing to drain $INSTANCE_ID"
+    exit 1
+  fi
+done
+
+if [ "$EXPECTED_PEERS" -eq 0 ]; then
+  warning "$INSTANCE_ID is the only node of the cluster. There will be no MarkLogic service from the moment it is drained until its replacement is healthy"
+fi
+
+# MarkLogic pre-flight, through another node so that the same tunnel can
+# manage the shutdown later: the node's host name, and every forest on it
+# that is serving must have a replica that is in sync, or shutting it down
+# takes that forest offline or fails over to stale data
+trap marklogic_tunnel_close EXIT
+PEER_IDS=()
+while IFS='' read -r line; do
+  [ -n "$line" ] && PEER_IDS+=("$line")
+done < <(echo "$NODES" | jq -r --arg i "$INSTANCE_ID" '.Reservations[].Instances[] | select(.InstanceId != $i) | .InstanceId')
+
+log_info -l "Checking the forests on $INSTANCE_ID through another node..." -q "$QUIET_MODE"
+if [ "${#PEER_IDS[@]}" -gt 0 ]; then
+  if ! open_manage_tunnel "${PEER_IDS[@]}"; then
+    err "No other node of stack '$STACK_NAME' is reachable through Systems Manager, so MarkLogic on $INSTANCE_ID can be neither checked nor shut down cleanly"
+    exit 1
+  fi
+else
+  # A one-node cluster has nobody else to ask
+  if ! open_manage_tunnel "$INSTANCE_ID"; then
+    err "$INSTANCE_ID is not reachable through Systems Manager, so its MarkLogic can be neither checked nor shut down cleanly"
+    exit 1
+  fi
+fi
+
+ML_HOST="$(marklogic_instance_host -j "$NODES" -I "$INSTANCE_ID" -u "$ML_USER" -c "$CURL_CONFIG_LINE")"
+ML_HOST_PATH="$(jq -rn --arg h "$ML_HOST" '$h | @uri')"
+FORESTS="$(marklogic_host_forests -H "$ML_HOST" -u "$ML_USER" -c "$CURL_CONFIG_LINE")"
+FOREST_COUNT="$(echo "$FORESTS" | jq -s 'length')"
+
+FOREST_PROBLEMS="$(echo "$FORESTS" | jq -r '
+  if .state == "" then .name + " (state unknown)"
+  elif .state == "open" and ([.replicas[] | select(.state == "sync replicating")] | length) == 0 then
+    .name + " (replicas: "
+      + (if (.replicas | length) == 0 then "none"
+         else ([.replicas[] | .id + " " + (if .state == "" then "unknown" else .state end)] | join(", ")) end)
+      + ")"
+  else empty end' | paste -sd ',' - | sed 's/,/, /g')"
+
+if [ "$FOREST_COUNT" -eq 0 ]; then
+  if [ -z "$FORCE_FORESTS" ]; then
+    err "Found no forests on MarkLogic host $ML_HOST, so whether its data has replicas cannot be checked. If the node really holds no forests, rerun with -F"
+    exit 1
+  fi
+  warning "Found no forests on MarkLogic host $ML_HOST; carrying on because of -F"
+elif [ -n "$FOREST_PROBLEMS" ]; then
+  if [ -z "$FORCE_FORESTS" ]; then
+    err "These forests on $ML_HOST have no in-sync replica to take over, so shutting it down would take them offline: $FOREST_PROBLEMS. Rerun with -F to rotate anyway"
+    exit 1
+  fi
+  warning "These forests on $ML_HOST have no in-sync replica and will be offline until the replacement has rejoined: $FOREST_PROBLEMS. Carrying on because of -F"
+fi
+log_msg -l "MarkLogic host:      $ML_HOST ($FOREST_COUNT forests, checked through $GATEWAY)" -q "$QUIET_MODE"
+
+if [ -z "$ASSUME_YES" ]; then
+  if ! yes_no "Drain $INSTANCE_ID, shut down its MarkLogic with failover, terminate it and wait for its replacement? (y/N)" "N"; then
+    err "Aborted"
+    exit 1
+  fi
+fi
+
+# Between deregistering and terminating, any failure or interruption would
+# otherwise leave a live node serving nothing. Re-registering it is the one
+# recovery that is always right at that point
+restore_old_node() {
+  trap - ERR INT TERM
+  warning "Rotation stopped before $INSTANCE_ID was terminated; re-registering it with its target groups"
+  for TARGET_GROUP in "${TARGET_GROUPS[@]}"; do
+    aws_cmd elbv2 register-targets --target-group-arn "$TARGET_GROUP" --targets "Id=$INSTANCE_ID" >/dev/null ||
+      err "Could not re-register $INSTANCE_ID with $TARGET_GROUP; do it by hand"
+  done
+  exit 1
+}
+trap restore_old_node ERR INT TERM
+
+log_info -l "Deregistering $INSTANCE_ID from ${#TARGET_GROUPS[@]} target groups..." -q "$QUIET_MODE"
+for TARGET_GROUP in "${TARGET_GROUPS[@]}"; do
+  aws_cmd elbv2 deregister-targets --target-group-arn "$TARGET_GROUP" --targets "Id=$INSTANCE_ID" >/dev/null
+done
+
+log_info -l "Waiting for $INSTANCE_ID to finish draining..." -q "$QUIET_MODE"
+DRAINED=0
+for ((ATTEMPT = 1; ATTEMPT <= MAX_ATTEMPTS; ATTEMPT++)); do
+  DRAINED=1
+  for TARGET_GROUP in "${TARGET_GROUPS[@]}"; do
+    # Fetched into a variable first: nested inside another substitution a
+    # failed call would read as an empty response, and an empty response
+    # looks like "drained"
+    HEALTH="$(aws_cmd elbv2 describe-target-health --target-group-arn "$TARGET_GROUP")"
+    STATE="$(target_state "$HEALTH" "$INSTANCE_ID")"
+    if [[ "$STATE" != "missing" && "$STATE" != "unused" ]]; then
+      DRAINED=0
+      break
+    fi
+  done
+  if [ "$DRAINED" -eq 1 ]; then
+    break
+  fi
+  pause_unless_last "$ATTEMPT"
+done
+if [ "$DRAINED" -ne 1 ]; then
+  trap - ERR INT TERM
+  err "$INSTANCE_ID was still draining after $TIMEOUT_MINUTES minute(s). It has not been terminated and is being re-registered with its target groups"
+  restore_old_node
+fi
+
+# Fast failover hands the host's forests to their replicas as it shuts down,
+# rather than after the cluster's heartbeat timeout, which is what removes
+# the outage. The request is form data: the documented and only supported
+# encoding for this endpoint
+if [ -n "$SKIP_SHUTDOWN" ]; then
+  SHUTDOWN_SUMMARY="not shut down first (-x)"
+else
+  log_info -l "Shutting down MarkLogic on $ML_HOST with failover..." -q "$QUIET_MODE"
+  RESPONSE="$(manage_request POST "/manage/v2/hosts/$ML_HOST_PATH?format=json" \
+    --header "Content-type: application/x-www-form-urlencoded" \
+    --data "state=shutdown&failover=true")"
+  HTTP_STATUS="${RESPONSE##*$'\n'}"
+  case "$HTTP_STATUS" in
+  200 | 202 | 204) ;;
+  *)
+    # Nothing has happened to the node yet, so putting it back is right
+    trap - ERR INT TERM
+    err "MarkLogic refused to shut down $ML_HOST (HTTP $HTTP_STATUS)"
+    restore_old_node
+    ;;
+  esac
+
+  # From here the node is stopping: putting it back behind the load
+  # balancers would only add a target that fails its health checks
+  trap - ERR INT TERM
+
+  log_info -l "Waiting for MarkLogic on $ML_HOST to report offline..." -q "$QUIET_MODE"
+  OFFLINE=0
+  for ((ATTEMPT = 1; ATTEMPT <= MAX_ATTEMPTS; ATTEMPT++)); do
+    if RESPONSE="$(manage_request GET "/manage/v2/hosts/$ML_HOST_PATH?view=status&format=json")"; then
+      HTTP_STATUS="${RESPONSE##*$'\n'}"
+      if [ "$HTTP_STATUS" != "200" ]; then
+        # Another node no longer able to report the host means it is gone
+        OFFLINE=1
+      elif [ "$(echo "${RESPONSE%$'\n'*}" | jq -r '[.. | objects | .online? | select(. != null)
+          | if type == "object" then .value else . end][0] | tostring')" == "false" ]; then
+        OFFLINE=1
+      fi
+    elif [ "$GATEWAY" == "$INSTANCE_ID" ]; then
+      # Asking the host itself: it has stopped answering
+      OFFLINE=1
+    fi
+    if [ "$OFFLINE" -eq 1 ]; then
+      break
+    fi
+    pause_unless_last "$ATTEMPT"
+  done
+  if [ "$OFFLINE" -ne 1 ]; then
+    err "MarkLogic on $ML_HOST was told to shut down but did not report offline within $TIMEOUT_MINUTES minute(s). $INSTANCE_ID has not been terminated and is out of its target groups: terminate it by hand, or restart MarkLogic on it and re-register it"
+    exit 1
+  fi
+  SHUTDOWN_SUMMARY="shut down with failover"
+fi
+marklogic_tunnel_close
+
+trap - ERR INT TERM
+
+log_info -l "Terminating $INSTANCE_ID..." -q "$QUIET_MODE"
+aws_cmd autoscaling terminate-instance-in-auto-scaling-group \
+  --instance-id "$INSTANCE_ID" \
+  --no-should-decrement-desired-capacity >/dev/null
+
+# Polled rather than `ec2 wait instance-terminated`, whose own timeout is
+# fixed at ten minutes and whose failure is a raw AWS error
+log_info -l "Waiting for $INSTANCE_ID to terminate..." -q "$QUIET_MODE"
+TERMINATED=0
+OLD_STATE=""
+for ((ATTEMPT = 1; ATTEMPT <= MAX_ATTEMPTS; ATTEMPT++)); do
+  OLD_STATE="$(aws_cmd ec2 describe-instances --instance-ids "$INSTANCE_ID" |
+    jq -r '.Reservations[0].Instances[0].State.Name // "unknown"')"
+  if [ "$OLD_STATE" == "terminated" ]; then
+    TERMINATED=1
+    break
+  fi
+  pause_unless_last "$ATTEMPT"
+done
+if [ "$TERMINATED" -ne 1 ]; then
+  err "$INSTANCE_ID had not terminated after $TIMEOUT_MINUTES minute(s) (last state: $OLD_STATE)"
+  exit 1
+fi
+
+# The NodeManager Lambda can re-attach the volume to the replacement before
+# this is checked, so "no longer on the old instance" is the condition, not
+# "available"
+log_info -l "Waiting for $DATA_VOLUME to detach from $INSTANCE_ID..." -q "$QUIET_MODE"
+DETACHED=0
+for ((ATTEMPT = 1; ATTEMPT <= MAX_ATTEMPTS; ATTEMPT++)); do
+  ATTACHED_TO="$(aws_cmd ec2 describe-volumes --volume-ids "$DATA_VOLUME" |
+    jq -r '.Volumes[0].Attachments[0].InstanceId // empty')"
+  if [ "$ATTACHED_TO" != "$INSTANCE_ID" ]; then
+    DETACHED=1
+    break
+  fi
+  pause_unless_last "$ATTEMPT"
+done
+if [ "$DETACHED" -ne 1 ]; then
+  err "$DATA_VOLUME is still attached to the terminated instance $INSTANCE_ID after $TIMEOUT_MINUTES minute(s)"
+  exit 1
+fi
+
+# The launch lifecycle hook holds the replacement in Pending:Wait until the
+# NodeManager Lambda has attached its volume and network interface, so this is
+# the long wait. The instance is named as soon as it has an id rather than
+# once it is in service, so a failed launch is still identifiable. With one
+# node per group, the replacement is the one instance that is pending or in
+# service; anything terminating, terminated or warmed is not it
+log_info -l "Waiting for $ASG_NAME to bring a replacement into service..." -q "$QUIET_MODE"
+NEW_INSTANCE_ID=""
+NEW_TAGGED=0
+IN_SERVICE=0
+LIFECYCLE_STATE=""
+for ((ATTEMPT = 1; ATTEMPT <= MAX_ATTEMPTS; ATTEMPT++)); do
+  ASG="$(aws_cmd autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$ASG_NAME")"
+  NEW_INSTANCE_ID="$(echo "$ASG" | jq -r --arg old "$INSTANCE_ID" \
+    '[.AutoScalingGroups[0].Instances[]?
+      | select(.InstanceId != $old and (.LifecycleState | test("^(Pending|InService)")))
+      | .InstanceId][0] // empty')"
+  if [ -n "$NEW_INSTANCE_ID" ]; then
+    if [ "$NEW_TAGGED" -eq 0 ]; then
+      log_info -l "Replacement $NEW_INSTANCE_ID launched, naming it '$NODE_NAME'..." -q "$QUIET_MODE"
+      aws_cmd ec2 create-tags --resources "$NEW_INSTANCE_ID" --tags "$NAME_TAGS_JSON"
+      NEW_TAGGED=1
+    fi
+    LIFECYCLE_STATE="$(echo "$ASG" | jq -r --arg i "$NEW_INSTANCE_ID" \
+      '.AutoScalingGroups[0].Instances[] | select(.InstanceId == $i) | .LifecycleState')"
+    if [ "$LIFECYCLE_STATE" == "InService" ]; then
+      IN_SERVICE=1
+      break
+    fi
+    log_info -l "$NEW_INSTANCE_ID is $LIFECYCLE_STATE..." -q "$QUIET_MODE"
+  fi
+  pause_unless_last "$ATTEMPT"
+done
+if [ "$IN_SERVICE" -ne 1 ]; then
+  if [ -n "$NEW_INSTANCE_ID" ]; then
+    err "$NEW_INSTANCE_ID did not reach InService within $TIMEOUT_MINUTES minute(s) (last state: $LIFECYCLE_STATE). Check the NodeManager Lambda logs for stack '$STACK_NAME'"
+  else
+    err "Auto scaling group '$ASG_NAME' launched no replacement within $TIMEOUT_MINUTES minute(s)"
+  fi
+  exit 1
+fi
+
+# The group registers its instances itself; this covers a target group it
+# missed rather than registering everywhere twice
+log_info -l "Checking $NEW_INSTANCE_ID is registered with every target group..." -q "$QUIET_MODE"
+for TARGET_GROUP in "${TARGET_GROUPS[@]}"; do
+  HEALTH="$(aws_cmd elbv2 describe-target-health --target-group-arn "$TARGET_GROUP")"
+  STATE="$(target_state "$HEALTH" "$NEW_INSTANCE_ID")"
+  if [ "$STATE" == "missing" ]; then
+    log_info -l "Registering $NEW_INSTANCE_ID with $TARGET_GROUP..." -q "$QUIET_MODE"
+    aws_cmd elbv2 register-targets --target-group-arn "$TARGET_GROUP" --targets "Id=$NEW_INSTANCE_ID" >/dev/null
+  fi
+done
+
+log_info -l "Waiting for $NEW_INSTANCE_ID to become healthy in every target group..." -q "$QUIET_MODE"
+HEALTHY=0
+for ((ATTEMPT = 1; ATTEMPT <= MAX_ATTEMPTS; ATTEMPT++)); do
+  HEALTHY=1
+  for TARGET_GROUP in "${TARGET_GROUPS[@]}"; do
+    HEALTH="$(aws_cmd elbv2 describe-target-health --target-group-arn "$TARGET_GROUP")"
+    STATE="$(target_state "$HEALTH" "$NEW_INSTANCE_ID")"
+    if [ "$STATE" != "healthy" ]; then
+      HEALTHY=0
+      break
+    fi
+  done
+  if [ "$HEALTHY" -eq 1 ]; then
+    break
+  fi
+  pause_unless_last "$ATTEMPT"
+done
+if [ "$HEALTHY" -ne 1 ]; then
+  err "$NEW_INSTANCE_ID did not become healthy in every target group within $TIMEOUT_MINUTES minute(s)"
+  exit 1
+fi
+
+# A replacement comes up without a licence even though the stack carries
+# one, so the stack's key is applied through set-licence. The password is in
+# the environment already, never on the command line
+LICENCE_OK=1
+if [ -n "$NO_LICENCE" ]; then
+  LICENCE_SUMMARY="not set (-n)"
+else
+  log_info -l "Setting the stack's licence on $NEW_INSTANCE_ID..." -q "$QUIET_MODE"
+  if "$APP_ROOT/bin/dalmatian" marklogic set-licence \
+    -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT" -s "$STACK_KEY" -p "$PROFILE" -u "$ML_USER" \
+    -S -I "$NEW_INSTANCE_ID" -y; then
+    LICENCE_SUMMARY="set from the stack's LicenseKey parameter"
+  else
+    LICENCE_OK=0
+    LICENCE_SUMMARY="NOT set"
+    err "The replacement is serving but unlicensed. Retry with: dalmatian marklogic set-licence -i $INFRASTRUCTURE_NAME -e $ENVIRONMENT -s $STACK_KEY -u $ML_USER -S -I $NEW_INSTANCE_ID -p $PROFILE"
+  fi
+fi
+
+# The replacement takes over the node's volume, network interface and so its
+# MarkLogic host name. Its forests rejoin as replicas and copy what changed
+# while it was away; until they are in sync, the next rotation could fail
+# over to a replica that is behind
+FORESTS_OK=1
+if [ "$FOREST_COUNT" -eq 0 ]; then
+  FORESTS_SUMMARY="none to check"
+elif ! open_manage_tunnel "${PEER_IDS[@]}" "$NEW_INSTANCE_ID"; then
+  FORESTS_OK=0
+  FORESTS_SUMMARY="NOT checked (no node reachable)"
+  err "No node of stack '$STACK_NAME' is reachable through Systems Manager to check the forests on $ML_HOST. Check they have caught up before rotating another node"
+else
+  log_info -l "Waiting for the forests on $ML_HOST to catch up..." -q "$QUIET_MODE"
+  BEHIND="not read yet"
+  for ((ATTEMPT = 1; ATTEMPT <= MAX_ATTEMPTS; ATTEMPT++)); do
+    # The host is still rejoining, so a failed read just means not yet
+    if NOW_FORESTS="$(marklogic_host_forests -H "$ML_HOST" -u "$ML_USER" -c "$CURL_CONFIG_LINE" 2>/dev/null)"; then
+      NOW_COUNT="$(echo "$NOW_FORESTS" | jq -s 'length')"
+      BEHIND="$(echo "$NOW_FORESTS" | jq -r 'select(.state != "open" and .state != "sync replicating")
+        | .name + " (" + (if .state == "" then "state unknown" else .state end) + ")"' | paste -sd ',' - | sed 's/,/, /g')"
+      if [ "$NOW_COUNT" -lt "$FOREST_COUNT" ]; then
+        BEHIND="${BEHIND:+$BEHIND, }only $NOW_COUNT of $FOREST_COUNT forests back"
+      fi
+      if [ -z "$BEHIND" ]; then
+        break
+      fi
+    fi
+    pause_unless_last "$ATTEMPT"
+  done
+  marklogic_tunnel_close
+  if [ -z "$BEHIND" ]; then
+    FORESTS_SUMMARY="caught up"
+  else
+    FORESTS_OK=0
+    FORESTS_SUMMARY="NOT caught up"
+    err "The forests on $ML_HOST had not caught up within $TIMEOUT_MINUTES minute(s): $BEHIND. Wait for them to reach 'sync replicating' before rotating another node"
+  fi
+fi
+
+log_info -l "Checking $DATA_VOLUME followed the node..." -q "$QUIET_MODE"
+VOLUME="$(aws_cmd ec2 describe-volumes --volume-ids "$DATA_VOLUME")"
+VOLUME_STATE="$(echo "$VOLUME" | jq -r '.Volumes[0].State // "unknown"')"
+ATTACHED_TO="$(echo "$VOLUME" | jq -r '.Volumes[0].Attachments[0].InstanceId // empty')"
+ATTACHED_DEVICE="$(echo "$VOLUME" | jq -r '.Volumes[0].Attachments[0].Device // empty')"
+ATTACHMENT_STATE="$(echo "$VOLUME" | jq -r '.Volumes[0].Attachments[0].State // empty')"
+
+VOLUME_OK=0
+if [[ "$ATTACHED_TO" == "$NEW_INSTANCE_ID" && "$ATTACHED_DEVICE" == "$DATA_DEVICE" && "$ATTACHMENT_STATE" == "attached" ]]; then
+  VOLUME_OK=1
+  VOLUME_SUMMARY="$DATA_VOLUME attached to $NEW_INSTANCE_ID at $DATA_DEVICE"
+else
+  VOLUME_SUMMARY="$DATA_VOLUME NOT attached to $NEW_INSTANCE_ID (state: $VOLUME_STATE, attached to: ${ATTACHED_TO:-nothing}${ATTACHED_DEVICE:+ at $ATTACHED_DEVICE}${ATTACHMENT_STATE:+, $ATTACHMENT_STATE})"
+fi
+
+NEW_AMI="$(aws_cmd ec2 describe-instances --instance-ids "$NEW_INSTANCE_ID" |
+  jq -r '.Reservations[0].Instances[0].ImageId // "unknown"')"
+
+# The result is the command's output, like the -l listing, so it is printed
+# in quiet mode too
+echo "MarkLogic: $SHUTDOWN_SUMMARY"
+echo "Old node:  $INSTANCE_ID ($OLD_AMI)"
+echo "New node:  $NEW_INSTANCE_ID ($NEW_AMI)"
+echo "Name:      $NODE_NAME"
+echo "Volume:    $VOLUME_SUMMARY"
+echo "Licence:   $LICENCE_SUMMARY"
+echo "Forests:   $FORESTS_SUMMARY"
+
+if [ "$VOLUME_OK" -ne 1 ]; then
+  err "$DATA_VOLUME is not attached to $NEW_INSTANCE_ID at $DATA_DEVICE (state: $VOLUME_STATE, attached to: ${ATTACHED_TO:-nothing})"
+  warning "The replacement is serving traffic but may be running on a fresh, empty data volume. Check the NodeManager Lambda logs for stack '$STACK_NAME' and the volume in the console before rotating any other node"
+  exit 1
+fi
+
+if [[ "$LICENCE_OK" -ne 1 || "$FORESTS_OK" -ne 1 ]]; then
+  exit 1
+fi
