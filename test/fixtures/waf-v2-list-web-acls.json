@@ -1,0 +1,19 @@
+{
+  "WebACLs": [
+    {
+      "Name": "example-project-example-infra-staging-main",
+      "Id": "acl-main",
+      "ARN": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/example-project-example-infra-staging-main/acl-main"
+    },
+    {
+      "Name": "example-project-example-infra-staging-admin",
+      "Id": "acl-admin",
+      "ARN": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/example-project-example-infra-staging-admin/acl-admin"
+    },
+    {
+      "Name": "example-project-other-infra-staging-main",
+      "Id": "acl-decoy",
+      "ARN": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/example-project-other-infra-staging-main/acl-decoy"
+    }
+  ]
+}

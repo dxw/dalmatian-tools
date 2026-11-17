@@ -1,0 +1,10 @@
+{
+  "ManagedKeysIPV4": {
+    "IPAddressVersion": "IPV4",
+    "Addresses": ["192.0.2.10/32", "198.51.100.7/32"]
+  },
+  "ManagedKeysIPV6": {
+    "IPAddressVersion": "IPV6",
+    "Addresses": ["2001:db8::1/128"]
+  }
+}

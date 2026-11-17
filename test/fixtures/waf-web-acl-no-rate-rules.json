@@ -1,0 +1,18 @@
+{
+  "WebACL": {
+    "Name": "example-acl",
+    "Id": "acl-id",
+    "Rules": [
+      {
+        "Name": "AWSManagedRulesCommonRuleSet",
+        "Priority": 1,
+        "Statement": {
+          "ManagedRuleGroupStatement": {
+            "VendorName": "AWS",
+            "Name": "AWSManagedRulesCommonRuleSet"
+          }
+        }
+      }
+    ]
+  }
+}

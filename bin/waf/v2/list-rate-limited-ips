@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "List the IP addresses each rate-based WAF rule is currently rate limiting"
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -w <waf_name>          - WAF name, as keyed in infrastructure_ecs_cluster_wafs (optional, default all)"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -eq 0 ]
+then
+  usage
+fi
+
+while getopts "i:e:w:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    w)
+      WAF_NAME=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+# The infrastructure Terraform creates its Web ACLs with CLOUDFRONT scope, and
+# the WAF API only serves those from us-east-1, whatever the account's region
+dalmatian_wafv2() {
+  "$APP_ROOT/bin/dalmatian" aws run-command \
+    -i "$INFRASTRUCTURE_NAME" \
+    -e "$ENVIRONMENT" \
+    wafv2 "$@" \
+    --scope CLOUDFRONT \
+    --region us-east-1
+}
+
+PROJECT_NAME="$(jq -r '((.terraform_project_name // "") | select(length > 0)) // .project_name' < "$CONFIG_SETUP_JSON_FILE")"
+ACL_PREFIX="$PROJECT_NAME-$INFRASTRUCTURE_NAME-$ENVIRONMENT-"
+
+log_info -l "Finding Web ACLs..." -q "$QUIET_MODE"
+
+ACLS="$(
+  dalmatian_wafv2 list-web-acls \
+    | jq -c \
+      --arg prefix "$ACL_PREFIX" \
+      --arg waf_name "$WAF_NAME" \
+      '.WebACLs[]?
+      | select(.Name | startswith($prefix))
+      | select($waf_name == "" or .Name == $prefix + $waf_name)'
+)"
+
+if [ -z "$ACLS" ]
+then
+  if [ -n "$WAF_NAME" ]
+  then
+    err "Could not find Web ACL '$ACL_PREFIX$WAF_NAME'"
+  else
+    err "Could not find any Web ACLs named '$ACL_PREFIX*'"
+  fi
+  exit 1
+fi
+
+FOUND_IPS=0
+
+while IFS='' read -r acl
+do
+  ACL_NAME="$(echo "$acl" | jq -r '.Name')"
+  ACL_ID="$(echo "$acl" | jq -r '.Id')"
+
+  # Managed keys can only be listed for rules aggregating on the client IP
+  RATE_RULES=()
+  while IFS='' read -r rule_name
+  do
+    RATE_RULES+=("$rule_name")
+  done < <(
+    dalmatian_wafv2 get-web-acl --name "$ACL_NAME" --id "$ACL_ID" \
+      | jq -r '.WebACL.Rules[]?
+        | select(.Statement.RateBasedStatement.AggregateKeyType == "IP"
+          or .Statement.RateBasedStatement.AggregateKeyType == "FORWARDED_IP")
+        | .Name'
+  )
+
+  if [ "${#RATE_RULES[@]}" -eq 0 ]
+  then
+    log_info -l "$ACL_NAME has no IP rate-based rules" -q "$QUIET_MODE"
+    continue
+  fi
+
+  for rule_name in "${RATE_RULES[@]}"
+  do
+    log_info -l "Querying $ACL_NAME rule $rule_name..." -q "$QUIET_MODE"
+    ADDRESSES="$(
+      dalmatian_wafv2 get-rate-based-statement-managed-keys \
+        --web-acl-name "$ACL_NAME" \
+        --web-acl-id "$ACL_ID" \
+        --rule-name "$rule_name" \
+        | jq -r '(.ManagedKeysIPV4.Addresses // []) + (.ManagedKeysIPV6.Addresses // []) | .[]'
+    )"
+    while IFS='' read -r address
+    do
+      [ -n "$address" ] || continue
+      echo "${ACL_NAME#"$ACL_PREFIX"} $rule_name $address"
+      FOUND_IPS=$((FOUND_IPS + 1))
+    done <<< "$ADDRESSES"
+  done
+done <<< "$ACLS"
+
+if [ "$FOUND_IPS" -eq 0 ]
+then
+  log_info -l "No IP addresses are currently rate limited" -q "$QUIET_MODE"
+fi
