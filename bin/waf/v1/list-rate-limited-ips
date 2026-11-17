@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "List the IP addresses each rate-based rule on the CloudFront WAF is currently rate limiting"
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+while getopts "i:e:h" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE_NAME=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE_NAME"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+# The v1 rate limiting lives on the CloudFront-scoped Web ACL, which the WAF
+# API only serves from us-east-1. The regional ACLs carry managed rule groups
+# only.
+WAF_WEB_ACL_NAME="$INFRASTRUCTURE_NAME-$ENVIRONMENT-cf-web-acl"
+
+log_info -l "Finding Web ACL '$WAF_WEB_ACL_NAME'..." -q "$QUIET_MODE"
+
+ACL_ID="$(
+  aws wafv2 list-web-acls --scope CLOUDFRONT --region us-east-1 \
+    | jq -r --arg acl_name "$WAF_WEB_ACL_NAME" '.WebACLs[]? | select(.Name == $acl_name) | .Id'
+)"
+
+if [ -z "$ACL_ID" ]
+then
+  err "Could not find Web ACL '$WAF_WEB_ACL_NAME'"
+  exit 1
+fi
+
+# Managed keys can only be listed for rules aggregating on the client IP
+RATE_RULES=()
+while IFS='' read -r rule_name
+do
+  RATE_RULES+=("$rule_name")
+done < <(
+  aws wafv2 get-web-acl --scope CLOUDFRONT --region us-east-1 \
+    --name "$WAF_WEB_ACL_NAME" \
+    --id "$ACL_ID" \
+    | jq -r '.WebACL.Rules[]?
+      | select(.Statement.RateBasedStatement.AggregateKeyType == "IP"
+        or .Statement.RateBasedStatement.AggregateKeyType == "FORWARDED_IP")
+      | .Name'
+)
+
+if [ "${#RATE_RULES[@]}" -eq 0 ]
+then
+  log_info -l "$WAF_WEB_ACL_NAME has no IP rate-based rules" -q "$QUIET_MODE"
+  exit 0
+fi
+
+FOUND_IPS=0
+
+for rule_name in "${RATE_RULES[@]}"
+do
+  log_info -l "Querying rule $rule_name..." -q "$QUIET_MODE"
+  ADDRESSES="$(
+    aws wafv2 get-rate-based-statement-managed-keys --scope CLOUDFRONT --region us-east-1 \
+      --web-acl-name "$WAF_WEB_ACL_NAME" \
+      --web-acl-id "$ACL_ID" \
+      --rule-name "$rule_name" \
+      | jq -r '(.ManagedKeysIPV4.Addresses // []) + (.ManagedKeysIPV6.Addresses // []) | .[]'
+  )"
+  while IFS='' read -r address
+  do
+    [ -n "$address" ] || continue
+    echo "$rule_name $address"
+    FOUND_IPS=$((FOUND_IPS + 1))
+  done <<< "$ADDRESSES"
+done
+
+if [ "$FOUND_IPS" -eq 0 ]
+then
+  log_info -l "No IP addresses are currently rate limited" -q "$QUIET_MODE"
+fi

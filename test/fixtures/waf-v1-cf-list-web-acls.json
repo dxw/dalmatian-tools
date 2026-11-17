@@ -1,0 +1,14 @@
+{
+  "WebACLs": [
+    {
+      "Name": "other-infra-staging-cf-web-acl",
+      "Id": "cf-acl-decoy",
+      "ARN": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/other-infra-staging-cf-web-acl/cf-acl-decoy"
+    },
+    {
+      "Name": "example-infra-staging-cf-web-acl",
+      "Id": "cf-acl-1",
+      "ARN": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/example-infra-staging-cf-web-acl/cf-acl-1"
+    }
+  ]
+}
