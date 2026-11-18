@@ -70,7 +70,9 @@ if [[
   "$FORCE_RELOG" == "1"
   ]]
 then
-  aws sso login --profile "$AWS_SSO_PROFILE"
+  # The browser prompt is for the user, not the caller: a nested `dalmatian`
+  # call whose stdout is being captured would otherwise receive it
+  aws sso login --profile "$AWS_SSO_PROFILE" >&2
   log_info -l "Checking AWS SSO login was successful..." -q "$QUIET_MODE"
   AWS_SSO_CACHE_JSON="$(grep -h -e "\"$START_URL\"" ~/.aws/sso/cache/*.json || true)"
   EXPIRES_AT="$(echo "$AWS_SSO_CACHE_JSON" | jq -r '.expiresAt')"
