@@ -1,0 +1,10 @@
+{
+  "ManagedKeysIPV4": {
+    "IPAddressVersion": "IPV4",
+    "Addresses": []
+  },
+  "ManagedKeysIPV6": {
+    "IPAddressVersion": "IPV6",
+    "Addresses": []
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "WebACL": {
+    "Name": "example-acl",
+    "Id": "acl-id",
+    "Rules": [
+      {
+        "Name": "AWSManagedRulesCommonRuleSet",
+        "Priority": 1,
+        "Statement": {
+          "ManagedRuleGroupStatement": {
+            "VendorName": "AWS",
+            "Name": "AWSManagedRulesCommonRuleSet"
+          }
+        }
+      },
+      {
+        "Name": "RateLogin",
+        "Priority": 200,
+        "Statement": {
+          "RateBasedStatement": {
+            "Limit": 100,
+            "AggregateKeyType": "IP",
+            "EvaluationWindowSec": 300
+          }
+        }
+      },
+      {
+        "Name": "RateByHeader",
+        "Priority": 201,
+        "Statement": {
+          "RateBasedStatement": {
+            "Limit": 100,
+            "AggregateKeyType": "CUSTOM_KEYS"
+          }
+        }
+      },
+      {
+        "Name": "RateLimit",
+        "Priority": 1000,
+        "Statement": {
+          "RateBasedStatement": {
+            "Limit": 1000,
+            "AggregateKeyType": "IP",
+            "EvaluationWindowSec": 300
+          }
+        }
+      }
+    ]
+  }
+}
