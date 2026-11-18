@@ -43,6 +43,11 @@ function resolve_aws_profile {
   ]]
   then
     ACCOUNT_INFRASTRUCTURES="$("$APP_ROOT/bin/dalmatian" deploy list-infrastructures)"
+    if ! echo "$ACCOUNT_INFRASTRUCTURES" | jq -e . > /dev/null 2>&1
+    then
+      echo "Error: \`dalmatian deploy list-infrastructures\` did not return valid JSON" >&2
+      return 1
+    fi
     ACCOUNT_WORKSPACE="$(echo "$ACCOUNT_INFRASTRUCTURES" | jq -r \
     --arg infrastructure_name "$INFRASTRUCTURE_NAME" \
     --arg environment_name "$ENVIRONMENT_NAME" \
@@ -53,7 +58,12 @@ function resolve_aws_profile {
       ( .value.infrastructures[$infrastructure_name].environments | index($environment_name) )
     )) |
     from_entries |
-    keys[0]')"
+    keys[0] // empty')"
+    if [ -z "$ACCOUNT_WORKSPACE" ]
+    then
+      echo "Error: No Dalmatian account has infrastructure '$INFRASTRUCTURE_NAME' with environment '$ENVIRONMENT_NAME'" >&2
+      return 1
+    fi
   elif [[
     -n "$DALMATIAN_ACCOUNT"
   ]]

@@ -52,3 +52,28 @@ PROFILES
   assert_failure
   assert_stderr_contains "Invalid \`resolve_aws_profile\` function usage"
 }
+
+@test "resolve_aws_profile names an infrastructure and environment it cannot find" {
+  run --separate-stderr resolve_aws_profile -i "example-infra" -e "nonexistent"
+  assert_failure
+  assert_stderr_contains "No Dalmatian account has infrastructure 'example-infra' with environment 'nonexistent'"
+  if [[ "$stderr" == *"generate-config"* ]]
+  then
+    fail "expected no generate-config hint, got: $stderr"
+  fi
+}
+
+@test "resolve_aws_profile reports list-infrastructures output that is not JSON" {
+  stub_response dalmatian-deploy-list_infrastructures <<'OUT'
+Attempting to automatically open the SSO authorization page in your default browser.
+{"accounts": {}}
+OUT
+
+  run --separate-stderr resolve_aws_profile -i "example-infra" -e "staging"
+  assert_failure
+  assert_stderr_contains "\`dalmatian deploy list-infrastructures\` did not return valid JSON"
+  if [[ "$stderr" == *"generate-config"* ]]
+  then
+    fail "expected no generate-config hint, got: $stderr"
+  fi
+}
