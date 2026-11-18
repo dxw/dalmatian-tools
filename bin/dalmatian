@@ -334,7 +334,7 @@ then
 
   if [[
     "$SUBCOMMAND" != "setup" &&
-    ( "$SUBCOMMAND" != "aws" && "$COMMAND" != "login" && "$COMMAND" != "generate-config" ) &&
+    ! ( "$SUBCOMMAND" == "aws" && ( "$COMMAND" == "login" || "$COMMAND" == "generate-config" ) ) &&
     "$SUBCOMMAND" != "update"
   ]]
   then

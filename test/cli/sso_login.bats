@@ -66,3 +66,13 @@ STUB
   assert_stub_called_with "aws sso login"
   assert_output "example-account"
 }
+
+@test "an aws command refreshes the session before it runs" {
+  run --separate-stderr "$TEST_DALMATIAN" aws exec
+  assert_stub_called_with "aws sso login"
+}
+
+@test "aws generate-config is not preceded by a login from the dispatcher" {
+  run --separate-stderr "$TEST_DALMATIAN" aws generate-config -h
+  refute_stub_called_with "aws sso login"
+}
