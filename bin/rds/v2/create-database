@@ -77,25 +77,7 @@ then
   usage
 fi
 
-# Everything below is substituted into a script the utilities container runs,
-# so each value is held to a pattern that cannot break out of it. Names are
-# restricted to what both engines accept as identifiers rather than escaped
-IDENTIFIER_PATTERN='^[A-Za-z_][A-Za-z0-9_]{0,62}$'
-if [[ ! "$DB_NAME" =~ $IDENTIFIER_PATTERN ]]
-then
-  err "Database name must be letters, digits and underscores, not starting with a digit"
-  exit 1
-fi
-if [[ ! "$USER_NAME" =~ $IDENTIFIER_PATTERN ]]
-then
-  err "User name must be letters, digits and underscores, not starting with a digit"
-  exit 1
-fi
-if [[ ! "$INFRASTRUCTURE/$ENVIRONMENT/$RDS_NAME" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
-then
-  err "Infrastructure, environment and RDS names must be letters, digits, '.', '_' and '-'"
-  exit 1
-fi
+rds_validate_names -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME" -d "$DB_NAME" -u "$USER_NAME"
 
 PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
 RDS_IDENTIFIER="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -l)-$RDS_NAME"
@@ -115,32 +97,11 @@ fi
 
 log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
 
-RDS_INFO="$(rds_info -p "$PROFILE" -i "$RDS_IDENTIFIER")"
-RDS_ENGINE="$(echo "$RDS_INFO" | jq -r '.engine')"
-RDS_ROOT_USERNAME="$(echo "$RDS_INFO" | jq -r '.master_username')"
-# The utilities task's own DB_HOST is a cluster's reader endpoint, which
-# cannot take writes, so point it at the writer
-RDS_ENDPOINT="$(echo "$RDS_INFO" | jq -r '.endpoint')"
-
-if [[ ! "$RDS_ENDPOINT" =~ ^[A-Za-z0-9.-]+$ ]]
-then
-  err "Unexpected endpoint for $RDS_IDENTIFIER: $RDS_ENDPOINT"
-  exit 1
-fi
-if [[ ! "$RDS_ROOT_USERNAME" =~ $IDENTIFIER_PATTERN ]]
-then
-  err "Unexpected root username for $RDS_IDENTIFIER: $RDS_ROOT_USERNAME"
-  exit 1
-fi
-
-REGION="$("$APP_ROOT/bin/dalmatian" aws run-command \
-  -p "$PROFILE" \
-  configure get region)"
-if [[ ! "$REGION" =~ ^[a-z0-9-]+$ ]]
-then
-  err "Unexpected region for profile $PROFILE: $REGION"
-  exit 1
-fi
+RDS_TARGET="$(rds_target -p "$PROFILE" -i "$RDS_IDENTIFIER")"
+RDS_ENGINE="$(echo "$RDS_TARGET" | jq -r '.engine')"
+RDS_ROOT_USERNAME="$(echo "$RDS_TARGET" | jq -r '.root_username')"
+RDS_ENDPOINT="$(echo "$RDS_TARGET" | jq -r '.endpoint')"
+REGION="$(echo "$RDS_TARGET" | jq -r '.region')"
 
 # The container fetches the password itself with its task role, so it never
 # appears in the RunTask request
@@ -221,17 +182,10 @@ then
 else
   if [ "$READ_PASSWORD" -eq 1 ]
   then
-    USER_PASSWORD="$(rds_password -p)"
+    rds_store_user_password -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -u "$USER_NAME" -n "$SECRET_NAME" -p
   else
-    log_info -l "Generating a password for $USER_NAME ..." -q "$QUIET_MODE"
-    USER_PASSWORD="$(rds_password)"
+    rds_store_user_password -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -u "$USER_NAME" -n "$SECRET_NAME"
   fi
-  log_info -l "Storing the password in $PARAMETER_NAME ..." -q "$QUIET_MODE"
-  printf '%s' "$USER_PASSWORD" | "$APP_ROOT/bin/dalmatian" aws put-secret \
-    -i "$INFRASTRUCTURE" \
-    -e "$ENVIRONMENT" \
-    -n "$SECRET_NAME" \
-    > /dev/null
 fi
 
 log_info -l "Creating database $DB_NAME and user $USER_NAME on $RDS_IDENTIFIER ..." -q "$QUIET_MODE"
