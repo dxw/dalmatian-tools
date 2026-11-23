@@ -1,0 +1,31 @@
+{
+  "DBInstances": [
+    {
+      "DBInstanceIdentifier": "exampleinfraexamplerdsstaging",
+      "DBInstanceArn": "arn:aws:rds:eu-west-2:123456789012:db:exampleinfraexamplerdsstaging",
+      "DBInstanceStatus": "available",
+      "Engine": "mysql",
+      "EngineVersion": "8.4.3",
+      "PreferredMaintenanceWindow": "mon:19:00-mon:19:30",
+      "PendingModifiedValues": {}
+    },
+    {
+      "DBInstanceIdentifier": "exampleinfrapinnedpgstaging",
+      "DBInstanceArn": "arn:aws:rds:eu-west-2:123456789012:db:exampleinfrapinnedpgstaging",
+      "DBInstanceStatus": "available",
+      "Engine": "postgres",
+      "EngineVersion": "16.8",
+      "PreferredMaintenanceWindow": "tue:03:00-tue:03:30",
+      "PendingModifiedValues": {}
+    },
+    {
+      "DBInstanceIdentifier": "otherinfraexamplerdsstaging",
+      "DBInstanceArn": "arn:aws:rds:eu-west-2:123456789012:db:otherinfraexamplerdsstaging",
+      "DBInstanceStatus": "available",
+      "Engine": "mysql",
+      "EngineVersion": "8.4.3",
+      "PreferredMaintenanceWindow": "mon:19:00-mon:19:30",
+      "PendingModifiedValues": {}
+    }
+  ]
+}
