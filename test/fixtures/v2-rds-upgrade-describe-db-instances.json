@@ -1,0 +1,34 @@
+{
+  "DBInstances": [
+    {
+      "DBInstanceIdentifier": "ccb69c87-example-rds",
+      "DBInstanceArn": "arn:aws:rds:eu-west-2:123456789012:db:ccb69c87-example-rds",
+      "DBInstanceStatus": "available",
+      "Engine": "mysql",
+      "EngineVersion": "8.4.3",
+      "PreferredMaintenanceWindow": "Mon:19:00-Mon:22:00",
+      "MasterUsername": "root",
+      "Endpoint": { "Address": "ccb69c87-example-rds.abcdefghijkl.eu-west-2.rds.amazonaws.com", "Port": 3306 },
+      "PendingModifiedValues": {}
+    },
+    {
+      "DBInstanceIdentifier": "ccb69c87-example-cluster-1",
+      "DBInstanceArn": "arn:aws:rds:eu-west-2:123456789012:db:ccb69c87-example-cluster-1",
+      "DBInstanceStatus": "available",
+      "DBClusterIdentifier": "ccb69c87-example-cluster",
+      "Engine": "aurora-mysql",
+      "EngineVersion": "8.0.mysql_aurora.3.05.2",
+      "PreferredMaintenanceWindow": "mon:19:00-mon:22:00",
+      "PendingModifiedValues": {}
+    },
+    {
+      "DBInstanceIdentifier": "deadbeef-other",
+      "DBInstanceArn": "arn:aws:rds:eu-west-2:123456789012:db:deadbeef-other",
+      "DBInstanceStatus": "available",
+      "Engine": "postgres",
+      "EngineVersion": "16.8",
+      "PreferredMaintenanceWindow": "Mon:19:00-Mon:22:00",
+      "PendingModifiedValues": {}
+    }
+  ]
+}
