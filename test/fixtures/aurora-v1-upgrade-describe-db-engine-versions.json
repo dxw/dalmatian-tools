@@ -1,0 +1,28 @@
+{
+  "DBEngineVersions": [
+    {
+      "Engine": "aurora-mysql",
+      "EngineVersion": "8.0.mysql_aurora.3.05.2",
+      "ValidUpgradeTarget": [
+        {
+          "Engine": "aurora-mysql",
+          "EngineVersion": "8.0.mysql_aurora.3.10.3",
+          "IsMajorVersionUpgrade": false,
+          "AutoUpgrade": false
+        },
+        {
+          "Engine": "aurora-mysql",
+          "EngineVersion": "8.0.mysql_aurora.3.06.0",
+          "IsMajorVersionUpgrade": false,
+          "AutoUpgrade": false
+        },
+        {
+          "Engine": "aurora-mysql",
+          "EngineVersion": "8.4.mysql_aurora.4.0.0",
+          "IsMajorVersionUpgrade": true,
+          "AutoUpgrade": false
+        }
+      ]
+    }
+  ]
+}
