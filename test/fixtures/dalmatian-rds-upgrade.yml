@@ -1,0 +1,19 @@
+infrastructures:
+  example-infra:
+    environments:
+      staging: {}
+      prod: {}
+    rds:
+      - identifier: examplerds
+        engine: mysql
+        engine_version: 8.4.3
+      - identifier: pinnedpg
+        engine: postgres
+        engine_version: '16.8'
+      - identifier: dashed-db
+        engine: mysql
+        engine_version: 8.0.40
+    aurora:
+      - identifier: examplecluster
+        engine: aurora-mysql
+        engine_version: '8.0'
