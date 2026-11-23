@@ -1,0 +1,39 @@
+{
+  "DBClusters": [
+    {
+      "DBClusterIdentifier": "exampleinfraexampleclusterstaging",
+      "DBClusterArn": "arn:aws:rds:eu-west-2:123456789012:cluster:exampleinfraexampleclusterstaging",
+      "Status": "available",
+      "Engine": "aurora-mysql",
+      "EngineVersion": "8.0.mysql_aurora.3.05.2",
+      "PreferredMaintenanceWindow": "mon:19:00-mon:19:30",
+      "DBClusterMembers": [
+        {
+          "DBInstanceIdentifier": "exampleinfraexampleclusterstaging-1",
+          "IsClusterWriter": true
+        }
+      ],
+      "PendingModifiedValues": {}
+    },
+    {
+      "DBClusterIdentifier": "exampleinfrasecondclusterstaging",
+      "DBClusterArn": "arn:aws:rds:eu-west-2:123456789012:cluster:exampleinfrasecondclusterstaging",
+      "Status": "available",
+      "Engine": "aurora-postgresql",
+      "EngineVersion": "16.8",
+      "PreferredMaintenanceWindow": "tue:03:00-tue:03:30",
+      "DBClusterMembers": [],
+      "PendingModifiedValues": {}
+    },
+    {
+      "DBClusterIdentifier": "otherinfraexampleclusterstaging",
+      "DBClusterArn": "arn:aws:rds:eu-west-2:123456789012:cluster:otherinfraexampleclusterstaging",
+      "Status": "available",
+      "Engine": "aurora-mysql",
+      "EngineVersion": "8.0.mysql_aurora.3.05.2",
+      "PreferredMaintenanceWindow": "mon:19:00-mon:19:30",
+      "DBClusterMembers": [],
+      "PendingModifiedValues": {}
+    }
+  ]
+}
