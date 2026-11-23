@@ -1,0 +1,32 @@
+{
+  "DBClusters": [
+    {
+      "DBClusterIdentifier": "ccb69c87-example-cluster",
+      "DBClusterArn": "arn:aws:rds:eu-west-2:123456789012:cluster:ccb69c87-example-cluster",
+      "Status": "available",
+      "Engine": "aurora-mysql",
+      "EngineVersion": "8.0.mysql_aurora.3.05.2",
+      "PreferredMaintenanceWindow": "mon:19:00-mon:22:00",
+      "MasterUsername": "root",
+      "Endpoint": "ccb69c87-example-cluster.cluster-abcdefghijkl.eu-west-2.rds.amazonaws.com",
+      "ReaderEndpoint": "ccb69c87-example-cluster.cluster-ro-abcdefghijkl.eu-west-2.rds.amazonaws.com",
+      "DBClusterMembers": [
+        {
+          "DBInstanceIdentifier": "ccb69c87-example-cluster-1",
+          "IsClusterWriter": true
+        }
+      ],
+      "PendingModifiedValues": {}
+    },
+    {
+      "DBClusterIdentifier": "deadbeef-othercluster",
+      "DBClusterArn": "arn:aws:rds:eu-west-2:123456789012:cluster:deadbeef-othercluster",
+      "Status": "available",
+      "Engine": "aurora-postgresql",
+      "EngineVersion": "16.8",
+      "PreferredMaintenanceWindow": "mon:19:00-mon:22:00",
+      "DBClusterMembers": [],
+      "PendingModifiedValues": {}
+    }
+  ]
+}
