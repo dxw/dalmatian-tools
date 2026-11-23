@@ -1,0 +1,28 @@
+{
+  "DBEngineVersions": [
+    {
+      "Engine": "mysql",
+      "EngineVersion": "8.4.3",
+      "ValidUpgradeTarget": [
+        {
+          "Engine": "mysql",
+          "EngineVersion": "8.4.10",
+          "IsMajorVersionUpgrade": false,
+          "AutoUpgrade": false
+        },
+        {
+          "Engine": "mysql",
+          "EngineVersion": "8.4.4",
+          "IsMajorVersionUpgrade": false,
+          "AutoUpgrade": false
+        },
+        {
+          "Engine": "mysql",
+          "EngineVersion": "9.0.1",
+          "IsMajorVersionUpgrade": true,
+          "AutoUpgrade": false
+        }
+      ]
+    }
+  ]
+}
