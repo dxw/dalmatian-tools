@@ -21,7 +21,7 @@ dalmatian setup [OPTIONS]
 - `-n <installation_name>` — Name for this installation (defaults to the project name; must use lower-case letters, digits, `-`, and `_`, starting with a letter or digit).
 - `-f <setup_filepath>` — Seed prompt defaults from a local `setup.json` file.
 - `-u <setup_url>` — Seed prompt defaults from a hosted `setup.json` URL.
-- `-b` — Enable bootstrap mode (also enabled when `DALMATIAN_BOOTSTRAP=true`). Passes `-d` to `aws account-init` and offers to run `dalmatian deploy account-bootstrap` on the main account.
+- `-b` — Enable bootstrap mode (also enabled when `DALMATIAN_BOOTSTRAP=true`). Passes `-d` through `aws account-init` to `deploy account-bootstrap` on the main account: if the default-resource deletion Lambda exists, the deletion prompt **defaults to yes (Enter authorizes deletion)**. This happens before the separate prompt offering an additional `dalmatian deploy account-bootstrap` run.
 - `-y` — Skip the confirmation prompt (and exports `DALMATIAN_ASSUME_YES=1` so chained state-bucket creation is also non-interactive).
 - `-h` — Show help.
 
