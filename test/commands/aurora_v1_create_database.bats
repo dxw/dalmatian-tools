@@ -48,15 +48,6 @@ setup() {
   assert_stub_called_with "ssm start-session --target i-0fedcba987654321f --document-name exampleinfraexamplerdsstaging-aurora-db-creation --parameters RootPassword=example-root-password,NewDbName=exampledb,NewUserName=exampleuser,NewUserPassword=exampleuserpass"
 }
 
-# Same pre-existing pick_ecs_instance quirk as the rds twin: that function's
-# own `getopts "i:e"` is missing the colon after `e`, so in isolation -e's
-# value never reaches its OPTARG. Here OPTIND is already past this script's
-# own option parsing when pick_ecs_instance is called, so its getopts loop
-# matches nothing and its INFRASTRUCTURE_NAME/ENVIRONMENT locals fall through
-# to this script's identically-named globals, which happen to hold the right
-# values. The filter below is correct today only because of that
-# variable-name and OPTIND coincidence. Verified directly against both the
-# isolated function and this call site.
 @test "aurora create-database picks an ECS instance by infra+environment tag when -I is omitted" {
   run run_command bin/aurora/v1/create-database \
     -i "example-infra" -r "example-rds" -e "staging" \
@@ -64,6 +55,18 @@ setup() {
   assert_success
   assert_stub_called_with "Name=tag:Name,Values=example-infra-staging*"
   assert_stub_called_with "ssm start-session --target i-0123456789abcdef0"
+}
+
+@test "aurora create-database tries the next ECS instance when starting the session fails" {
+  stub_response_file aws-ec2-describe_instances ec2-describe-instances-two.json
+  stub_exit aws-ssm-start_session-target-i_0123456789abcdef0 1
+
+  run --separate-stderr run_command bin/aurora/v1/create-database \
+    -i "example-infra" -r "example-rds" -e "staging" \
+    -d "exampledb" -u "exampleuser" -P "exampleuserpass"
+  assert_success
+  assert_stub_called_with "ssm start-session --target i-0123456789abcdef0"
+  assert_stub_called_with "ssm start-session --target i-0fedcba987654321f"
 }
 
 @test "aurora create-database fails and does not start a session when the password lookup fails" {

@@ -94,13 +94,11 @@ RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBClusters[0].MasterUsername)
 echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 
-ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
-
-echo "ECS instance ID: $ECS_INSTANCE_ID"
-
-log_info -l "Starting $RDS_ENGINE session on $RDS_IDENTIFIER..." -q "$QUIET_MODE"
-set -x
-aws ssm start-session \
-  --target "$ECS_INSTANCE_ID" \
-  --document-name "$RDS_IDENTIFIER-aurora-shell" \
-  --parameters "RootPassword=$RDS_ROOT_PASSWORD"
+rds_ssm_start_session \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  -I "${ECS_INSTANCE_ID:-}" \
+  -d "$RDS_IDENTIFIER-aurora-shell" \
+  -p "RootPassword=$RDS_ROOT_PASSWORD" \
+  -m "Starting $RDS_ENGINE session on $RDS_IDENTIFIER..." \
+  -x

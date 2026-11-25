@@ -75,22 +75,12 @@ RDS_VPC=$(echo "$RDS_INFO" | jq -r .DBInstances[0].DBSubnetGroup.VpcId)
 
 log_info -l "Finding ECS instance..." -q "$QUIET_MODE"
 
-ECS_INSTANCES=$(
-  aws ec2 describe-instances \
-    --filters "Name=vpc-id,Values=$RDS_VPC" "Name=instance-state-code,Values=16" Name=tag:Name,Values="$INFRASTRUCTURE_NAME-$ENVIRONMENT*")
-
-ECS_INSTANCE_ID=$(
-  echo "$ECS_INSTANCES" \
-    | jq -r .Reservations[0].Instances[0].InstanceId
-)
-
-log_info -l "ECS instance ID: $ECS_INSTANCE_ID" -q "$QUIET_MODE"
-
-log_info -l "Listing databases..." -q "$QUIET_MODE"
-
-aws ssm start-session \
-  --target "$ECS_INSTANCE_ID" \
-  --document-name "$RDS_IDENTIFIER-rds-db-list" \
-  --parameters "RootPassword=$RDS_ROOT_PASSWORD"
+rds_ssm_start_session \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  -v "$RDS_VPC" \
+  -d "$RDS_IDENTIFIER-rds-db-list" \
+  -p "RootPassword=$RDS_ROOT_PASSWORD" \
+  -m "Listing databases..."
 
 log_info -l "Success!" -q "$QUIET_MODE"
