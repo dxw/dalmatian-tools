@@ -52,6 +52,8 @@
 
    If you are starting a brand-new Dalmatian project with no existing `setup.json`, run `dalmatian setup` (or `dalmatian setup -b` to bootstrap the main account).
 
+   Before continuing, select the installation you just configured with `dalmatian installation use <installation_name>` (use the installation name printed by `setup`). Setup preserves an existing default when adding another installation. If `DALMATIAN_INSTALLATION` is set in your shell, update or unset it too, because it overrides that default for both v1 and v2 commands.
+
    Then authenticate via AWS IAM Identity Center (SSO):
 
    ```bash
