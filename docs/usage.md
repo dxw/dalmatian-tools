@@ -56,6 +56,7 @@ Every command in the reference is classified using one of four safety levels, sc
 | Deploy an infrastructure | `dalmatian deploy infrastructure` ([details](./usage/deploy.md#dalmatian-deploy-infrastructure)) |
 | Deploy a service or check logs | `dalmatian service deploy` / `logs` ([details](./usage/service.md)) |
 | Open a database shell or download a backup | `dalmatian rds shell` / `download-sql-backup` ([details](./usage/rds.md)) |
+| Upgrade a database to a newer minor engine version | `dalmatian rds upgrade-engine` ([details](./usage/rds.md#dalmatian-rds-upgrade-engine)) |
 | Clear CloudFront cache or fetch CDN logs | `dalmatian cloudfront clear-cache` / `logs` ([details](./usage/cloudfront.md)) |
 
 ---
@@ -76,7 +77,7 @@ Every command in the reference is classified using one of four safety levels, sc
 - **[`dalmatian ecs`](./usage/ecs.md)** — `ec2-access`, `list-deployments`
 
 ### Databases
-- **[`dalmatian rds`](./usage/rds.md)** — `shell`, `run-command`, `get-root-password`, `create-database`, `remove-database`, `create-user`, `update-user`, `remove-user`, `count-sql-backups`, `download-sql-backup`
+- **[`dalmatian rds`](./usage/rds.md)** — `shell`, `run-command`, `get-root-password`, `create-database`, `remove-database`, `create-user`, `update-user`, `remove-user`, `count-sql-backups`, `download-sql-backup`, `upgrade-engine`
 
 ### Edge, Storage, Identity & Auditing
 - **[`dalmatian cloudfront`](./usage/cloudfront.md)** — `clear-cache`, `logs`

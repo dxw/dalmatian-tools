@@ -1,6 +1,6 @@
 # `dalmatian rds`
 
-Commands for connecting to RDS instances, running SQL/utility commands, managing databases and database users, retrieving root credentials, and inspecting or downloading SQL backups.
+Commands for connecting to RDS instances, running SQL/utility commands, managing databases and database users, retrieving root credentials, inspecting or downloading SQL backups, and upgrading minor engine versions.
 
 ---
 
@@ -323,3 +323,52 @@ dalmatian rds download-sql-backup -i <infrastructure> -r <rds_name> -e <environm
 
 - `0` — Backup downloaded to local path.
 - Non-zero — Missing required flags, `-h`, invalid `-d` date format, no matching backups found, or S3 download failure.
+
+---
+
+## `dalmatian rds upgrade-engine`
+
+**Safety:** Potentially disruptive (the database restarts when the upgrade is applied)
+
+Upgrades an RDS instance or Aurora cluster to a newer **minor** engine version. By default the upgrade is queued for the next maintenance window; `-a` applies it now. Major version upgrades are not supported.
+
+### Syntax
+
+```bash
+dalmatian rds upgrade-engine -i <infrastructure> -e <environment> [-r <rds_name>] [-v <target_version>] [-a] [-y] [-h]
+```
+
+### Required options
+
+- `-i <infrastructure>` — Infrastructure name.
+- `-e <environment>` — Environment name.
+
+### Optional options
+
+- `-r <rds_name>` — RDS name as defined in the Dalmatian config. If omitted, picks from the environment's RDS instances and Aurora clusters (Aurora member instances are left out).
+- `-v <target_version>` — Minor engine version to upgrade to. Must exactly match one of the minor targets AWS offers for the current version; if omitted, picks from them.
+- `-a` — Apply immediately instead of in the next maintenance window.
+- `-y` — Skip the confirmation prompt.
+- `-h` — Show help.
+
+### Under the hood
+
+All AWS calls go through `dalmatian aws run-command -p <profile>`, with the profile resolved from `-i`/`-e`.
+
+1. Works out whether the name is a cluster or an instance, describes it, and refuses anything that is not `available`.
+2. Lists minor targets from `describe-db-engine-versions --include-all` (`ValidUpgradeTarget` with `IsMajorVersionUpgrade` false). `--include-all` means a database on a deprecated version still gets its targets.
+3. Prints a summary (to stderr when prompting, so `-q` or piped output cannot hide it): current and target versions, the weekly `PreferredMaintenanceWindow` (UTC) with its next concrete date and time, or "immediately", a suggested manual snapshot command, and any pending maintenance actions with the command to opt in to each. Nothing is opted in automatically. With `-a`, it also warns about other changes already pending on the database, which AWS applies at the same time.
+4. Asks `y/N` (default no), then calls `modify-db-instance` or `modify-db-cluster` with `--engine-version` and `--no-apply-immediately` (or `--apply-immediately` with `-a`). `--allow-major-version-upgrade` is never passed.
+5. Reads the database back from AWS to confirm the upgrade: a pending engine version, an `upgrading` status, the target version already running, or (for a queued cluster upgrade) a new `db-upgrade` pending maintenance action or one whose description names the target.
+6. Prints when to change `engine_version` in the environment's tfvars (`dalmatian terraform-dependencies view-tfvars` / `set-tfvars`).
+
+### Safety notes
+
+- Change `engine_version` in the tfvars **after** the upgrade has happened and **before** the next deploy. Changed earlier, the next deploy applies the upgrade straight away instead of waiting for the window. Left unchanged, the next deploy fails, because AWS will not downgrade.
+- A deploy that changes the database for any other reason before the window also applies a queued upgrade then.
+- Take a snapshot first; the summary prints the command.
+
+### Exit states
+
+- `0` — Upgrade requested and confirmed by the read-back, already on the latest minor version (nothing to upgrade), or confirmation prompt declined.
+- Non-zero — Missing `-i`/`-e`, `-h`, invalid names, database not `available`, AWS has no record of the current version, `-v` not one of the offered minor targets (including major targets), no terminal for a picker, AWS failure, or the upgrade was accepted but could not be confirmed by the read-back.
