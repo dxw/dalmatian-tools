@@ -25,14 +25,14 @@ When `dalmatian version` is set to `v1`, the following top-level and subcommand 
 
 - **Top-level:** `login`, `version`
 - **`aws`:** `assume-infrastructure-role`, `awscli-version`, `exec`, `export-credentials`, `instance-shell`, `key-age`, `login`, `mfa`
-- **`aurora`:** `count-sql-backups`, `create-database`, `download-sql-backup`, `export-dump`, `get-root-password`, `import-dump`, `list-databases`, `list-instances`, `set-root-password`, `shell`, `start-sql-backup-to-s3`
+- **`aurora`:** `count-sql-backups`, `create-database`, `download-sql-backup`, `export-dump`, `get-root-password`, `import-dump`, `list-databases`, `list-instances`, `set-root-password`, `shell`, `start-sql-backup-to-s3`, `upgrade-engine`
 - **`certificate`:** `create`, `delete`, `list`
 - **`ci`:** `deploy-build-logs`, `deploy-status`
 - **`cloudfront`:** `clear-cache`, `generate-basic-auth-password-hash`, `logs`
 - **`config`:** `list-environments`, `list-infrastructures`, `list-services`, `list-services-by-buildspec`, `services-to-tsv`
 - **`ecs`:** `ec2-access`, `efs-restore`, `file-download`, `file-upload`, `instance-refresh`, `list-deployments`, `remove-from-transfer-bucket`, `upload-to-transfer-bucket`
 - **`elasticache`:** `list-clusters`, `reboot`
-- **`rds`:** `count-sql-backups`, `create-database`, `download-sql-backup`, `export-dump`, `get-root-password`, `import-dump`, `list-databases`, `list-instances`, `set-root-password`, `shell`, `start-sql-backup-to-s3`
+- **`rds`:** `count-sql-backups`, `create-database`, `download-sql-backup`, `export-dump`, `get-root-password`, `import-dump`, `list-databases`, `list-instances`, `set-root-password`, `shell`, `start-sql-backup-to-s3`, `upgrade-engine`
 - **`service`:** `container-access`, `copy-environment-variables`, `delete-environment-variable`, `deploy`, `deploy-build-logs`, `deploy-status`, `ecr-vulnerabilities`, `force-deployment`, `get-environment-variable`, `list-container-placement`, `list-domains`, `list-environment-variables`, `list-pipelines`, `pull-image`, `rename-environment-variable`, `restart-containers`, `run-container-command`, `set-environment-variable`, `show-deployment-status`
 - **`util`:** `env`, `exec`, `generate-four-words`, `ip-port-exposed`, `list-security-group-rules`
 - **`waf`:** `cf-ip-block`, `delete-ip-rule`, `list-blocked-requests`, `list-rate-limited-ips`, `set-ip-rule`
@@ -268,6 +268,37 @@ $ dalmatian rds export-dump \
 ```
 
 Optionally pass `-o "$HOME/Downloads/"` (avoid a literal quoted tilde `"~/Downloads/"`) for the output directory, and `-I "$instance_id"` for a specific EC2 instance.
+
+#### `dalmatian rds upgrade-engine` and `dalmatian aurora upgrade-engine`
+
+**Safety:** Potentially disruptive (the database restarts when the upgrade is applied)
+
+Upgrades an RDS instance (`rds`) or an Aurora cluster (`aurora`) to a newer **minor** engine version. By default the upgrade is queued for the next maintenance window; `-a` applies it now. Major version upgrades are not supported. The two are separate scripts; combining the v1 `aurora` and `rds` commands is tracked in [#585](https://github.com/dxw/dalmatian-tools/issues/585).
+
+```
+$ dalmatian rds upgrade-engine \
+  -i "$infrastructure" \
+  -e "$environment" \
+  [-r "$rds_name"] \
+  [-v "$target_version"] \
+  [-a] [-y]
+```
+
+`dalmatian aurora upgrade-engine` takes the same flags, with `-r` naming the Aurora cluster as defined in the Dalmatian config.
+
+- `-r` — RDS or Aurora name as defined in the Dalmatian config. If omitted, picks from the environment's instances (or clusters).
+- `-v` — Must exactly match one of the minor targets AWS offers for the current version (`describe-db-engine-versions --include-all`); if omitted, picks from them.
+- `-a` — Apply immediately instead of in the next maintenance window.
+- `-y` — Skip the `y/N` confirmation prompt (default no).
+
+Before asking, it refuses a database that is not `available` and prints (to stderr when prompting) the current and target versions, the weekly maintenance window with its next concrete date and time (or "immediately"), a suggested `dalmatian aws exec` snapshot command, and pending maintenance actions with the command to opt in to each. Nothing is opted in automatically. With `-a` it also warns about other changes already pending on the database, which AWS applies at the same time. After the `modify-db-instance`/`modify-db-cluster` call it reads the database back from AWS and fails if the upgrade cannot be confirmed.
+
+Afterwards it says whether `engine_version` in the infrastructure's `dalmatian-config` file (`config/infrastructures/<infrastructure>.yml`) needs changing. That value is shared by every environment, so it lists the versions the other environments are running, and suggests `major.minor` for MySQL.
+
+>[!CAUTION]
+>Change `engine_version` **after** the upgrade has happened and **before** the next deploy. Changed earlier, the next deploy applies the upgrade straight away instead of waiting for the window. Left unchanged, the next deploy fails, because AWS will not downgrade.
+
+Exits `0` when the upgrade is requested and confirmed, when there is nothing to upgrade to, or when the confirmation prompt is declined.
 
 #### Additional `aurora` and `rds` v1 commands
 

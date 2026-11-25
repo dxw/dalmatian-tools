@@ -1,0 +1,13 @@
+{
+  "PendingMaintenanceActions": [
+    {
+      "ResourceIdentifier": "arn:aws:rds:eu-west-2:123456789012:cluster:exampleinfraexampleclusterstaging",
+      "PendingMaintenanceActionDetails": [
+        {
+          "Action": "db-upgrade",
+          "Description": "Upgrade to Aurora MySQL 8.0.mysql_aurora.3.10.3"
+        }
+      ]
+    }
+  ]
+}

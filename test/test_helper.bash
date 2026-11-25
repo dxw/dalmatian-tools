@@ -190,6 +190,29 @@ use_stubs() {
   export PATH="$SANDBOX/bin:$DALMATIAN_ROOT/test/stubs:$PATH"
 }
 
+# Pin the current time: `gdate +%s` prints the epoch $1, and every other gdate
+# call reaches the real one. Call after use_stubs.
+stub_now() {
+  local real
+  real="$(command -v gdate)"
+  # On Linux use_stubs has already put a gdate shim at this path
+  if [ "$real" == "$SANDBOX/bin/gdate" ]
+  then
+    real="$(command -v date)"
+  fi
+  cat > "$SANDBOX/bin/gdate.now" <<SHIM
+#!/usr/bin/env bash
+if [ "\$#" -eq 1 ] && [ "\$1" == "+%s" ]
+then
+  echo $(printf '%q' "$1")
+  exit 0
+fi
+exec $(printf '%q' "$real") "\$@"
+SHIM
+  chmod +x "$SANDBOX/bin/gdate.now"
+  mv "$SANDBOX/bin/gdate.now" "$SANDBOX/bin/gdate"
+}
+
 # Stage a stub response. With arguments, they become the body; with none, the
 # body is read from stdin, which reads better for JSON heredocs.
 stub_response() {

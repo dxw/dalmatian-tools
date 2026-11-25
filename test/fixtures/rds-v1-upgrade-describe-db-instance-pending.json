@@ -1,0 +1,15 @@
+{
+  "DBInstances": [
+    {
+      "DBInstanceIdentifier": "exampleinfraexamplerdsstaging",
+      "DBInstanceArn": "arn:aws:rds:eu-west-2:123456789012:db:exampleinfraexamplerdsstaging",
+      "DBInstanceStatus": "available",
+      "Engine": "mysql",
+      "EngineVersion": "8.4.3",
+      "PreferredMaintenanceWindow": "mon:19:00-mon:19:30",
+      "PendingModifiedValues": {
+        "EngineVersion": "8.4.10"
+      }
+    }
+  ]
+}

@@ -1,0 +1,427 @@
+#!/usr/bin/env bash
+
+# exit on failures
+set -e
+set -o pipefail
+
+usage() {
+  echo "Usage: $(basename "$0") [OPTIONS]" 1>&2
+  echo "  -h                     - help"
+  echo "  -i <infrastructure>    - infrastructure name"
+  echo "  -e <environment>       - environment name (e.g. 'staging' or 'prod')"
+  echo "  -r <rds_name>          - RDS name (as defined in the Dalmatian config); picked if omitted"
+  echo "  -v <target_version>    - minor engine version to upgrade to; picked if omitted"
+  echo "  -a                     - apply immediately instead of in the next maintenance window"
+  echo "  -y                     - do not ask for confirmation"
+  echo
+  echo "Upgrades an RDS instance or Aurora cluster to a newer minor engine version. Major version upgrades are not supported."
+  echo "By default the upgrade is queued for the next maintenance window; with -a the database restarts now."
+  echo "Afterwards it says when engine_version in the environment's tfvars needs changing."
+  exit 1
+}
+
+# if there are no arguments passed exit with usage
+if [ $# -lt 1 ]
+then
+  usage
+fi
+
+APPLY_IMMEDIATELY=0
+ASSUME_YES=0
+
+while getopts "i:e:r:v:ayh" opt; do
+  case $opt in
+    i)
+      INFRASTRUCTURE=$OPTARG
+      ;;
+    e)
+      ENVIRONMENT=$OPTARG
+      ;;
+    r)
+      RDS_NAME=$OPTARG
+      ;;
+    v)
+      TARGET_VERSION=$OPTARG
+      ;;
+    a)
+      APPLY_IMMEDIATELY=1
+      ;;
+    y)
+      ASSUME_YES=1
+      ;;
+    h)
+      usage
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+if [[
+  -z "$INFRASTRUCTURE"
+  || -z "$ENVIRONMENT"
+]]
+then
+  usage
+fi
+
+# rds_validate_names needs an RDS name; when it is to be picked, the picked
+# name is checked again below
+rds_validate_names -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "${RDS_NAME:-unpicked}"
+
+aws_rds() {
+  "$APP_ROOT/bin/dalmatian" aws run-command -p "$PROFILE" rds "$@"
+}
+
+PROFILE="$(resolve_aws_profile -i "$INFRASTRUCTURE" -e "$ENVIRONMENT")"
+PREFIX="$(resource_prefix_hash -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -l)"
+
+if [ -z "$RDS_NAME" ]
+then
+  log_info -l "Finding RDS instances and Aurora clusters in $INFRASTRUCTURE $ENVIRONMENT ..." -q "$QUIET_MODE"
+  CLUSTER_LINES="$(
+    aws_rds describe-db-clusters \
+      | jq -r --arg prefix "$PREFIX-" '
+        .DBClusters[]?
+        | .DBClusterIdentifier as $id
+        | select(($id | startswith($prefix)) and ($id | length) > ($prefix | length))
+        | "\($id[($prefix | length):]) cluster \(.Engine) \(.EngineVersion)"'
+  )"
+  INSTANCE_LINES="$(
+    aws_rds describe-db-instances \
+      | jq -r --arg prefix "$PREFIX-" '
+        .DBInstances[]?
+        | select(.DBClusterIdentifier == null)
+        | .DBInstanceIdentifier as $id
+        | select(($id | startswith($prefix)) and ($id | length) > ($prefix | length))
+        | "\($id[($prefix | length):]) instance \(.Engine) \(.EngineVersion)"'
+  )"
+  RDS_LINES="$(printf '%s\n%s\n' "$CLUSTER_LINES" "$INSTANCE_LINES" | sed '/^$/d')"
+  RDS_NAME="$(rds_pick -l "$RDS_LINES" -n database -f -r)"
+  rds_validate_names -i "$INFRASTRUCTURE" -e "$ENVIRONMENT" -r "$RDS_NAME"
+fi
+
+RDS_IDENTIFIER="$PREFIX-$RDS_NAME"
+
+log_info -l "Finding $RDS_IDENTIFIER RDS ..." -q "$QUIET_MODE"
+
+RDS_TYPE="$(rds_info -p "$PROFILE" -i "$RDS_IDENTIFIER" | jq -r '.type')"
+
+if [ "$RDS_TYPE" == "cluster" ]
+then
+  DESCRIBE_ARGS=(describe-db-clusters --db-cluster-identifier "$RDS_IDENTIFIER")
+  DB_PATH='.DBClusters[0]'
+  STATUS_FIELD='Status'
+  ARN_FIELD='DBClusterArn'
+  KIND="Aurora cluster"
+else
+  DESCRIBE_ARGS=(describe-db-instances --db-instance-identifier "$RDS_IDENTIFIER")
+  DB_PATH='.DBInstances[0]'
+  STATUS_FIELD='DBInstanceStatus'
+  ARN_FIELD='DBInstanceArn'
+  KIND="RDS instance"
+fi
+
+RDS_DESCRIPTION="$(aws_rds "${DESCRIBE_ARGS[@]}")"
+ENGINE="$(jq -r "$DB_PATH.Engine" <<< "$RDS_DESCRIPTION")"
+CURRENT_VERSION="$(jq -r "$DB_PATH.EngineVersion" <<< "$RDS_DESCRIPTION")"
+DB_STATUS="$(jq -r "$DB_PATH.$STATUS_FIELD" <<< "$RDS_DESCRIPTION")"
+MAINTENANCE_WINDOW="$(jq -r "$DB_PATH.PreferredMaintenanceWindow" <<< "$RDS_DESCRIPTION")"
+PENDING_VERSION="$(jq -r "$DB_PATH.PendingModifiedValues.EngineVersion // \"\"" <<< "$RDS_DESCRIPTION")"
+RDS_ARN="$(jq -r "$DB_PATH.$ARN_FIELD" <<< "$RDS_DESCRIPTION")"
+MEMBERS="$(jq -r "$DB_PATH.DBClusterMembers[]?.DBInstanceIdentifier" <<< "$RDS_DESCRIPTION")"
+
+if [ "$DB_STATUS" != "available" ]
+then
+  err "$RDS_IDENTIFIER is $DB_STATUS. It can only be upgraded once it is available."
+  exit 1
+fi
+
+if [ -n "$PENDING_VERSION" ]
+then
+  warning "$RDS_IDENTIFIER already has a pending upgrade to $PENDING_VERSION. A new request replaces it."
+fi
+
+log_info -l "Finding upgrade targets for $ENGINE $CURRENT_VERSION ..." -q "$QUIET_MODE"
+
+ENGINE_VERSIONS="$(
+  aws_rds describe-db-engine-versions \
+    --engine "$ENGINE" \
+    --engine-version "$CURRENT_VERSION" \
+    --include-all
+)"
+
+if ! jq -e '(.DBEngineVersions // []) | length > 0' <<< "$ENGINE_VERSIONS" > /dev/null
+then
+  err "AWS returned no record of $ENGINE $CURRENT_VERSION, so its upgrade targets are unknown."
+  exit 1
+fi
+
+MINOR_TARGETS="$(rds_minor_upgrade_targets -j "$ENGINE_VERSIONS")"
+
+if [ -n "$TARGET_VERSION" ]
+then
+  if [[ "$TARGET_VERSION" == *$'\n'* ]] || ! grep -qFx -- "$TARGET_VERSION" <<< "$MINOR_TARGETS"
+  then
+    err "$TARGET_VERSION is not a minor upgrade target for $ENGINE $CURRENT_VERSION."
+    if jq -e --arg v "$TARGET_VERSION" \
+      'any(.DBEngineVersions[]?.ValidUpgradeTarget[]?; .EngineVersion == $v and .IsMajorVersionUpgrade == true)' \
+      <<< "$ENGINE_VERSIONS" > /dev/null
+    then
+      err "Major version upgrades are not supported by this command."
+    fi
+    if [ -z "$MINOR_TARGETS" ]
+    then
+      log_msg -l "AWS offers no minor upgrade targets for $ENGINE $CURRENT_VERSION." -q "$QUIET_MODE" >&2
+    else
+      log_msg -l "Minor upgrade targets:" -q "$QUIET_MODE" >&2
+      log_msg -l "$MINOR_TARGETS" -q "$QUIET_MODE" >&2
+    fi
+    exit 1
+  fi
+elif [ -z "$MINOR_TARGETS" ]
+then
+  log_msg -l "$RDS_IDENTIFIER is already on the latest minor version of $ENGINE $CURRENT_VERSION. Nothing to upgrade to." -q "$QUIET_MODE"
+  exit 0
+else
+  TARGET_VERSION="$(rds_pick -l "$MINOR_TARGETS" -n version -f -v)"
+fi
+
+if [ "$APPLY_IMMEDIATELY" -eq 0 ]
+then
+  WINDOW="$(rds_next_maintenance_window -w "$MAINTENANCE_WINDOW" -n "$(gdate +%s)")"
+  read -r WINDOW_START WINDOW_END WINDOW_STATE <<< "$WINDOW"
+  NEXT_WINDOW="$(gdate -u -d "$WINDOW_START" '+%a %d %b %Y %H:%M UTC') to $(gdate -u -d "$WINDOW_END" '+%a %d %b %Y %H:%M UTC')"
+  if [ "$WINDOW_STATE" == "in-progress" ]
+  then
+    NEXT_WINDOW="$NEXT_WINDOW (in progress)"
+  fi
+fi
+
+PENDING_ACTIONS="$(
+  aws_rds describe-pending-maintenance-actions \
+    --resource-identifier "$RDS_ARN" \
+    | jq -r --arg arn "$RDS_ARN" '.PendingMaintenanceActions[]?.PendingMaintenanceActionDetails[]? | "\($arn)\t\(.Action)\t\(.Description // "")"'
+)"
+ACTIONS_BEFORE="$PENDING_ACTIONS"
+
+# Advisory only, and nothing has changed yet: a member that cannot be looked
+# up is skipped with a warning rather than stopping the command
+while IFS= read -r MEMBER
+do
+  if [ -z "$MEMBER" ]
+  then
+    continue
+  fi
+  if ! MEMBER_ARN="$(
+    aws_rds describe-db-instances --db-instance-identifier "$MEMBER" \
+      | jq -r '.DBInstances[0].DBInstanceArn // empty'
+  )"
+  then
+    warning "Could not look up pending maintenance for cluster member $MEMBER."
+    continue
+  fi
+  if [ -z "$MEMBER_ARN" ]
+  then
+    continue
+  fi
+  if ! MEMBER_ACTIONS="$(
+    aws_rds describe-pending-maintenance-actions \
+      --resource-identifier "$MEMBER_ARN" \
+      | jq -r --arg arn "$MEMBER_ARN" '.PendingMaintenanceActions[]?.PendingMaintenanceActionDetails[]? | "\($arn)\t\(.Action)\t\(.Description // "")"'
+  )"
+  then
+    warning "Could not look up pending maintenance for cluster member $MEMBER."
+    continue
+  fi
+  if [ -n "$MEMBER_ACTIONS" ]
+  then
+    PENDING_ACTIONS+="${PENDING_ACTIONS:+$'\n'}$MEMBER_ACTIONS"
+  fi
+done <<< "$MEMBERS"
+
+EXEC="dalmatian aws exec -i $INFRASTRUCTURE -e $ENVIRONMENT rds"
+SNAPSHOT_SUFFIX="pre-${TARGET_VERSION//[._]/-}"
+if [ "$RDS_TYPE" == "cluster" ]
+then
+  SNAPSHOT_COMMAND="$EXEC create-db-cluster-snapshot --db-cluster-identifier $RDS_IDENTIFIER --db-cluster-snapshot-identifier $RDS_IDENTIFIER-$SNAPSHOT_SUFFIX"
+else
+  SNAPSHOT_COMMAND="$EXEC create-db-snapshot --db-instance-identifier $RDS_IDENTIFIER --db-snapshot-identifier $RDS_IDENTIFIER-$SNAPSHOT_SUFFIX"
+fi
+
+# The operator answers the prompt on the strength of this summary, so without
+# -y it goes to stderr even in quiet mode. QUIET_MODE is local because log_msg
+# assigns the one it is given globally
+summary() {
+  local QUIET_MODE="$QUIET_MODE"
+  if [ "$ASSUME_YES" -eq 0 ]
+  then
+    log_msg -l "$1" -q 0 >&2
+  else
+    log_msg -l "$1" -q "$QUIET_MODE"
+  fi
+}
+
+summary ""
+summary "$KIND: $RDS_IDENTIFIER ($INFRASTRUCTURE $ENVIRONMENT)"
+summary "Engine: $ENGINE"
+summary "Current version: $CURRENT_VERSION"
+summary "Target version: $TARGET_VERSION"
+summary "Maintenance window: $MAINTENANCE_WINDOW (UTC)"
+if [ "$APPLY_IMMEDIATELY" -eq 1 ]
+then
+  summary "When: immediately"
+  warning "The database restarts now and is unavailable while it upgrades."
+  OTHER_PENDING="$(jq -r "$DB_PATH.PendingModifiedValues // {} | del(.EngineVersion) | keys_unsorted | join(\", \")" <<< "$RDS_DESCRIPTION")"
+  if [ -n "$OTHER_PENDING" ]
+  then
+    warning "Applying now also applies the other changes already pending on $RDS_IDENTIFIER: $OTHER_PENDING."
+  fi
+else
+  summary "Next window: $NEXT_WINDOW"
+fi
+if [ "$RDS_TYPE" == "cluster" ]
+then
+  summary "Every instance in the cluster restarts during the upgrade."
+fi
+summary ""
+summary "Take a manual snapshot first:"
+summary "  $SNAPSHOT_COMMAND"
+
+if [ -n "$PENDING_ACTIONS" ]
+then
+  summary ""
+  summary "Pending maintenance actions, which this command leaves alone:"
+  while IFS=$'\t' read -r ACTION_ARN ACTION DESCRIPTION
+  do
+    summary "  $ACTION: $DESCRIPTION"
+    summary "    $EXEC apply-pending-maintenance-action --resource-identifier $ACTION_ARN --apply-action $ACTION --opt-in-type next-maintenance"
+  done <<< "$PENDING_ACTIONS"
+fi
+summary ""
+
+if [ "$ASSUME_YES" -eq 0 ]
+then
+  if ! yes_no "Upgrade $RDS_IDENTIFIER to $ENGINE $TARGET_VERSION? (y/N)" "n"
+  then
+    log_msg -l "Nothing was changed" -q "$QUIET_MODE"
+    exit 0
+  fi
+fi
+
+if [ "$APPLY_IMMEDIATELY" -eq 1 ]
+then
+  APPLY_FLAG="--apply-immediately"
+else
+  APPLY_FLAG="--no-apply-immediately"
+fi
+
+if [ "$RDS_TYPE" == "cluster" ]
+then
+  MODIFY_ARGS=(modify-db-cluster --db-cluster-identifier "$RDS_IDENTIFIER")
+else
+  MODIFY_ARGS=(modify-db-instance --db-instance-identifier "$RDS_IDENTIFIER")
+fi
+
+log_info -l "Requesting the upgrade of $RDS_IDENTIFIER to $TARGET_VERSION ..." -q "$QUIET_MODE"
+
+aws_rds "${MODIFY_ARGS[@]}" \
+  --engine-version "$TARGET_VERSION" \
+  "$APPLY_FLAG" \
+  > /dev/null
+
+# The upgrade has been requested, so from here on only the read-back verdict
+# may fail the command
+CHECK_COMMAND="$EXEC ${DESCRIBE_ARGS[*]}"
+if ! RDS_DESCRIPTION="$(aws_rds "${DESCRIBE_ARGS[@]}")"
+then
+  err "AWS accepted the upgrade request, but it could not be confirmed: describing $RDS_IDENTIFIER failed."
+  err "Check with: $CHECK_COMMAND"
+  exit 1
+fi
+NEW_STATUS="$(jq -r "$DB_PATH.$STATUS_FIELD" <<< "$RDS_DESCRIPTION" 2> /dev/null)" || NEW_STATUS="unknown"
+NEW_VERSION="$(jq -r "$DB_PATH.EngineVersion" <<< "$RDS_DESCRIPTION" 2> /dev/null)" || NEW_VERSION="unknown"
+PENDING_VERSION="$(jq -r "$DB_PATH.PendingModifiedValues.EngineVersion // \"\"" <<< "$RDS_DESCRIPTION" 2> /dev/null)" || PENDING_VERSION=""
+
+# A queued cluster engine upgrade is often reported only as a pending
+# maintenance action. One counts as ours only if it is a db-upgrade that is new
+# since before the request, or it names the target, so neither a stale
+# db-upgrade nor an unrelated new system-update is mistaken for it;
+# a failed lookup just means "not confirmed". Immediate upgrades are
+# confirmed by status or version alone
+QUEUED=0
+if [ "$PENDING_VERSION" == "$TARGET_VERSION" ]
+then
+  QUEUED=1
+elif [ "$APPLY_IMMEDIATELY" -eq 0 ] && [ "$RDS_TYPE" == "cluster" ]
+then
+  SHORT_TARGET="${TARGET_VERSION#*mysql_aurora.}"
+  QUEUED_ACTIONS="$(aws_rds describe-pending-maintenance-actions --resource-identifier "$RDS_ARN")" || QUEUED_ACTIONS=""
+  QUEUED_LINES="$(
+    jq -r '.PendingMaintenanceActions[]?.PendingMaintenanceActionDetails[]? | select(.Action == "db-upgrade" or .Action == "system-update") | "\(.Action)\t\(.Description // "")"' \
+      <<< "$QUEUED_ACTIONS" 2> /dev/null
+  )" || QUEUED_LINES=""
+  while IFS=$'\t' read -r QUEUED_ACTION QUEUED_DESCRIPTION
+  do
+    if [ -z "$QUEUED_ACTION" ]
+    then
+      continue
+    fi
+    if { [ "$QUEUED_ACTION" == "db-upgrade" ] \
+      && ! grep -qFx -- "$QUEUED_ACTION"$'\t'"$QUEUED_DESCRIPTION" <<< "$(cut -f2- <<< "$ACTIONS_BEFORE")"; } \
+      || rds_text_names_version -t "$QUEUED_DESCRIPTION" -v "$TARGET_VERSION" \
+      || rds_text_names_version -t "$QUEUED_DESCRIPTION" -v "$SHORT_TARGET"
+    then
+      QUEUED=1
+    fi
+  done <<< "$QUEUED_LINES"
+fi
+
+if [ "$APPLY_IMMEDIATELY" -eq 1 ] && {
+  [ "$NEW_STATUS" == "upgrading" ] || [ "$QUEUED" -eq 1 ] || [ "$NEW_VERSION" == "$TARGET_VERSION" ]
+}
+then
+  log_msg -l "Status: $NEW_STATUS" -q "$QUIET_MODE"
+# The database was available before the modify, so an upgrading status or
+# the target version means a queued upgrade AWS started straight away in an
+# in-progress window, not something left over
+elif [ "$APPLY_IMMEDIATELY" -eq 0 ] && {
+  [ "$NEW_STATUS" == "upgrading" ] || [ "$NEW_VERSION" == "$TARGET_VERSION" ]
+}
+then
+  log_msg -l "Status: $NEW_STATUS" -q "$QUIET_MODE"
+  log_msg -l "AWS started the upgrade straight away, in the current maintenance window." -q "$QUIET_MODE"
+elif [ "$APPLY_IMMEDIATELY" -eq 0 ] && [ "$QUEUED" -eq 1 ]
+then
+  log_msg -l "Pending engine version: $TARGET_VERSION" -q "$QUIET_MODE"
+  if [ "$WINDOW_STATE" == "in-progress" ]
+  then
+    log_msg -l "It is applied in this maintenance window or the next one: $NEXT_WINDOW" -q "$QUIET_MODE"
+  else
+    log_msg -l "It is applied in the next maintenance window: $NEXT_WINDOW" -q "$QUIET_MODE"
+  fi
+else
+  err "AWS accepted the upgrade request, but it could not be confirmed: $RDS_IDENTIFIER is $NEW_STATUS on $NEW_VERSION with no pending upgrade to $TARGET_VERSION."
+  err "Check with: $CHECK_COMMAND"
+  exit 1
+fi
+
+log_msg -l "" -q "$QUIET_MODE"
+
+# v2 tfvars are HCL and per environment, so they are not read: the advice
+# states the rule instead
+ADVICE_ARGS=(
+  -s unknown
+  -c
+  -t "$TARGET_VERSION"
+  -w "engine_version for $RDS_NAME in the $INFRASTRUCTURE $ENVIRONMENT tfvars (dalmatian terraform-dependencies view-tfvars / set-tfvars)"
+)
+if [ "$APPLY_IMMEDIATELY" -eq 1 ]
+then
+  ADVICE_ARGS+=(-a)
+fi
+
+# Like the advice that follows, shown whatever the quiet mode
+log_msg -l "v2 config should give engine_version as major.minor (mysql) or major (postgres); if so, no change is needed." -q 0 >&2
+rds_upgrade_config_advice "${ADVICE_ARGS[@]}"
