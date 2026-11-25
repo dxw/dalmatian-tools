@@ -111,7 +111,7 @@ read -rp "AWS Access Key ID: " AWS_ACCESS_KEY_ID
 read -rsp "AWS Secret Access Key: " AWS_SECRET_ACCESS_KEY
 echo ""
 echo "This is your MFA secret not a generated 6 character MFA code"
-echo "https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
+echo "https://github.com/dxw/dalmatian-tools/blob/main/docs/faq.md#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
 read -rsp "AWS MFA Secret: " AWS_MFA_SECRET
 echo ""
 
@@ -119,7 +119,7 @@ log_info -l "Checking credentials..." -q "$QUIET_MODE"
 if [ ${#AWS_MFA_SECRET} -lt 7 ]
 then
   err "please enter your MFA secret not your generated MFA code"
-  err "please see https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
+  err "please see https://github.com/dxw/dalmatian-tools/blob/main/docs/faq.md#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
   exit 1
 fi
 
@@ -165,7 +165,7 @@ MFA_CODE="$(oathtool --base32 --totp "$AWS_MFA_SECRET")"
 if [ ${#MFA_CODE} -ne 6 ]
 then
   err "Failed to generate an MFA code"
-  echo "==> please see https://github.com/dxw/dalmatian-tools#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
+  echo "==> please see https://github.com/dxw/dalmatian-tools/blob/main/docs/faq.md#why-am-i-seeing-oathtool-base32-decoding-failed-base32-string-is-invalid"
   exit 1
 fi
 
