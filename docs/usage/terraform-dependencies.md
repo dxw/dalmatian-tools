@@ -232,7 +232,10 @@ dalmatian terraform-dependencies link-import-file [-a <account_bootstrap_import_
 
 ## `dalmatian terraform-dependencies run-terraform-command`
 
-**Safety:** Potentially disruptive (depends on the Terraform command executed)
+**Safety:** Potentially disruptive / Sensitive (depends on the Terraform command executed; non-quiet mode also prints environment values)
+
+> [!WARNING]
+> In non-quiet mode, the wrapper prints all `AWS_*` and `TF_*` environment values, including inherited `TF_VAR_*` secrets, even for commands such as `workspace list`. Pass `-q` to suppress this environment dump and avoid sharing output containing secrets. Terraform's own output is not redacted by `-q`.
 
 Executes an arbitrary Terraform command inside either the `account-bootstrap` or `infrastructure` working directory, automatically injecting backend config on `init` and tfvars on `plan`/`apply`/`console`/`import`.
 
