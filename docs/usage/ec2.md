@@ -22,7 +22,7 @@ dalmatian ec2 shell (-i <infrastructure> -e <environment> | -a <account> | -p <p
 ### Target options (choose one)
 
 - `-i <infrastructure>` + `-e <environment>` — Resolve account profile from infrastructure and environment.
-- `-a <account>` — Dalmatian account name.
+- `-a <account>` — Full Dalmatian account workspace (`<account_id>-<region>-<account_name>`, e.g. `210987654321-eu-west-2-client-prod`), not the friendly AWS profile name.
 - `-p <profile>` — Explicit AWS SSO profile name.
 
 ### Optional options
