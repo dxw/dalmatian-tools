@@ -128,7 +128,7 @@ command_scripts() {
 #     resolve_identity_center_profile, export_aws_caller_identity_username,
 #     read_prompt_with_setup_default)
 # The remaining names (append_import_block, check_bash_version, esc_info,
-# pick_ecs_instance, require_visible_plan) are simply not covered yet.
+# require_visible_plan) are simply not covered yet.
 @test "lib/bash-functions coverage matches the declared backlog" {
   local file name
   local -a actual_backlog=()
@@ -143,7 +143,6 @@ command_scripts() {
     identity_center_instance
     install_session_manager
     load_aws_sso_setup
-    pick_ecs_instance
     read_prompt_with_setup_default
     require_visible_plan
     resolve_identity_center_profile

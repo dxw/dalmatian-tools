@@ -96,13 +96,10 @@ log_info -l "Engine: $RDS_ENGINE" -q "$QUIET_MODE"
 log_info -l "Root username: $RDS_ROOT_USERNAME" -q "$QUIET_MODE"
 log_info -l "VPC ID: $RDS_VPC" -q "$QUIET_MODE"
 
-ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
-
-log_info -l "ECS instance ID: $ECS_INSTANCE_ID" -q "$QUIET_MODE"
-
-log_info -l "Starting $RDS_ENGINE session on $RDS_IDENTIFIER..." -q "$QUIET_MODE"
-
-aws ssm start-session \
-  --target "$ECS_INSTANCE_ID" \
-  --document-name "$RDS_IDENTIFIER-rds-shell" \
-  --parameters "RootPassword=$RDS_ROOT_PASSWORD"
+rds_ssm_start_session \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  -I "${ECS_INSTANCE_ID:-}" \
+  -d "$RDS_IDENTIFIER-rds-shell" \
+  -p "RootPassword=$RDS_ROOT_PASSWORD" \
+  -m "Starting $RDS_ENGINE session on $RDS_IDENTIFIER..."

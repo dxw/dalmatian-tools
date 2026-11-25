@@ -65,15 +65,11 @@ RDS_ROOT_PASSWORD=$(
     | jq -r .Parameters[0].Value
 )
 
-ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
-
-log_info -l "ECS instance ID: $ECS_INSTANCE_ID" -q "$QUIET_MODE"
-
-log_info -l "Listing databases..." -q "$QUIET_MODE"
-
-aws ssm start-session \
-  --target "$ECS_INSTANCE_ID" \
-  --document-name "$RDS_IDENTIFIER-aurora-db-list" \
-  --parameters "RootPassword=$RDS_ROOT_PASSWORD"
+rds_ssm_start_session \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  -d "$RDS_IDENTIFIER-aurora-db-list" \
+  -p "RootPassword=$RDS_ROOT_PASSWORD" \
+  -m "Listing databases..."
 
 log_info -l "Success!" -q "$QUIET_MODE"

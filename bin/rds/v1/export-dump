@@ -102,16 +102,13 @@ echo "Engine: $RDS_ENGINE"
 echo "Root username: $RDS_ROOT_USERNAME"
 echo "VPC ID: $RDS_VPC"
 
-ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
-
-echo "ECS instance ID: $ECS_INSTANCE_ID"
-
-echo "Exporting $DATABASE_NAME db from $RDS_IDENTIFIER rds..."
-
-aws ssm start-session \
-  --target "$ECS_INSTANCE_ID" \
-  --document-name "$RDS_IDENTIFIER-rds-sql-dump" \
-  --parameters "RootPassword=$RDS_ROOT_PASSWORD,DatabaseName=$DATABASE_NAME"
+rds_ssm_start_session \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  -I "${ECS_INSTANCE_ID:-}" \
+  -d "$RDS_IDENTIFIER-rds-sql-dump" \
+  -p "RootPassword=$RDS_ROOT_PASSWORD,DatabaseName=$DATABASE_NAME" \
+  -m "Exporting $DATABASE_NAME db from $RDS_IDENTIFIER rds..."
 
 log_info -l "Export complete" -q "$QUIET_MODE"
 

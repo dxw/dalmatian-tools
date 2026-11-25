@@ -96,15 +96,12 @@ RDS_ROOT_USERNAME=$(echo "$RDS_INFO" | jq -r .DBClusters[0].MasterUsername)
 log_msg -l "Engine: $RDS_ENGINE" -q "$QUIET_MODE"
 log_msg -l "Root username: $RDS_ROOT_USERNAME" -q "$QUIET_MODE"
 
-ECS_INSTANCE_ID=${ECS_INSTANCE_ID:-$(pick_ecs_instance -i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT")}
-
-log_msg -l "ECS instance ID: $ECS_INSTANCE_ID" -q "$QUIET_MODE"
-
-log_info -l "Creating database..." -q "$QUIET_MODE"
-
-aws ssm start-session \
-  --target "$ECS_INSTANCE_ID" \
-  --document-name "$RDS_IDENTIFIER-aurora-db-creation" \
-  --parameters "RootPassword=$RDS_ROOT_PASSWORD,NewDbName=$DB_NAME,NewUserName=$USER_NAME,NewUserPassword=$USER_PASSWORD"
+rds_ssm_start_session \
+  -i "$INFRASTRUCTURE_NAME" \
+  -e "$ENVIRONMENT" \
+  -I "${ECS_INSTANCE_ID:-}" \
+  -d "$RDS_IDENTIFIER-aurora-db-creation" \
+  -p "RootPassword=$RDS_ROOT_PASSWORD,NewDbName=$DB_NAME,NewUserName=$USER_NAME,NewUserPassword=$USER_PASSWORD" \
+  -m "Creating database..."
 
 log_info -l "Success!" -q "$QUIET_MODE"

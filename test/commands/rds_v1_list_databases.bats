@@ -45,6 +45,17 @@ setup() {
   assert_stub_called_with "ssm start-session --target i-0123456789abcdef0 --document-name exampleinfraexamplerdsstaging-rds-db-list --parameters RootPassword=example-root-password"
 }
 
+@test "rds list-databases tries the next ECS instance in the VPC when starting the session fails" {
+  stub_response_file aws-ec2-describe_instances ec2-describe-instances-two.json
+  stub_exit aws-ssm-start_session-target-i_0123456789abcdef0 1
+
+  run --separate-stderr run_command bin/rds/v1/list-databases -i "example-infra" -r "example-rds" -e "staging"
+  assert_success
+  assert_stub_called_with "Name=vpc-id,Values=vpc-0123456789abcdef0"
+  assert_stub_called_with "ssm start-session --target i-0123456789abcdef0"
+  assert_stub_called_with "ssm start-session --target i-0fedcba987654321f"
+}
+
 @test "rds list-databases fails when the RDS lookup fails" {
   stub_exit aws-rds-describe_db_instances 1
   run --separate-stderr run_command bin/rds/v1/list-databases -i "example-infra" -r "example-rds" -e "staging"

@@ -85,6 +85,16 @@ setup() {
   assert_stub_called_with "ssm start-session --target i-0123456789abcdef0"
 }
 
+@test "aurora shell tries the next ECS instance when starting the session fails" {
+  stub_response_file aws-ec2-describe_instances ec2-describe-instances-two.json
+  stub_exit aws-ssm-start_session-target-i_0123456789abcdef0 1
+
+  run --separate-stderr run_command bin/aurora/v1/shell -i "example-infra" -r "example-rds" -e "staging"
+  assert_success
+  assert_stub_called_with "ssm start-session --target i-0123456789abcdef0"
+  assert_stub_called_with "ssm start-session --target i-0fedcba987654321f"
+}
+
 @test "aurora shell fails and does not start a session when the password lookup fails" {
   stub_exit aws-ssm-get_parameters 1
   run --separate-stderr run_command bin/aurora/v1/shell -i "example-infra" -r "example-rds" -e "staging"

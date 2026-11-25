@@ -53,23 +53,7 @@ setup() {
   assert_stub_called_with "s3 rm s3://example-infra-ecs-staging-dalmatian-transfer/1700000000/example-dir --recursive"
 }
 
-@test "ecs file-upload picks an instance via pick_ecs_instance when -I is omitted (filter happens to still be correct)" {
-  # lib/bash-functions/pick_ecs_instance.sh parses its own flags with
-  # `getopts "i:e"`, not `"i:e:"` -- `e` is missing its colon, so on its own
-  # `-e "$ENVIRONMENT"` can't populate a local ENVIRONMENT. It also never
-  # resets OPTIND, unlike every other picker/resolver function in this repo.
-  # By the time file-upload calls it, its own `getopts "i:e:s:t:I:rh"` loop
-  # has already advanced OPTIND well past the 4 arguments
-  # (`-i "$INFRASTRUCTURE_NAME" -e "$ENVIRONMENT"`) the function receives --
-  # every real invocation needs at least -i/-e/-s/-t, i.e. 8+ tokens. So
-  # pick_ecs_instance's getopts loop parses *zero* options, neither `local`
-  # ever executes, and $INFRASTRUCTURE_NAME/$ENVIRONMENT inside the function
-  # fall through (bash's dynamic scoping for unset locals) to file-upload's
-  # own already-correct globals of the same name. The right filter is built,
-  # but only by accident of variable-name collision plus stale OPTIND -- not
-  # because the function's own argument parsing works. All 10 callers in
-  # this repo use the same two variable names, which is presumably why this
-  # has never surfaced as a visible bug.
+@test "ecs file-upload picks an instance via pick_ecs_instance when -I is omitted" {
   fake_gdate_epoch
   stub_response_file aws-ec2-describe_instances ec2-describe-instances-two.json
 
